@@ -128,24 +128,6 @@ class Pen:
                     text, font=face, fill=fill, anchor=anchor, spacing=spacing)
 
 
-def bezier(points, steps: int = 18):
-    """Sample a chain of cubic Béziers: [p0, c1, c2, p1, c1, c2, p2, ...]."""
-    out = [points[0]]
-    i = 1
-    while i + 2 < len(points):
-        p0 = out[-1]
-        p1, p2, p3 = points[i], points[i + 1], points[i + 2]
-        for k in range(1, steps + 1):
-            t = k / steps
-            mt = 1.0 - t
-            out.append((
-                mt ** 3 * p0[0] + 3 * mt * mt * t * p1[0] + 3 * mt * t * t * p2[0] + t ** 3 * p3[0],
-                mt ** 3 * p0[1] + 3 * mt * mt * t * p1[1] + 3 * mt * t * t * p2[1] + t ** 3 * p3[1],
-            ))
-        i += 3
-    return out
-
-
 def radial_glow(size, center: tuple[int, int], radius: int, color, peak: int):
     """A soft, round light in RGBA.  ``size`` is an int or a (w, h) tuple."""
     width, height = (size, size) if isinstance(size, int) else size
@@ -327,12 +309,7 @@ def glyph_calendar(p: Pen):
     for x in (198, 314):
         p.rrect((x - 9, 92, x + 9, 134), 8, fill=INK)
         p.rrect((x - 4, 97, x + 4, 129), 4, fill=PAPER)
-    # the era strap repeats in the ticket head: 88 -> NOW, not a single year
-    p.text((160, 148), "88", font("mono", 23 * SS), INK, anchor="lm")
-    p.text((352, 148), "NOW", font("mono", 23 * SS), INK, anchor="rm")
-    p.line([(208, 153), (284, 153)], fill=INK, width=5)
-    p.poly([(280, 145), (300, 153), (280, 161)], fill=INK)
-    # 1993 is one page inside the range, so it stays the giant calendar numeral
+    p.text((256, 222), "19", font("mono", 30 * SS), INK, anchor="ma")
     p.text((256, 326), "93", font("display", 150 * SS), INK, anchor="mb")
     # tiny month grid
     for row in range(2):
@@ -515,62 +492,6 @@ def build_tile(code, glyph, scale=1.0, field=ACID):
 # --------------------------------------------------------------------------- app icon
 
 
-def glyph_dove(p: Pen, cx: float, cy: float, w: float, h: float):
-    """A white-dove stamp drawn in 512-space: bird in profile, wing raised.
-
-    Built from sampled Bézier outlines so the body, wing and fan tail stay one
-    solid ink plate.  The eye is a paper hole; it is the first detail to go at
-    22 px, which is the intended degradation.  The shape faces left to read as
-    the dove of the 1990s UK love-dove stamp, not as a logo or a real tablet.
-    """
-    def P(x, y):
-        return (cx - w / 2 + x / 100 * w, cy - h / 2 + y / 100 * h)
-
-    body = bezier([
-        P(23, 20), P(29, 18), P(33, 21), P(34, 26),      # crown
-        P(35, 31), P(37, 36), P(41, 40),                 # neck
-        P(46, 44), P(52, 46), P(58, 46),                 # back
-        P(65, 46), P(71, 48), P(76, 51),                 # tail root
-        P(82, 47), P(89, 43), P(95, 42),                 # upper tail
-        P(99, 42), P(100, 46), P(98, 50),
-        P(94, 52), P(97, 57), P(93, 61),                 # lower tail
-        P(86, 62), P(80, 65), P(73, 63),
-        P(66, 64), P(58, 62), P(51, 59),                 # belly
-        P(44, 57), P(37, 54), P(31, 49),
-        P(26, 44), P(23, 38), P(22, 33),                 # breast
-        P(17, 32), P(11, 34), P(5, 35),                  # lower beak
-        P(11, 30), P(15, 29), P(17, 28),                 # upper beak
-        P(18, 24), P(20, 21), P(23, 20),
-    ])
-    wing = bezier([
-        P(34, 38), P(40, 28), P(48, 14), P(56, 4),       # leading edge
-        P(60, 2), P(63, 4), P(63, 9),                    # rounded tip
-        P(62, 16), P(62, 23), P(66, 28),                 # trailing edge
-        P(62, 30), P(59, 34), P(63, 38),                 # feather notch
-        P(59, 41), P(55, 44), P(58, 48),                 # feather notch
-        P(52, 48), P(45, 46), P(39, 42), P(34, 38),
-    ])
-    p.poly(body, fill=INK)
-    p.poly(wing, fill=INK)
-    r = max(0.8, h * 0.035)
-    ex, ey = P(26, 26)
-    p.ellipse((ex - r, ey - r, ex + r, ey + r), fill=PAPER)
-
-
-def glyph_pill(p: Pen, cx: float, cy: float, d: float, offset=(10, 12)):
-    """The Love Dove: a white round tablet with the dove stamped in ink.
-
-    The magenta disc is a misregistered second pass, the same print logic as
-    the face behind it.  No text, dosage or slogan is added: this is an
-    archival emblem, not packaging.
-    """
-    p.ellipse((cx - d / 2 + offset[0], cy - d / 2 + offset[1],
-               cx + d / 2 + offset[0], cy + d / 2 + offset[1]), fill=MAGENTA)
-    p.ellipse((cx - d / 2, cy - d / 2, cx + d / 2, cy + d / 2),
-              fill=PAPER, outline=INK, width=4)
-    glyph_dove(p, cx, cy + d * 0.01, d * 0.76, d * 0.60)
-
-
 def build_app_icon(size=512):
     """The home-screen face: acid stock, a black wink/play smiley, magenta offset."""
     scale = 4
@@ -587,8 +508,7 @@ def build_app_icon(size=512):
     # a magenta second pass, then the black plate, then acid knock-outs
     p.ellipse((72 + 15, 74 + 17, 440 + 15, 442 + 17), fill=MAGENTA)
     p.ellipse((72, 74, 440, 442), fill=INK)
-    # the old left eye becomes the Love Dove pill; the play-triangle wink stays
-    glyph_pill(p, 180, 214, 160)
+    p.ellipse((154, 186, 202, 244), fill=ACID)
     p.poly([(286, 184), (286, 246), (346, 215)], fill=ACID)
     p.arc((112, 170, 368, 392), 22, 158, ACID, width=30)
     for angle in (22, 158):
@@ -864,7 +784,7 @@ def build_hero_mobile(w=960, h=480):
 # --------------------------------------------------------------------------- contact sheet
 
 
-def contact_sheet(paths, out, sizes=(22, 44, 52, 60, 128, 256)):
+def contact_sheet(paths, out, sizes=(22, 44, 52, 128, 256)):
     pad = 18
     row_h = max(sizes) + 40
     width = 300 + len(sizes) * (max(sizes) + pad) + pad
@@ -909,8 +829,7 @@ def main():
         if args.contact:
             import tempfile
             sheet = Path(tempfile.gettempdir()) / "raveplayer-contact.png"
-            contact_sheet([ART / name for name in TILES]
-                          + [ART / "icon.png", ART / "icon-180.png"], sheet)
+            contact_sheet([ART / name for name in TILES] + [ART / "icon.png"], sheet)
             print(f"contact sheet  {sheet}")
 
     if args.only != "icons":

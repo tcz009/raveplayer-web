@@ -1,13 +1,11 @@
 # Rave Player — artwork and visual system
 
 **Concept: The Last Transmission.** Rave Player is treated as a pirate
-transmitter that never went off air: a rooftop aerial from the acid-house era,
-still beaming a halftone smiley over the city, with the archive stored in the
-things that survived — TDK cassettes, flyers, white labels and a bedroom CRT.
-The archive itself is not one year: the strap spans **88 → NOW**, from 1988
-acid house through 90s jungle and hardcore to present-day garage and DnB. The
-screen is a dark room; the hero is the light coming through the window, and the
-section rail is a sheet of spot-colour stickers stuck to the wall. Every image is drawn
+transmitter that never went off air: a 1993 rooftop aerial still beaming a
+halftone smiley over the city, with the archive stored in the things that
+survived — TDK cassettes, flyers, white labels and a bedroom CRT. The screen is
+a dark room; the hero is the light coming through the window, and the section
+rail is a sheet of spot-colour stickers stuck to the wall. Every image is drawn
 from code with Pillow, so the whole set can be rebuilt, changed and credited.
 
 This is a *language*, not a facsimile. Nothing is scanned, traced or copied
@@ -30,7 +28,7 @@ and the smiley, not through literal objects.
 | Print | halftone dots, 45° hatch, crop marks, registration offsets |
 | Type | condensed display caps + system UI + catalogue mono |
 | Icons | one bright spot-colour sticker per strand; ink-plate glyph |
-| Wordmark | acid smiley sticker + misregistered `RAVE / PLAYER`; the app icon adds the dove pill |
+| Wordmark | acid smiley sticker + misregistered `RAVE / PLAYER` |
 | Hero | rooftop mast, halftone acid sun, city and crowd, graded dark left |
 | Motion | one signal scan, one level meter; both stop for reduced motion |
 
@@ -47,23 +45,9 @@ language while the library itself stays calm and mostly text.
 The 1988–89 acid-house smiley, reduced to a circle, two eyes and a wide arc. It
 is a generic face drawn from primitives, not a reproduction of any particular
 club or label mark. The app icon is acid stock with a black face plate: the
-**right eye is still a play triangle**, so the rave face and the player are one
-shape, and the smile is unchanged. A magenta disc sits behind the face, offset
-like a second pass through the screen press. The Latest tile is the same face in
-the rail, minus the offset and minus the pill: the pill is the app icon's own
-emblem, so the home screen gains a motif without redrawing the in-app wordmark.
-
-### The Love Dove — app icon only
-A white round tablet stamped with a dove, set into the face as its left eye.
-The dove is a solid ink bird in profile — round head, short beak, raised
-feathered wing, fan tail — built from sampled Bézier outlines in
-`glyph_dove()` and stamped by `glyph_pill()`. It is not a photo, a scan of a
-real tablet, a brand mark, a slogan or dosage copy; it is an archival emblem
-for a personal rave archive. The pill is paper-white with a magenta
-misregistered edge, the same two-colour print logic as the rest of the set.
-At 60 px the bird still reads; at 22 px the white disc and the smiley carry the
-mark, which is the honest limit of the size. Because it replaces an eye rather
-than sitting on top of the face, the smiley keeps its silhouette at every size.
+**wink is also a play triangle**, so the rave face and the player are one
+shape. A magenta disc sits behind it, offset like a second pass through the
+screen press. The Latest tile is the same face in the rail, minus the offset.
 
 ### The mast — Kool FM, Live Radio
 A cyan sticker with a black lattice transmitter and three arcs. Kool FM and the
@@ -92,12 +76,10 @@ most readable silhouette in the set at 22 px, and the acid/black pair is the
 loudest thing in the rail.
 
 ### The calendar — By Year
-A cyan sticker with a black portrait ticket, binding rings, the era strap
-**`88 → NOW`** printed in the acid head and a huge knocked-out **93**. The
-strap spans 1988 to the present; 1993 remains the archive's emotional centre
-and is the one year the ticket marks. The date grid is reduced to blocks so it
-stays a silhouette, not a form; the cyan field is the small house/garage
-shimmer in the set.
+A cyan sticker with a black portrait ticket, binding rings and a huge
+knocked-out **93**. 1987–2026 is the archive's range; 88 → NOW is the emotional
+centre. The date grid is reduced to blocks so it stays a silhouette, not a
+form; the cyan field is the small house/garage shimmer in the set.
 
 ### The 2-step 2 — UK Garage
 A paper sticker with a forward-sheared black **2**, one paper specular arc
@@ -263,21 +245,15 @@ wink/smile geometry and the same acid stock.
 
 **Wordmark.** `RAVE` in acid with a magenta offset; `PLAYER` in paper with a
 cyan offset. It is set in the display face, not an image, so it stays sharp at
-any DPR and costs nothing. The strap is mono: `ARCHIVE · 88 → NOW` — short
-enough not to crowd the search field or version badge, and open-ended at both
-ends because the archive runs from 1988 to this week.
+any DPR and costs nothing. The strap is mono: `TRANSMISSION ARCHIVE · 88 → NOW`.
 
 **App icon.** 512 × 512 `icon.png`: acid field, a light ink halftone, a huge
-black face plate, a magenta second-pass disc, an acid play triangle for the
-right eye, the acid smile, and the **Love Dove pill** as the left eye — white
-paper disc, ink dove, its own magenta misregistration. No text, no border, no
-transparency; it is full-bleed and safe for iOS/Android masking. It is
-deliberately the loudest acid object in the product — the face on the home
-screen. `icon-180.png` is the 180 px apple-touch rendering (same drawing,
-resized with Lanczos). The manifest still points at `icon.png` 512; the
-template adds the 180 px apple-touch link. Both files are generated by
-`build_app_icon()` / `glyph_pill()` / `glyph_dove()`; there is no separate
-hand-made icon source.
+black face plate, acid eyes/smile, a magenta second-pass disc, and a right eye
+that is a play triangle. No text, no border, no transparency; it is full-bleed
+and safe for iOS/Android masking. It is deliberately the loudest acid object in
+the product — the face on the home screen. `icon-180.png` is the 180 px
+apple-touch rendering (same drawing, resized with Lanczos). The manifest still
+points at `icon.png` 512; the template adds the 180 px apple-touch link.
 
 ---
 
@@ -295,7 +271,7 @@ file in `app.py` (which was not modified).
 | `tapepacks.png` | Tape Packs, Quick Filters | paper | C90 cassette | 71 KB |
 | `jungle.png` | Podcasts & Mixes | magenta | tribal mask | 82 KB |
 | `hardcore.png` | DNB Radio | acid | neon bolt | 78 KB |
-| `house.png` | By Year | cyan | `88 → NOW` calendar ticket + 93 | 71 KB |
+| `house.png` | By Year | cyan | 93 calendar ticket | 69 KB |
 | `garage.png` | UK Garage (rail), Garage Nation | paper | 2-step 2 + rewind | 78 KB |
 | `pirate.png` | Legacy Sites | paper | CRT homepage | 71 KB |
 | `about.png` | Favourites | magenta | heart | 72 KB |
@@ -312,8 +288,8 @@ quick-filter mark. The files are intentionally designed to carry both meanings.
 
 | File | Size | Use |
 |---|---|---|
-| `icon.png` | 512 × 512, 29 KB | favicon, manifest icon, install/home screen; Love Dove pill |
-| `icon-180.png` | 180 × 180, 10 KB | `apple-touch-icon`; same drawing, resized |
+| `icon.png` | 512 × 512, 25 KB | favicon, manifest icon, install/home screen |
+| `icon-180.png` | 180 × 180, 9 KB | `apple-touch-icon` |
 | `hero.jpg` | 1920 × 1080, 239 KB | desktop stage backdrop (CSS media query) |
 | `hero-960.jpg` | 960 × 480, 49 KB | phone stage backdrop; 2:1 crop of the mast and sun |
 | `fanart.jpg` | 1920 × 1080, 239 KB | legacy Kodi fanart path in `core/kodi.py`; same artwork as the hero |
@@ -450,7 +426,7 @@ stars, skyline and crowd are fixed, so a rebuild should produce identical art.
 Only Pillow and the standard library are used; there is no network access.
 
 **Fonts.** The pictogram plates are primitives and do not need a font; only the
-cassette label (`RAVE`, `C90`), the calendar's `88`/`NOW`/`93`, the garage's `2` and
+cassette label (`RAVE`, `C90`), the calendar's `19`/`93`, the garage's `2` and
 `2 STEP`, the DJ EZ `SELECTOR` caption and the catalogue codes do. The display
 face is looked up at
 `/System/Library/Fonts/Supplemental/Impact.ttf` (macOS), then common Linux
@@ -460,35 +436,29 @@ the condensed faces exist, the generated type falls back to a wider bold face;
 the icon pictograms still work, only the date and catalogue microtype change
 proportion.
 
-**Reviewing.** `contact_sheet()` (used by `--contact`) renders every section
-icon plus `icon.png` and `icon-180.png` at 22, 44, 52, 60, 128 and 256 px on
-ink, which is the fastest way to catch a glyph that stops reading at rail size.
-The 60 px column is the phone home-screen size; the 22 px column is the rail /
-tab size. The committed set was checked at both and in the full 512 px
-previews; the contact sheet is a review artefact, not a shipped asset.
-`glyph_to_ink()` is the two-colour pass: bright fills become the black plate,
-dark fills become holes, and `save_png()` quantises the finished tiles to a
-256-colour palette so the textures stay small. The app icon's dove is not
-passed through `glyph_to_ink()`: it is already an ink glyph stamped on a paper
-pill, so the paper and magenta survive as the pill's own print passes.
+**Reviewing.** `contact_sheet()` (used by `--contact`) renders every icon at
+22, 44, 52, 128 and 256 px on ink, which is the fastest way to catch a glyph
+that stops reading at rail size. The committed set was checked at 22 px and in
+the full 512 px previews; the contact sheet is a review artefact, not a shipped
+asset. `glyph_to_ink()` is the two-colour pass: bright fills become the black
+plate, dark fills become holes, and `save_png()` quantises the finished tiles to
+a 256-colour palette so the textures stay small.
 
 ---
 
 ## 11. Verification
 
-- `./.venv/bin/python -m pytest test -q` → **180 passed**.
+- `./.venv/bin/python -m pytest test -q` → 171 passed (the current tree has
+  seven more tests than the 164 in the brief; all are green).
 - `node --check static/app.js` → clean.
-- Flask app on port 8106, then `curl` `/`, `/static/app.css` and
-  `/static/art/icon.png` → 200; server stopped afterwards.
+- `gunicorn -b 127.0.0.1:8101 app:app`, then `curl` `/`, `/static/app.css` and
+  every referenced `/static/art/*` → 200; server stopped afterwards.
 - Icon dimensions 512 × 512 (eleven section/filter tiles plus the app icon),
   apple-touch 180 × 180, hero 1920 × 1080 and 960 × 480; all PNGs ≤ 150 KB
-  (largest: `radio.png` at 90 KB; `garage.png` 78 KB, `djez.png` 82 KB; the
-  Love Dove `icon.png` is 29 KB, `icon-180.png` 10 KB) and the hero ≤ 600 KB
-  (239 KB).
-- The Love Dove is a code-drawn ink glyph (sampled Bézier body, wing and tail;
-  paper eye hole) on a code-drawn paper pill. The set contains no downloaded,
-  scanned or stock imagery, no real tablet photo and no trademarked mark; every
-  shape is a Pillow primitive or polygon in `scripts/make-art.py`.
+  (largest: `radio.png` at 90 KB; `garage.png` 78 KB, `djez.png` 82 KB) and the
+  hero ≤ 600 KB (239 KB).
+- No downloaded, scanned or stock imagery; no trademarked marks; all shapes are
+  Pillow primitives in `scripts/make-art.py`.
 
 One pre-existing value is outside this pass: `app.py` still sets the web
 manifest's `theme_color` to acid (`#e8ff00`). The page's `<meta name="theme-color">`
