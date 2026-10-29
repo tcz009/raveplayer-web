@@ -59,5 +59,11 @@
     "name": "Garage Nation",
     "query": "title:(\"garage nation\") AND mediatype:audio",
     "plot": "Garage Nation packs and sets."
+  },
+  {
+    "id": "one-in-the-jungle",
+    "name": "One In The Jungle",
+    "query": "title:(\"one in the jungle\") AND mediatype:audio",
+    "plot": "BBC Radio 1 jungle shows \u2014 LTJ Bukem, Goldie, A Guy Called Gerald and more."
   }
 ]

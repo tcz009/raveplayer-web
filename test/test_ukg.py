@@ -82,6 +82,7 @@ def test_garage_filters_exist():
     names = {entry["name"] for entry in json.load(open(path, encoding="utf-8"))}
     assert "DJ EZ" in names
     assert "Garage Nation" in names
+    assert "One In The Jungle" in names
 
 
 def test_uk_garage_archive_section_registered():

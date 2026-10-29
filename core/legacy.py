@@ -90,13 +90,18 @@ def jungle_shows():
     The site's front page only lists the newest two, so the sitemap is the
     catalogue: 300+ /show/ pages.
     """
-    xml = http.fetch(JT_BASE + "/sitemap.xml", timeout=30, ttl=SITEMAP_TTL)
     slugs = []
+    # /tapes is the current catalogue (400+ entries); the sitemap catches
+    # anything older that has dropped off it. Union both, then de-dupe below.
+    index = http.fetch(JT_BASE + "/tapes", timeout=30, ttl=SITEMAP_TTL)
+    if index:
+        slugs.extend(re.findall(r'href="/show/([^"]+)"', index))
+    xml = http.fetch(JT_BASE + "/sitemap.xml", timeout=30, ttl=SITEMAP_TTL)
     if xml:
-        slugs = re.findall(r"<loc>[^<]*?/show/([^<]+)</loc>", xml)
+        slugs.extend(re.findall(r"<loc>[^<]*?/show/([^<]+)</loc>", xml))
     if not slugs:
         page = http.fetch(JT_BASE + "/", timeout=25, ttl=SITEMAP_TTL) or ""
-        slugs = JT_SHOW_RE.findall(page)
+        slugs = list(JT_SHOW_RE.findall(page))
     shows, seen = [], set()
     for slug in slugs:
         slug = slug.strip().strip("/")
