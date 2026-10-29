@@ -643,6 +643,7 @@
       packs: "/api/packs",
       podcasts: "/api/podcasts",
       dnb: "/api/dnb",
+      ukg: "/api/ukg",
       years: "/api/years",
       mixcloud: "/api/mixcloud_hub",
       soundcloud: "/api/soundcloud",
@@ -650,7 +651,7 @@
       favourites: "/api/favourites",
       search: "/api/search",
     };
-    return map[id] || "/api/latest";
+    return map[id] || "";
   }
 
   function normalizePath(value) {

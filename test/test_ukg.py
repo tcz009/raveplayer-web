@@ -133,3 +133,15 @@ def test_ui_supports_pasting_set_urls():
     assert "externalEmbed" in source
     assert "soundcloud.com" in source and "mixcloud.com" in source
     assert "w.soundcloud.com/player" in source
+
+
+def test_every_server_section_has_a_client_route():
+    """Regression: 'ukg' was missing from the JS map, so UK Garage opened
+    Latest and both showed as active."""
+    import re
+    source = open(os.path.join(os.path.dirname(HERE), "static", "app.js"), encoding="utf-8").read()
+    block = re.search(r"const map = \{(.*?)\};", source, re.S)
+    assert block, "section map not found"
+    mapped = set(re.findall(r"([a-z-]+):\s*\"/api/", block.group(1)))
+    for section_id, *_ in app.SECTIONS:
+        assert section_id in mapped, "no client route for section %r" % section_id

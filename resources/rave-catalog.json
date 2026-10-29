@@ -1,0 +1,442 @@
+[
+  {
+    "name": "Rinse FM",
+    "type": "station",
+    "archive_query": "title:(\"Rinse FM\") AND mediatype:audio",
+    "mixcloud_query": "rinse fm",
+    "archive_count": 692,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Kool London",
+    "type": "station",
+    "archive_query": "title:(\"Kool London\") AND mediatype:audio",
+    "mixcloud_query": "kool london",
+    "archive_count": 17,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Rude FM",
+    "type": "station",
+    "archive_query": "title:(\"Rude FM\") AND mediatype:audio",
+    "mixcloud_query": "rude fm",
+    "archive_count": 5,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Weekend Rush",
+    "type": "station",
+    "archive_query": "title:(\"Weekend Rush\") AND mediatype:audio",
+    "mixcloud_query": "weekend rush",
+    "archive_count": 3,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Eruption FM",
+    "type": "station",
+    "archive_query": "title:(\"Eruption FM\") AND mediatype:audio",
+    "mixcloud_query": "eruption fm",
+    "archive_count": 2,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Fantasy FM",
+    "type": "station",
+    "archive_query": "title:(\"Fantasy FM\") AND mediatype:audio",
+    "mixcloud_query": "fantasy fm",
+    "archive_count": 2,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Conflict FM",
+    "type": "station",
+    "archive_query": null,
+    "mixcloud_query": "conflict fm",
+    "archive_count": 0,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Demolition Cru",
+    "type": "station",
+    "archive_query": null,
+    "mixcloud_query": "demolition cru",
+    "archive_count": 0,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Pulse FM",
+    "type": "station",
+    "archive_query": null,
+    "mixcloud_query": "pulse fm 90.6",
+    "archive_count": 0,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Passion FM",
+    "type": "station",
+    "archive_query": null,
+    "mixcloud_query": "passion fm",
+    "archive_count": 0,
+    "mixcloud_count": 2
+  },
+  {
+    "name": "Sunrise FM",
+    "type": "station",
+    "archive_query": null,
+    "mixcloud_query": "sunrise fm",
+    "archive_count": 0,
+    "mixcloud_count": 2
+  },
+  {
+    "name": "Renegade Hardware",
+    "type": "promotion",
+    "archive_query": "title:(\"Renegade Hardware\") AND mediatype:audio",
+    "mixcloud_query": "renegade hardware",
+    "archive_count": 94,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Innovation",
+    "type": "promotion",
+    "archive_query": "title:(\"Innovation\") AND mediatype:audio AND (jungle OR rave OR hardcore OR \"drum and bass\")",
+    "mixcloud_query": "innovation drum and bass",
+    "archive_count": 79,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Tribal Gathering",
+    "type": "promotion",
+    "archive_query": "title:(\"Tribal Gathering\") AND mediatype:audio",
+    "mixcloud_query": "tribal gathering",
+    "archive_count": 31,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Metalheadz",
+    "type": "promotion",
+    "archive_query": "title:(\"Metalheadz\") AND mediatype:audio",
+    "mixcloud_query": "metalheadz",
+    "archive_count": 22,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Club Kinetic",
+    "type": "promotion",
+    "archive_query": "title:(\"Club Kinetic\") AND mediatype:audio",
+    "mixcloud_query": "kinetic stoke",
+    "archive_count": 13,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Warning",
+    "type": "promotion",
+    "archive_query": "title:(\"Warning\") AND mediatype:audio AND (\"One Nation\" OR \"Innovation\" OR Junction OR Cambridge)",
+    "mixcloud_query": "warning cambridge jungle",
+    "archive_count": 13,
+    "mixcloud_count": 2
+  },
+  {
+    "name": "Pandemonium",
+    "type": "promotion",
+    "archive_query": "title:(\"Pandemonium\") AND mediatype:audio AND date:[1990-01-01 TO 2000-12-31]",
+    "mixcloud_query": "pandemonium rave",
+    "archive_count": 11,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Spiral Tribe",
+    "type": "promotion",
+    "archive_query": "title:(\"Spiral Tribe\") AND mediatype:audio",
+    "mixcloud_query": "spiral tribe",
+    "archive_count": 7,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Sky Blue",
+    "type": "promotion",
+    "archive_query": "title:(\"Sky Blue\") AND mediatype:audio AND (rave OR jungle OR Amnesia)",
+    "mixcloud_query": "sky blue amnesia",
+    "archive_count": 6,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Jungle Mania",
+    "type": "promotion",
+    "archive_query": "title:(\"Jungle Mania\") AND mediatype:audio",
+    "mixcloud_query": "jungle mania",
+    "archive_count": 4,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Castlemorton",
+    "type": "promotion",
+    "archive_query": "title:(\"Castlemorton\") AND mediatype:audio",
+    "mixcloud_query": "castlemorton",
+    "archive_count": 2,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Vision",
+    "type": "promotion",
+    "archive_query": "collection:ravetapes AND title:(\"Vision\")",
+    "mixcloud_query": "vision rave 1993",
+    "archive_count": 2,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Hysteria",
+    "type": "promotion",
+    "archive_query": "collection:ravetapes AND title:(\"Hysteria\")",
+    "mixcloud_query": "hysteria rave",
+    "archive_count": 2,
+    "mixcloud_count": 2
+  },
+  {
+    "name": "Pure X",
+    "type": "promotion",
+    "archive_query": "collection:ravetapes AND title:(\"Pure X\")",
+    "mixcloud_query": "pure x jungle",
+    "archive_count": 2,
+    "mixcloud_count": 0
+  },
+  {
+    "name": "Biology",
+    "type": "promotion",
+    "archive_query": null,
+    "mixcloud_query": "biology rave",
+    "archive_count": 0,
+    "mixcloud_count": 2
+  },
+  {
+    "name": "Exodus",
+    "type": "promotion",
+    "archive_query": null,
+    "mixcloud_query": "exodus collective",
+    "archive_count": 0,
+    "mixcloud_count": 2
+  },
+  {
+    "name": "Perception",
+    "type": "promotion",
+    "archive_query": null,
+    "mixcloud_query": "perception rave",
+    "archive_count": 0,
+    "mixcloud_count": 2
+  },
+  {
+    "name": "Universe",
+    "type": "promotion",
+    "archive_query": null,
+    "mixcloud_query": "universe rave",
+    "archive_count": 0,
+    "mixcloud_count": 2
+  },
+  {
+    "name": "Orange",
+    "type": "promotion",
+    "archive_query": null,
+    "mixcloud_query": "orange rave",
+    "archive_count": 0,
+    "mixcloud_count": 1
+  },
+  {
+    "name": "The Sanctuary",
+    "type": "venue",
+    "archive_query": "title:(\"The Sanctuary\") AND mediatype:audio AND (rave OR jungle OR hardcore)",
+    "mixcloud_query": "sanctuary rave",
+    "archive_count": 29,
+    "mixcloud_count": 2
+  },
+  {
+    "name": "Bagleys",
+    "type": "venue",
+    "archive_query": "title:(\"Bagleys\") AND mediatype:audio",
+    "mixcloud_query": "bagleys",
+    "archive_count": 11,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Turnmills",
+    "type": "venue",
+    "archive_query": "title:(\"Turnmills\") AND mediatype:audio",
+    "mixcloud_query": "turnmills",
+    "archive_count": 6,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Que Club",
+    "type": "venue",
+    "archive_query": "title:(\"Que Club\") AND mediatype:audio",
+    "mixcloud_query": "que club",
+    "archive_count": 5,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "The Rocket",
+    "type": "venue",
+    "archive_query": "title:(\"The Rocket\") AND mediatype:audio AND (rave OR jungle OR \"One Nation\")",
+    "mixcloud_query": "the rocket ilford",
+    "archive_count": 4,
+    "mixcloud_count": 0
+  },
+  {
+    "name": "Sterns",
+    "type": "venue",
+    "archive_query": "collection:ravetapes AND title:(\"Sterns\")",
+    "mixcloud_query": "sterns rave",
+    "archive_count": 3,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Roller Express",
+    "type": "venue",
+    "archive_query": "title:(\"Roller Express\") AND mediatype:audio",
+    "mixcloud_query": "roller express",
+    "archive_count": 2,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "The Astoria",
+    "type": "venue",
+    "archive_query": "title:(\"Astoria\") AND mediatype:audio AND (rave OR jungle OR \"One Nation\")",
+    "mixcloud_query": "astoria london rave",
+    "archive_count": 2,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "The End",
+    "type": "venue",
+    "archive_query": "collection:ravetapes AND title:(\"The End\")",
+    "mixcloud_query": "the end london club",
+    "archive_count": 2,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "The Manor",
+    "type": "venue",
+    "archive_query": "title:(\"The Manor\") AND mediatype:audio AND (rave OR jungle)",
+    "mixcloud_query": null,
+    "archive_count": 2,
+    "mixcloud_count": 0
+  },
+  {
+    "name": "4 Aces",
+    "type": "venue",
+    "archive_query": "title:(\"4 Aces\") AND (Ragga OR Labrynth OR jungle OR rave) AND mediatype:audio",
+    "mixcloud_query": "4 aces labrynth",
+    "archive_count": 1,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Bowlers",
+    "type": "venue",
+    "archive_query": "collection:ravetapes AND title:(\"Bowlers\")",
+    "mixcloud_query": "bowlers rave",
+    "archive_count": 1,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Velvet Underground",
+    "type": "venue",
+    "archive_query": "title:(\"Velvet Underground\") AND mediatype:audio AND (rave OR \"Ultimate Base\")",
+    "mixcloud_query": "velvet underground london",
+    "archive_count": 1,
+    "mixcloud_count": 2
+  },
+  {
+    "name": "Blue Note",
+    "type": "venue",
+    "archive_query": null,
+    "mixcloud_query": "metalheadz blue note",
+    "archive_count": 0,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Club 414",
+    "type": "venue",
+    "archive_query": null,
+    "mixcloud_query": "club 414 jungle",
+    "archive_count": 0,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Club Colosseum",
+    "type": "venue",
+    "archive_query": null,
+    "mixcloud_query": "club colosseum",
+    "archive_count": 0,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Eclipse",
+    "type": "venue",
+    "archive_query": null,
+    "mixcloud_query": "eclipse coventry",
+    "archive_count": 0,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Labrynth",
+    "type": "venue",
+    "archive_query": null,
+    "mixcloud_query": "labrynth rave",
+    "archive_count": 0,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Lazerdrome",
+    "type": "venue",
+    "archive_query": null,
+    "mixcloud_query": "lazerdrome",
+    "archive_count": 0,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Leisure Lounge",
+    "type": "venue",
+    "archive_query": null,
+    "mixcloud_query": "metalheadz leisure lounge",
+    "archive_count": 0,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Mr B's",
+    "type": "venue",
+    "archive_query": null,
+    "mixcloud_query": "pandemonium mr bs",
+    "archive_count": 0,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Pleasuredome",
+    "type": "venue",
+    "archive_query": null,
+    "mixcloud_query": "pleasuredome 95",
+    "archive_count": 0,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "Shelley's",
+    "type": "venue",
+    "archive_query": null,
+    "mixcloud_query": "shelleys stoke",
+    "archive_count": 0,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "The Institute",
+    "type": "venue",
+    "archive_query": null,
+    "mixcloud_query": "institute birmingham",
+    "archive_count": 0,
+    "mixcloud_count": 3
+  },
+  {
+    "name": "The Island",
+    "type": "venue",
+    "archive_query": null,
+    "mixcloud_query": "island ilford",
+    "archive_count": 0,
+    "mixcloud_count": 3
+  }
+]
