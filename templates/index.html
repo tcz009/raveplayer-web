@@ -31,9 +31,20 @@
     </a>
     <form class="search" id="search-form" role="search" autocomplete="off">
       <label class="sr-only" for="search-input">Search the archive</label>
-      <input id="search-input" type="search" placeholder="Search the archive…" autocomplete="off"
-             enterkeyhint="search" spellcheck="false" autocapitalize="none" autocorrect="off">
-      <button type="submit" aria-label="Search">⏎</button>
+      <span class="search-field">
+        <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/>
+          <path d="M16.2 16.2 21 21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+        <input id="search-input" type="search" placeholder="Search tape packs, DJs, venues…" autocomplete="off"
+               enterkeyhint="search" spellcheck="false" autocapitalize="none" autocorrect="off">
+      </span>
+      <button type="submit" aria-label="Search">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M5 12h13M13 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </button>
     </form>
     <button class="help-btn" id="help-btn" type="button" aria-label="Help and controls"
             title="Help and controls (?)">?</button>

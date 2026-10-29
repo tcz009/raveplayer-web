@@ -210,35 +210,48 @@ a { color: inherit; text-decoration: none; }
   border-left: 1px solid var(--line-bright);
 }
 
-.search { display: flex; gap: 6px; margin-left: auto; }
+.search { display: flex; gap: 8px; margin-left: auto; width: min(440px, 42vw); }
+.search-field { position: relative; display: flex; align-items: center; flex: 1 1 auto; min-width: 0; }
+.search-icon {
+  position: absolute;
+  left: 12px;
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+  pointer-events: none;
+}
 .search input {
-  width: 240px;
-  max-width: 42vw;
-  padding: 9px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  background: rgba(16, 16, 23, 0.92);
+  width: 100%;
+  padding: 10px 14px 10px 36px;
+  border-radius: 10px;
+  border: 1px solid var(--line-bright);
+  background: var(--panel-2);
   color: var(--text);
   font-family: var(--font-ui);
   font-size: 16px; /* stops iOS zooming on focus */
   outline: none;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
 }
-.search input::placeholder { color: var(--faint); }
+.search input::placeholder { color: var(--muted); opacity: 1; }
+.search input:hover { border-color: var(--paper); }
 .search input:focus {
   border-color: var(--acid);
-  box-shadow: 0 0 0 3px rgba(232, 255, 0, 0.12);
+  background: var(--panel-3);
+  box-shadow: 0 0 0 3px rgba(232, 255, 0, 0.16);
 }
 .search button {
+  display: grid;
+  place-items: center;
   border: 1px solid var(--acid);
   background: var(--acid);
   color: var(--ink);
-  border-radius: 8px;
-  padding: 0 14px;
+  border-radius: 10px;
+  padding: 0 12px;
   min-width: 42px;
+  min-height: 42px;
   cursor: pointer;
-  font-size: 13px;
-  font-weight: 800;
 }
+.search button svg { width: 16px; height: 16px; }
 .search button:hover { background: var(--paper); border-color: var(--paper); }
 
 .help-btn {
@@ -1037,6 +1050,8 @@ kbd {
                     max(200px, calc(100dvh - var(--topbar-h) - 58px - var(--player) - 16px)));
   }
   .tag { display: none; }
+  .search { order: 4; width: 100%; margin-left: 0; }
+  .search input { max-width: none; }
 }
 
 @media (max-width: 620px) {
