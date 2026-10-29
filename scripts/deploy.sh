@@ -38,6 +38,7 @@ docker run -d --name raveplayer-web --restart unless-stopped \
   -p $PORT:$PORT \
   -v $DEST/data:/data \
   -e RAVEWEB_DATA=/data \
+  -e SOUNDCLOUD_CLIENT_ID="${SOUNDCLOUD_CLIENT_ID:-}" \
   -e RAVEWEB_ALLOW_PRIVATE=$ALLOW_PRIVATE \
   -e RAVEWEB_MAX_STREAMS=$MAX_STREAMS \
   $IMAGE >/dev/null

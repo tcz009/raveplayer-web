@@ -14,8 +14,50 @@ Add more by appending {"title", "url"} entries; embed URLs are derived.
 import json
 import os
 
+from . import fetch
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WIDGET = "https://w.soundcloud.com/player/"
+API = "https://api.soundcloud.com"
+CLIENT_ID = os.environ.get("SOUNDCLOUD_CLIENT_ID", "").strip()
+
+
+def configured():
+    """True when a SoundCloud app client_id is present (search is possible)."""
+    return bool(CLIENT_ID)
+
+
+def search(query, limit=24):
+    """Search public tracks via the official API. Requires SOUNDCLOUD_CLIENT_ID."""
+    if not configured() or not query:
+        return []
+    try:
+        limit = max(1, min(int(limit), 50))
+    except (TypeError, ValueError):
+        limit = 24
+    url = "%s/tracks?q=%s&client_id=%s&limit=%d" % (
+        API, fetch.quote(query), fetch.quote(CLIENT_ID), limit)
+    data = fetch.fetch_json(url, timeout=25, ttl=900)
+    if not isinstance(data, list):
+        return []
+    results = []
+    for entry in data:
+        if not isinstance(entry, dict):
+            continue
+        page = entry.get("permalink_url")
+        if not isinstance(page, str) or not page.startswith("https://soundcloud.com/"):
+            continue
+        user = entry.get("user") or {}
+        results.append({
+            "title": str(entry.get("title") or "Untitled").strip(),
+            "url": page,
+            "user": str(user.get("username") or "").strip(),
+            "embed": embed_url(page),
+            "thumb": entry.get("artwork_url") or (user.get("avatar_url") or ""),
+            "duration": entry.get("duration"),
+            "plays": entry.get("playback_count"),
+        })
+    return results
 
 
 def registry():

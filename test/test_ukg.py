@@ -107,3 +107,21 @@ def test_soundcloud_endpoint_shape(web):
     assert payload["items"]
     assert payload["items"][0]["embed"].startswith("https://w.soundcloud.com/player/")
     assert payload["items"][0]["external"].startswith("https://soundcloud.com/")
+
+
+def test_soundcloud_search_requires_client_id(monkeypatch):
+    from core import soundcloud
+    monkeypatch.setattr(soundcloud, "CLIENT_ID", "")
+    assert soundcloud.configured() is False
+    assert soundcloud.search("jungle") == []
+
+
+def test_soundcloud_search_parses_tracks(monkeypatch):
+    from core import soundcloud
+    monkeypatch.setattr(soundcloud, "CLIENT_ID", "fake")
+    payload = [{"title": "Live at Kool FM", "permalink_url": "https://soundcloud.com/a/b",
+                "user": {"username": "A"}, "artwork_url": "", "duration": 100}]
+    monkeypatch.setattr(soundcloud.fetch, "fetch_json", lambda *a, **k: payload)
+    results = soundcloud.search("kool")
+    assert results[0]["title"] == "Live at Kool FM"
+    assert results[0]["embed"].startswith("https://w.soundcloud.com/player/")

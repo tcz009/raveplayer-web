@@ -444,6 +444,16 @@ def api_mixcloud_hub():
 
 @app.get("/api/soundcloud")
 def api_soundcloud():
+    query = request.args.get("q", "").strip()
+    if query and soundcloud.configured():
+        items = []
+        for entry in soundcloud.search(query):
+            item = _track(entry["title"], "SoundCloud · %s" % entry["user"], None,
+                          entry.get("thumb") or ART + "pirate.png")
+            item["embed"] = entry["embed"]
+            item["external"] = entry["url"]
+            items.append(item)
+        return jsonify({"title": "SoundCloud: %s" % query, "items": items})
     items = []
     for entry in soundcloud.registry():
         item = _track(entry["title"], "SoundCloud · live set", None, ART + "pirate.png")
@@ -671,6 +681,13 @@ def api_search():
     items = _pack_items(docs)
     # Mixcloud sets live only behind their widget, but they belong in a search
     # for a DJ or a club night — append them as embed items on page one.
+    if page == 1 and soundcloud.configured():
+        for entry in soundcloud.search(query, limit=10):
+            item = _track(entry["title"], "SoundCloud · %s" % entry["user"], None,
+                          entry.get("thumb") or ART + "pirate.png")
+            item["embed"] = entry["embed"]
+            item["external"] = entry["url"]
+            items.append(item)
     if page == 1:
         for entry in mixcloud.search(query, limit=12):
             item = _track(entry["title"], "Mixcloud · %s" % entry["user"], None,
