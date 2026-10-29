@@ -1,0 +1,32 @@
+[
+  {
+    "id": "jungle-lab",
+    "name": "Jungle Lab",
+    "url": "https://media.rss.com/jungle-lab/feed.xml",
+    "plot": "Jungle Lab podcast series."
+  },
+  {
+    "id": "m-pathe-test",
+    "name": "The M-Path-E Test",
+    "url": "https://media.rss.com/the-m-pathe-test/feed.xml",
+    "plot": "DJ M-Path-E — jungle and UK hardcore shows from VisionRadioUK."
+  },
+  {
+    "id": "viper-classic-rave",
+    "name": "Viper Classic Rave",
+    "url": "https://media.rss.com/viper-classic-rave/feed.xml",
+    "plot": "Old school rave anthems and classic hard floor mixes."
+  },
+  {
+    "id": "toro-in-the-mix",
+    "name": "Toro In The Mix",
+    "url": "https://media.rss.com/toro-in-the-mix/feed.xml",
+    "plot": "Hard trance, techno and rave mixes."
+  },
+  {
+    "id": "bad-chemcast",
+    "name": "Bad ChemCast",
+    "url": "https://media.rss.com/bad-chemcast-mix-series/feed.xml",
+    "plot": "Bad ChemCast mix series."
+  }
+]

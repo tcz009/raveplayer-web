@@ -1,0 +1,51 @@
+[
+  {
+    "id": "kool",
+    "name": "Kool FM",
+    "query": "collection:ravetapes AND (Kool OR \"Kool FM\" OR \"Kool London\")",
+    "live_name": "Kool",
+    "plot": "Kool FM sets from the archive, plus the station live now."
+  },
+  {
+    "id": "dreamscape",
+    "name": "Dreamscape",
+    "query": "collection:ravetapes AND Dreamscape",
+    "plot": "Dreamscape tape packs."
+  },
+  {
+    "id": "helter-skelter",
+    "name": "Helter Skelter",
+    "query": "collection:ravetapes AND \"Helter Skelter\"",
+    "plot": "Helter Skelter tape packs."
+  },
+  {
+    "id": "fantazia",
+    "name": "Fantazia",
+    "query": "collection:ravetapes AND Fantazia",
+    "plot": "Fantazia tape packs."
+  },
+  {
+    "id": "one-nation",
+    "name": "One Nation",
+    "query": "collection:ravetapes AND \"One Nation\"",
+    "plot": "One Nation tape packs."
+  },
+  {
+    "id": "centreforce",
+    "name": "Centreforce",
+    "query": "collection:ravetapes AND Centreforce",
+    "plot": "Centreforce sets."
+  },
+  {
+    "id": "don-fm",
+    "name": "Don FM",
+    "query": "collection:ravetapes AND \"Don FM\"",
+    "plot": "Don FM sets."
+  },
+  {
+    "id": "slammin-vinyl",
+    "name": "Slammin' Vinyl",
+    "query": "collection:ravetapes AND \"Slammin\"",
+    "plot": "Slammin' Vinyl tape packs."
+  }
+]
