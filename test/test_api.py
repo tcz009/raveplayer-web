@@ -446,6 +446,7 @@ def test_search_widens_when_thin(web, archive_search, monkeypatch):
         return [{"identifier": "one", "title": "One"}], 2
 
     monkeypatch.setattr("app.archive.search", fake_search)
+    monkeypatch.setattr("app.mixcloud.search", lambda *a, **k: [])
     payload = web.get("/api/search?q=tape").get_json()
     assert [item["open"] for item in payload["items"]] == ["/api/item/one", "/api/item/two"]
     assert "next" not in payload

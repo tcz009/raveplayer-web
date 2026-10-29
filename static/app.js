@@ -618,6 +618,7 @@
       podcasts: "/api/podcasts",
       dnb: "/api/dnb",
       years: "/api/years",
+      mixcloud: "/api/mixcloud_hub",
       legacy: "/api/legacy",
       favourites: "/api/favourites",
       search: "/api/search",

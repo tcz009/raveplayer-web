@@ -143,6 +143,7 @@ SECTIONS = [
     ("podcasts", "Podcasts & Mixes", "jungle.png", "Present-day shows"),
     ("dnb", "DNB Radio", "hardcore.png", "Recent jungle/DnB shows"),
     ("ukg", "UK Garage", "garage.png", "DJ EZ, garage sets, live"),
+    ("mixcloud", "Mixcloud Sets", "djez.png", "Live club and rave sets"),
     ("years", "By Year", "house.png", "Tape packs 1987 onwards"),
     ("legacy", "Legacy Sites", "pirate.png", "The 2014 survivors"),
     ("favourites", "Favourites", "about.png", "What you saved"),
@@ -420,6 +421,26 @@ def api_ukg():
     return jsonify({"title": "UK Garage", "items": items})
 
 
+MIXCLOUD_QUERIES = [
+    ("Live sets", "live set", "Sets recorded live in the room"),
+    ("Jungle live", "jungle live", "Live jungle sets"),
+    ("Drum & bass live", "drum and bass live", "Live DnB sets"),
+    ("Kool FM", "kool fm", "Kool FM shows and sets"),
+    ("Garage Nation", "garage nation", "Garage Nation live recordings"),
+    ("Rave / club", "rave", "Rave and club sets"),
+    ("fabric London", "fabric london", "fabric sets"),
+    ("Ministry of Sound", "ministry of sound", "Ministry sets and mixes"),
+]
+
+
+@app.get("/api/mixcloud_hub")
+def api_mixcloud_hub():
+    return jsonify({"title": "Mixcloud Sets", "items": [
+        _folder(label, sub, "/api/mixcloud?q=%s" % urllib.parse.quote(query),
+                ART + "djez.png") for label, query, sub in MIXCLOUD_QUERIES
+    ]})
+
+
 @app.get("/api/packs")
 def api_packs():
     return jsonify({"title": "Tape Packs", "items": [
@@ -635,7 +656,17 @@ def api_search():
         docs += [doc for doc in wider
                  if isinstance(doc, dict) and doc.get("identifier") not in seen]
         widened = True
-    payload = {"title": "Search: %s" % query, "items": _pack_items(docs)}
+    items = _pack_items(docs)
+    # Mixcloud sets live only behind their widget, but they belong in a search
+    # for a DJ or a club night — append them as embed items on page one.
+    if page == 1:
+        for entry in mixcloud.search(query, limit=12):
+            item = _track(entry["title"], "Mixcloud · %s" % entry["user"], None,
+                          entry.get("thumb") or ART + "djez.png")
+            item["embed"] = entry["embed"]
+            item["external"] = entry["url"]
+            items.append(item)
+    payload = {"title": "Search: %s" % query, "items": items}
     nxt = None if widened else _next_link("/api/search?q=%s" % urllib.parse.quote(query),
                                           page, total)
     if nxt:
