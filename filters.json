@@ -65,5 +65,29 @@
     "name": "One In The Jungle",
     "query": "title:(\"one in the jungle\") AND mediatype:audio",
     "plot": "BBC Radio 1 jungle shows \u2014 LTJ Bukem, Goldie, A Guy Called Gerald and more."
+  },
+  {
+    "id": "jungle-fever",
+    "name": "Jungle Fever",
+    "query": "collection:ravetapes AND \"Jungle Fever\"",
+    "plot": "Jungle Fever packs and sets."
+  },
+  {
+    "id": "roast",
+    "name": "Roast",
+    "query": "collection:ravetapes AND Roast",
+    "plot": "Roast packs and sets."
+  },
+  {
+    "id": "telepathy",
+    "name": "Telepathy",
+    "query": "collection:ravetapes AND Telepathy",
+    "plot": "Telepathy jungle sets."
+  },
+  {
+    "id": "world-dance",
+    "name": "World Dance",
+    "query": "collection:ravetapes AND \"World Dance\"",
+    "plot": "World Dance packs and sets."
   }
 ]

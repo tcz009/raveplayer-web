@@ -423,12 +423,35 @@ def api_ukg():
 
 
 MIXCLOUD_QUERIES = [
+    # discovery
     ("Live sets", "live set", "Sets recorded live in the room"),
     ("Jungle live", "jungle live", "Live jungle sets"),
     ("Drum & bass live", "drum and bass live", "Live DnB sets"),
-    ("Kool FM", "kool fm", "Kool FM shows and sets"),
-    ("Garage Nation", "garage nation", "Garage Nation live recordings"),
     ("Rave / club", "rave", "Rave and club sets"),
+    ("Kool FM", "kool fm", "Kool FM shows and sets"),
+    # oldskool rave and jungle promotions
+    ("Jungle Fever", "jungle fever", "Jungle Fever sets"),
+    ("Desire", "desire rave", "Desire rave sets"),
+    ("Roast", "roast rave", "Roast sets"),
+    ("Telepathy", "telepathy jungle", "Telepathy jungle sets"),
+    ("AWOL", "awol jungle", "AWOL jungle sets"),
+    ("World Dance", "world dance", "World Dance sets"),
+    ("Raindance", "raindance rave", "Raindance sets"),
+    ("One Nation", "one nation", "One Nation sets"),
+    ("Fantazia", "fantazia", "Fantazia sets"),
+    ("Helter Skelter", "helter skelter", "Helter Skelter sets"),
+    ("Dreamscape", "dreamscape", "Dreamscape sets"),
+    ("Amnesia House", "amnesia house", "Amnesia House sets"),
+    ("Rezerection", "rezerection", "Rezerection sets"),
+    ("Slammin' Vinyl", "slammin vinyl", "Slammin' Vinyl sets"),
+    ("Vibealite", "vibealite", "Vibealite sets"),
+    ("Hardcore Heaven", "hardcore heaven", "Hardcore Heaven sets"),
+    ("Accelerated Culture", "accelerated culture", "Accelerated Culture sets"),
+    ("Seduction", "seduction rave", "Seduction sets"),
+    ("Elevation", "elevation rave", "Elevation sets"),
+    ("Sun City", "sun city", "Sun City sets"),
+    # garage / house
+    ("Garage Nation", "garage nation", "Garage Nation live recordings"),
     ("fabric London", "fabric london", "fabric sets"),
     ("Ministry of Sound", "ministry of sound", "Ministry sets and mixes"),
 ]
