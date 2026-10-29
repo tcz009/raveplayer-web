@@ -8,6 +8,8 @@ import json
 
 import pytest
 
+import app
+
 
 # --------------------------------------------------------------------------- structure
 
@@ -17,7 +19,7 @@ def test_healthz(web, tmp_path):
     assert response.status_code == 200
     payload = response.get_json()
     assert payload["ok"] is True
-    assert payload["version"] == "1.0"
+    assert payload["version"] == app.APP_VERSION
     assert payload["data_writable"] is True
 
 
@@ -35,7 +37,8 @@ def test_menu_shape(web):
     ids = [section["id"] for section in payload["sections"]]
     assert ids[0] == "latest"
     assert "favourites" in ids and "search" in ids
-    assert len(ids) == 11
+    assert len(ids) == len(app.SECTIONS)
+    assert "ukg" in ids
     assert payload["site"]["title"] == "Rave Player"
     for section in payload["sections"]:
         assert set(section) == {"id", "label", "icon", "sub"}

@@ -296,6 +296,39 @@
     return !!(item && (item.play || item.play_via));
   }
 
+  function openEmbed(item) {
+    const panel = $("embed-panel");
+    const frame = $("embed-frame");
+    const title = $("embed-title");
+    const external = $("embed-external");
+    if (!panel || !frame) return;
+    title.textContent = item.label || "Mixcloud";
+    external.href = item.external || "https://www.mixcloud.com/";
+    const wrap = panel.querySelector(".embed-frame-wrap");
+    if (wrap) { wrap.classList.add("is-loading"); wrap.classList.remove("is-loaded"); }
+    if (frame.getAttribute("src") !== item.embed) frame.setAttribute("src", item.embed);
+    else if (wrap) { wrap.classList.remove("is-loading"); wrap.classList.add("is-loaded"); }
+    panel.hidden = false;
+    document.body.classList.add("has-embed");
+    $("embed-close").focus();
+  }
+
+  function markEmbedLoaded() {
+    const wrap = document.querySelector("#embed-panel .embed-frame-wrap");
+    if (!wrap) return;
+    wrap.classList.remove("is-loading");
+    wrap.classList.add("is-loaded");
+  }
+
+  function closeEmbed() {
+    const panel = $("embed-panel");
+    const frame = $("embed-frame");
+    if (!panel || panel.hidden) return;
+    panel.hidden = true;
+    if (frame) frame.removeAttribute("src");
+    document.body.classList.remove("has-embed");
+  }
+
   function favKey(fav) {
     return `${fav.kind}:${fav.target}`;
   }
@@ -527,6 +560,7 @@
     actions.appendChild(action);
 
     function activate() {
+      if (item.embed) { openEmbed(item); return; }
       if (item.play_via) {
         if (state.currentKey === itemKey(item) && audio.getAttribute("src")) { togglePlay(); return; }
         resolveAndPlay(item);
@@ -1343,6 +1377,13 @@
   $("p-prev").addEventListener("click", () => step(-1));
   $("p-next").addEventListener("click", () => step(1));
   $("p-close").addEventListener("click", closePlayer);
+  $("embed-close").addEventListener("click", closeEmbed);
+  $("embed-frame").addEventListener("load", () => {
+    if ($("embed-frame").getAttribute("src")) markEmbedLoaded();
+  });
+  $("embed-panel").addEventListener("click", (event) => {
+    if (event.target === $("embed-panel")) closeEmbed();
+  });
   $("p-queue").addEventListener("click", () => toggleQueue());
   $("queue-close").addEventListener("click", () => { toggleQueue(false); $("p-queue").focus(); });
   $("help-btn").addEventListener("click", () => toggleHelp());

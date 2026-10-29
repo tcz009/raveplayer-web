@@ -34,10 +34,27 @@ import urllib.parse
 from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 from werkzeug.exceptions import HTTPException
 
-from core import archive, cache, dnbradio, favourites, feeds, latest, legacy, radio
+from core import archive, cache, dnbradio, favourites, feeds, latest, legacy, mixcloud, radio
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.config["JSON_SORT_KEYS"] = False
+
+
+def _read_version():
+    """Single source of truth: RAVEWEB_VERSION env, else the VERSION file."""
+    override = os.environ.get("RAVEWEB_VERSION", "").strip()
+    if override:
+        return override
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION")
+    try:
+        with open(path, encoding="utf-8") as handle:
+            value = handle.read().strip()
+    except OSError:
+        return "0.0.0"
+    return value or "0.0.0"
+
+
+APP_VERSION = _read_version()
 app.json.sort_keys = False
 app.config["MAX_CONTENT_LENGTH"] = 64 * 1024
 
@@ -104,6 +121,7 @@ ARCHIVE_SECTIONS = [
     ("house", "House & Garage", "collection:ravetapes AND (garage OR house)", "House and garage"),
     ("pirate", "Pirate Radio", 'collection:ravetapes AND (Kool OR Centreforce OR "Don FM")', "Pirate radio sets"),
     ("tapepacks", "All Tape Packs", '(jungle OR "drum and bass" OR hardcore OR house) AND "tape pack"', "Everything tagged tape pack"),
+    ("garage", "UK Garage", '(title:("uk garage") OR title:("garage nation") OR title:("pure garage") OR title:("speed garage")) AND mediatype:audio', "UK garage, 90s to now"),
 ]
 
 RADIO_SECTIONS = [
@@ -112,6 +130,7 @@ RADIO_SECTIONS = [
     ("dnb", "Drum & Bass", "drum and bass"),
     ("hardcore", "Hardcore", "hardcore"),
     ("garage", "House & Garage", "garage"),
+    ("ukg", "UK Garage", "uk garage"),
     ("breakbeat", "Breakbeat", "breakbeat"),
 ]
 
@@ -123,6 +142,7 @@ SECTIONS = [
     ("packs", "Tape Packs", "tapepacks.png", "The ravetapes collection"),
     ("podcasts", "Podcasts & Mixes", "jungle.png", "Present-day shows"),
     ("dnb", "DNB Radio", "hardcore.png", "Recent jungle/DnB shows"),
+    ("ukg", "UK Garage", "garage.png", "DJ EZ, garage sets, live"),
     ("years", "By Year", "house.png", "Tape packs 1987 onwards"),
     ("legacy", "Legacy Sites", "pirate.png", "The 2014 survivors"),
     ("favourites", "Favourites", "about.png", "What you saved"),
@@ -250,7 +270,7 @@ def api_menu():
     return jsonify({"sections": [
         {"id": sid, "label": label, "icon": ART + icon, "sub": sub}
         for sid, label, icon, sub in SECTIONS
-    ], "site": {"title": "Rave Player", "version": "1.0"}})
+    ], "site": {"title": "Rave Player", "version": APP_VERSION}})
 
 
 @app.get("/api/latest")
@@ -291,8 +311,11 @@ def api_latest():
 
 @app.get("/api/filters")
 def api_filters():
+    icons = {"dj-ez": "djez.png", "garage-nation": "garage.png"}
     return jsonify({"title": "Quick Filters", "items": [
-        _folder(entry["name"], entry.get("plot", ""), "/api/filter/%s" % urllib.parse.quote(entry["id"]))
+        _folder(entry["name"], entry.get("plot", ""),
+                "/api/filter/%s" % urllib.parse.quote(entry["id"]),
+                ART + icons.get(entry["id"], "tapepacks.png"))
         for entry in _filters()
     ]})
 
@@ -336,7 +359,8 @@ def api_filter_live(key):
 @app.get("/api/live")
 def api_live():
     return jsonify({"title": "Live Radio", "items": [
-        _folder(label, tag, "/api/live/%s" % key, ART + "radio.png")
+        _folder(label, tag, "/api/live/%s" % key,
+                ART + ("garage.png" if key in ("garage", "ukg") else "radio.png"))
         for key, label, tag in RADIO_SECTIONS
     ]})
 
@@ -357,6 +381,43 @@ def api_live_tag(key):
             continue
         items.append(_track(name, meta, url, station.get("favicon") or ART + "radio.png"))
     return jsonify({"title": section[1], "items": items})
+
+
+@app.get("/api/mixcloud")
+def api_mixcloud():
+    query = request.args.get("q", "DJ EZ").strip()
+    limit = request.args.get("limit", type=int) or 24
+    items = [
+        _track(entry["title"], "%s%s" % (entry["user"], (" · " + entry["created"][:10]) if entry.get("created") else ""),
+               None, entry.get("thumb") or ART + "radio.png")
+        for entry in mixcloud.search(query, limit=limit)
+    ]
+    for item, entry in zip(items, mixcloud.search(query, limit=limit)):
+        item["embed"] = entry["embed"]
+        item["external"] = entry["url"]
+    return jsonify({"title": "Mixcloud: %s" % query, "items": items})
+
+
+@app.get("/api/ukg")
+def api_ukg():
+    """UK garage hub: Mixcloud DJ EZ sets (embeds) plus Archive garage packs."""
+    items = []
+    for entry in mixcloud.search("DJ EZ", limit=18):
+        item = _track(entry["title"], "Mixcloud · %s" % entry["user"], None,
+                      entry.get("thumb") or ART + "garage.png")
+        item["embed"] = entry["embed"]
+        item["external"] = entry["url"]
+        items.append(item)
+    docs, _ = archive.search(ARCHIVE_SECTIONS[-1][2], rows=30)
+    for doc in docs:
+        identifier = doc.get("identifier")
+        if not identifier:
+            continue
+        title = doc.get("title") or identifier
+        items.append(_folder(title, _year_label(doc), "/api/item/%s" % urllib.parse.quote(identifier),
+                             archive.thumb(identifier),
+                             {"kind": "pack", "target": identifier, "title": title}))
+    return jsonify({"title": "UK Garage", "items": items})
 
 
 @app.get("/api/packs")
@@ -1104,7 +1165,7 @@ def _close_and_error(conn, resp, release, code, message, headers_out=None):
 @app.get("/healthz")
 def healthz():
     return jsonify({"ok": True,
-                    "version": app.config.get("RAVEWEB_VERSION", "1.0"),
+                    "version": APP_VERSION,
                     "data_writable": _data_writable()})
 
 
@@ -1130,7 +1191,7 @@ def _data_writable():
 
 @app.get("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", version=APP_VERSION)
 
 
 @app.get("/manifest.webmanifest")

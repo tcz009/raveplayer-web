@@ -47,5 +47,17 @@
     "name": "Slammin' Vinyl",
     "query": "collection:ravetapes AND \"Slammin\"",
     "plot": "Slammin' Vinyl tape packs."
+  },
+  {
+    "id": "dj-ez",
+    "name": "DJ EZ",
+    "query": "title:(\"dj ez\") AND mediatype:audio",
+    "plot": "DJ EZ sets in the archive."
+  },
+  {
+    "id": "garage-nation",
+    "name": "Garage Nation",
+    "query": "title:(\"garage nation\") AND mediatype:audio",
+    "plot": "Garage Nation packs and sets."
   }
 ]

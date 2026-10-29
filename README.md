@@ -173,6 +173,14 @@ Full notes, including what was verified without a device, are in
 focusable play button. Phone lock-screen controls work through the Media
 Session API.
 
+## Artwork
+
+The 1993 pirate-transmission visual system — icon set, wordmark, palette,
+typography, hero and texture language — is documented in
+[`docs/ARTWORK.md`](docs/ARTWORK.md). Rebuild every image with
+`python3 scripts/make-art.py` (Pillow is a build-time tool only; it is not in
+`requirements.txt`).
+
 ## Tests
 
 The suite is offline (all providers mocked) and uses the Flask test client.
