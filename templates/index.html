@@ -24,11 +24,11 @@
     <form class="search" id="search-form" role="search" autocomplete="off">
       <label class="sr-only" for="search-input">Search the archive</label>
       <input id="search-input" type="search" placeholder="Search the archive…" autocomplete="off"
-             enterkeyhint="search" spellcheck="false">
+             enterkeyhint="search" spellcheck="false" autocapitalize="none" autocorrect="off">
       <button type="submit" aria-label="Search">⏎</button>
     </form>
-    <button class="help-btn" id="help-btn" type="button" aria-label="Keyboard shortcuts"
-            title="Keyboard shortcuts (?)">?</button>
+    <button class="help-btn" id="help-btn" type="button" aria-label="Help and controls"
+            title="Help and controls (?)">?</button>
     <div class="status" id="status" role="status" aria-live="polite">READY</div>
   </header>
 
@@ -74,7 +74,8 @@
       <button id="p-next" type="button" aria-label="Next track">
         <svg viewBox="0 0 24 24" aria-hidden="true" class="ic"><path d="M5 6v12l9-6-9-6Z" fill="currentColor"/><rect x="16.8" y="6" width="2.2" height="12" rx="1.1" fill="currentColor"/></svg>
       </button>
-      <button id="p-airplay" type="button" aria-label="AirPlay" title="Play on AirPlay or Cast device" hidden>
+      <button id="p-airplay" type="button" aria-label="AirPlay" aria-pressed="false"
+              title="Play on AirPlay" hidden>
         <svg viewBox="0 0 24 24" aria-hidden="true" class="ic"><rect x="3.5" y="5" width="17" height="11.5" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 15.2l4.2 5.3H7.8L12 15.2Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
       </button>
     </div>
@@ -93,7 +94,12 @@
         <svg viewBox="0 0 24 24" aria-hidden="true" class="ic"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
       </button>
     </div>
-    <audio id="audio" preload="none" x-webkit-airplay="allow"></audio>
+    <!-- playsinline is a no-op for <audio> but keeps the element inline on the
+         iOS versions that treated every media element as a fullscreen player.
+         x-webkit-airplay="allow" is Safari's documented opt-in; audio is
+         AirPlay-capable anyway, while "deny" would switch it off. -->
+    <audio id="audio" preload="none" playsinline webkit-playsinline
+           x-webkit-airplay="allow"></audio>
   </footer>
 
   <section id="queue" class="queue-panel" aria-label="Play queue" hidden>
@@ -107,8 +113,12 @@
   </section>
 
   <div id="help" class="help" role="dialog" aria-modal="true" aria-labelledby="help-title" hidden>
-    <div class="help-card">
-      <h2 id="help-title">Keyboard shortcuts</h2>
+    <div class="help-card" tabindex="-1">
+      <h2 id="help-title">Controls</h2>
+      <p class="help-touch">On a phone: tap a row to play it, tap it again to pause.
+        The AirPlay button in the player sends the audio to an Apple TV or HomePod
+        on the same Wi-Fi. The queue button jumps between tracks.</p>
+      <p class="help-sub">Keyboard</p>
       <dl class="help-list">
         <div><dt><kbd>Space</kbd></dt><dd>Play / pause</dd></div>
         <div><dt><kbd>/</kbd></dt><dd>Focus search</dd></div>

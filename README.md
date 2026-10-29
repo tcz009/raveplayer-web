@@ -21,8 +21,10 @@ Repo: <https://github.com/tcz009/raveplayer-web> · Kodi add-on: <https://github
 - **Legacy Sites** — RaveTapePacks.com, JungleTapes.com, Toronto archive.
 - **Favourites** — stored server-side in `RAVEWEB_DATA`.
 - **AirPlay / Cast** — the player shows an AirPlay button in Safari (and a Cast
-  button in Chromium-based browsers) when the browser supports routing audio
-  to a device; it appears only once the browser confirms a target exists.
+  button in Chromium-based browsers) once a track is loaded. It reports the
+  browser's real route availability and connection state; it never fakes a
+  "connected" badge. See [`docs/IOS-AIRPLAY.md`](docs/IOS-AIRPLAY.md) for the
+  iPhone/Range/receiver-reachability details.
 
 ## Why a server proxy
 
@@ -131,6 +133,29 @@ status: `400` bad/blocked URL, `404` unknown section or upstream media,
 `503` too many streams, `504` upstream timeout, `502` upstream failure.
 `page` is clamped to 500 so a hand-written `?page=99999999` cannot walk the
 Archive forever.
+
+## iPhone and AirPlay
+
+Open the LAN address, not `localhost` or a Tailscale-only `100.x` address: an
+AirPlay receiver downloads the stream itself, so it must be able to reach the
+server.
+
+- The AirPlay button lives in the player and appears once a track is loaded.
+  It is dimmed when WebKit reports no routes; tapping it explains that instead
+  of doing nothing. The icon turns cyan only when
+  `webkitCurrentPlaybackTargetIsWireless` is true.
+- Both the iPhone and the Apple TV / HomePod must be on the same Wi-Fi without
+  client isolation. `/api/stream` is Range-capable, which AirPlay needs.
+- There is deliberately no volume slider: iOS ignores `HTMLMediaElement.volume`
+  and the hardware buttons (or the receiver) own the level.
+- Background/lock-screen playback and lock-screen transport controls use the
+  Media Session API; live radio omits skip buttons because it has no timeline.
+- Layout uses `100dvh` plus safe-area insets, the fixed player height is
+  measured rather than hard-coded, and pull-to-refresh is suppressed so a swipe
+  cannot reload the app and kill playback.
+
+Full notes, including what was verified without a device, are in
+[`docs/IOS-AIRPLAY.md`](docs/IOS-AIRPLAY.md).
 
 ## Keyboard shortcuts
 

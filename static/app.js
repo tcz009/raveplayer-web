@@ -38,6 +38,12 @@
   };
 
   const MEDIA_SESSION = "mediaSession" in navigator && typeof MediaMetadata !== "undefined";
+  // iPadOS reports itself as a Mac; the touch-point count is the reliable tell.
+  const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+    || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  // iOS ignores HTMLMediaElement.volume: the hardware buttons (or the AirPlay
+  // receiver) own the output level. The player therefore has no volume slider,
+  // and none should be added unless it is hidden when IS_IOS is true.
 
 
   /* ------------------------------------------------------------ icons */
@@ -78,42 +84,188 @@
 
   /* ------------------------------------------------------------ airplay */
 
-  // Safari exposes AirPlay through a WebKit-only hook; Chromium exposes the
-  // Remote Playback API (Cast). Both are optional — the button only appears
-  // when the browser says it can actually route audio somewhere.
+  // Safari exposes AirPlay through WebKit-only properties; Chromium exposes
+  // the Remote Playback API (Cast). Both are optional and feature-detected.
+  //
+  // What WebKit guarantees (Source/WebCore/html/HTMLMediaElement.cpp):
+  //   * adding a `webkitplaybacktargetavailabilitychanged` listener enqueues an
+  //     initial event, and the event fires again when the media player is
+  //     prepared and whenever route availability changes;
+  //   * `webkitCurrentPlaybackTargetIsWireless` (and the matching ...changed
+  //     event) are the only honest source of "is audio on the other device";
+  //   * `webkitShowPlaybackTargetPicker()` must run inside a user gesture on
+  //     iOS (`RequireUserGestureToShowPlaybackTargetPicker`) and macOS refuses
+  //     it until the element has metadata, so we only call it from the click
+  //     handler after a track is loaded.
+  const AIRPLAY = {
+    kind: "",          // "webkit" (Safari) | "remote" (Chromium)
+    available: null,   // null = not reported yet; true/false from the browser
+    connected: false,
+    remote: null,
+    watchId: null,
+  };
+
+  // The receiver fetches the stream URL itself. That makes the page's origin
+  // part of the AirPlay contract: an Apple TV can reach a LAN address, but not
+  // the iPhone's localhost or (usually) a Tailscale-only 100.x address.
+  function airplayReachabilityHint() {
+    const appAddress = "http://192.0.2.10:8097";
+    const host = (window.location.hostname || "").replace(/^\[|\]$/g, "");
+    if (window.location.protocol === "file:") {
+      return `An AirPlay device can't fetch audio from a local file — open ${appAddress}.`;
+    }
+    if (host === "localhost" || host === "127.0.0.1" || host === "::1" || /\.localhost$/i.test(host)) {
+      return `The TV can't fetch audio from "${host}". Open ${appAddress} on the iPhone instead.`;
+    }
+    if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(host) || /\.ts\.net$/i.test(host)) {
+      return "This page is open over Tailscale. AirPlay only works if the TV is on the tailnet too — otherwise use the LAN address (192.0.2.10:8097).";
+    }
+    return "";
+  }
+
+  function airplayDeviceLabel() {
+    return IS_IOS ? "Apple TV or HomePod" : "AirPlay or Cast device";
+  }
+
+  function airplayIsWireless() {
+    if (AIRPLAY.kind === "webkit" && typeof audio.webkitCurrentPlaybackTargetIsWireless === "boolean") {
+      return audio.webkitCurrentPlaybackTargetIsWireless;
+    }
+    if (AIRPLAY.kind === "remote" && AIRPLAY.remote) return AIRPLAY.remote.state === "connected";
+    return AIRPLAY.connected;
+  }
+
+  // The icon is visible whenever a track is loaded and the browser has an
+  // AirPlay/Cast API. It is dimmed with aria-disabled (not hidden and not a
+  // silently dead button) when WebKit says no route is available; a tap then
+  // explains why instead of guessing a state.
+  function refreshAirPlayButton() {
+    const button = $("p-airplay");
+    if (!button) return;
+    AIRPLAY.connected = airplayIsWireless();
+    const loaded = !!state.current && !!(audio.getAttribute("src") || audio.currentSrc);
+    const show = !!AIRPLAY.kind && loaded;
+    button.hidden = !show;
+    if (!show) return;
+    const unavailable = AIRPLAY.available === false && !AIRPLAY.connected;
+    button.classList.toggle("connected", AIRPLAY.connected);
+    button.classList.toggle("unavailable", unavailable);
+    button.setAttribute("aria-pressed", String(AIRPLAY.connected));
+    button.setAttribute("aria-disabled", String(unavailable));
+    button.title = AIRPLAY.connected
+      ? "AirPlay connected — tap to change or stop"
+      : unavailable ? "No AirPlay devices found — tap for details"
+      : "Play on AirPlay";
+    button.setAttribute("aria-label", AIRPLAY.connected
+      ? "AirPlay connected — change device"
+      : unavailable ? "AirPlay — no devices found"
+      : "AirPlay");
+  }
+
+  function onAirPlayClick() {
+    if (!state.current || !(audio.getAttribute("src") || audio.currentSrc)) {
+      toast("Play a track before choosing AirPlay");
+      return;
+    }
+    const hint = airplayReachabilityHint();
+    const noRoute = AIRPLAY.available === false && !AIRPLAY.connected;
+    if (noRoute) {
+      toast(hint
+        ? `${hint} No ${airplayDeviceLabel()} found.`
+        : `No ${airplayDeviceLabel()} found. Check it is awake and on the same Wi-Fi.`, 6500);
+      return;
+    }
+    if (hint) toast(hint, 6500);
+    if (AIRPLAY.kind === "webkit") {
+      // macOS refuses the picker until the element has metadata; iOS has no
+      // such requirement. Stay inside the gesture for the actual call.
+      if (!IS_IOS && audio.readyState < 1) {
+        toast("The track is still loading — try AirPlay again in a moment");
+        return;
+      }
+      try {
+        audio.webkitShowPlaybackTargetPicker();
+      } catch (_) {
+        toast("AirPlay isn't available right now");
+      }
+      return;
+    }
+    if (AIRPLAY.kind === "remote" && AIRPLAY.remote) {
+      try {
+        const prompted = AIRPLAY.remote.prompt();
+        if (prompted && typeof prompted.catch === "function") {
+          prompted.catch((error) => {
+            if (error && error.name === "NotAllowedError") toast("AirPlay needs a tap — try again");
+            else toast(`No ${airplayDeviceLabel()} found`);
+          });
+        }
+      } catch (_) {
+        toast(`No ${airplayDeviceLabel()} found`);
+      }
+    }
+  }
+
   function setupRemotePlayback() {
     const button = $("p-airplay");
     if (!button) return;
+    button.hidden = true;
+    button.addEventListener("click", onAirPlayClick);
 
     if (typeof audio.webkitShowPlaybackTargetPicker === "function") {
-      button.hidden = false;
-      button.addEventListener("click", () => {
-        try {
-          audio.webkitShowPlaybackTargetPicker();
-        } catch (_) {
-          toast("AirPlay is not available right now");
-        }
-      });
+      AIRPLAY.kind = "webkit";
       audio.addEventListener("webkitplaybacktargetavailabilitychanged", (event) => {
-        button.hidden = event.availability !== "available";
+        AIRPLAY.available = event.availability === "available";
+        refreshAirPlayButton();
+      });
+      audio.addEventListener("webkitcurrentplaybacktargetiswirelesschanged", () => {
+        const connected = airplayIsWireless();
+        const changed = connected !== AIRPLAY.connected;
+        AIRPLAY.connected = connected;
+        refreshAirPlayButton();
+        if (changed && state.current) {
+          toast(connected ? "Playing on AirPlay" : "AirPlay disconnected — back on this device");
+        }
       });
       return;
     }
 
     const remote = audio.remote;
-    if (remote && typeof remote.prompt === "function") {
-      button.hidden = false;
-      button.addEventListener("click", () => {
-        remote.prompt().catch(() => toast("No AirPlay or Cast devices found"));
-      });
-      if (typeof remote.addEventListener === "function") {
-        remote.addEventListener("connect", () => button.classList.add("connected"));
-        remote.addEventListener("disconnect", () => button.classList.remove("connected"));
-      }
-      return;
+    if (!remote || typeof remote.prompt !== "function") return;
+    AIRPLAY.kind = "remote";
+    AIRPLAY.remote = remote;
+    if (typeof remote.addEventListener === "function") {
+      const sync = () => {
+        const before = AIRPLAY.connected;
+        AIRPLAY.connected = remote.state === "connected";
+        refreshAirPlayButton();
+        if (before !== AIRPLAY.connected && state.current) {
+          toast(AIRPLAY.connected ? "Playing on AirPlay/Cast" : "AirPlay/Cast disconnected");
+        }
+      };
+      remote.addEventListener("connect", sync);
+      remote.addEventListener("disconnect", sync);
     }
-
-    button.hidden = true;
+    if (typeof remote.watchAvailability === "function") {
+      let watching = null;
+      try {
+        watching = remote.watchAvailability((available) => {
+          AIRPLAY.available = !!available;
+          refreshAirPlayButton();
+        });
+      } catch (_) {
+        AIRPLAY.available = null;
+      }
+      if (watching && typeof watching.then === "function") {
+        watching.then((id) => {
+          AIRPLAY.watchId = id;
+        }).catch(() => {
+          // Chromium can refuse availability watching (e.g. private mode). Leave
+          // the state unknown and let prompt() report "no devices" itself.
+          AIRPLAY.available = null;
+          refreshAirPlayButton();
+        });
+      }
+    }
   }
 
   /* ------------------------------------------------------------ utilities */
@@ -272,10 +424,12 @@
   /* ------------------------------------------------------------ rendering */
 
   function render(items) {
+    const fragment = document.createDocumentFragment();
+    items.forEach((item) => fragment.appendChild(row(item)));
     listEl.textContent = "";
+    listEl.appendChild(fragment);
     listEl.setAttribute("aria-busy", "false");
     emptyEl.textContent = DEFAULT_EMPTY;
-    items.forEach((item) => listEl.appendChild(row(item)));
     emptyEl.hidden = items.length > 0;
     paintNowPlaying();
   }
@@ -391,17 +545,30 @@
   }
 
   function paintNowPlaying() {
-    listEl.querySelectorAll(".row").forEach((el) => {
+    // Called on every play/pause and after every render. Only touch the rows
+    // whose state changed: rebuilding an SVG for hundreds of rows on each
+    // pause is a visible stall on a phone.
+    [...listEl.children].forEach((el) => {
+      if (!el.classList || !el.classList.contains("row")) return;
       const playing = !!state.currentKey && el.dataset.key === state.currentKey;
-      el.classList.toggle("playing", playing);
-      if (playing) el.setAttribute("aria-current", "true");
-      else el.removeAttribute("aria-current");
-      const button = el.querySelector(".icon-btn.play");
-      if (button) {
-        setIcon(button, playing && !audio.paused ? "pause" : "play");
-        const word = playing ? (audio.paused ? "Resume" : "Pause") : (el.dataset.action || "Play");
-        button.setAttribute("aria-label", `${word} ${el.dataset.label || ""}`.trim());
+      const wasPlaying = el.dataset.nowplaying === "1";
+      if (playing !== wasPlaying) {
+        el.classList.toggle("playing", playing);
+        if (playing) el.setAttribute("aria-current", "true");
+        else el.removeAttribute("aria-current");
+        el.dataset.nowplaying = playing ? "1" : "0";
       }
+      const button = el.querySelector(".icon-btn.play");
+      if (!button) return;
+      const paused = audio.paused;
+      const iconState = playing ? (paused ? "play" : "pause") : "play";
+      if (button.dataset.iconState !== iconState) {
+        setIcon(button, iconState);
+        button.dataset.iconState = iconState;
+      }
+      const word = playing ? (paused ? "Resume" : "Pause") : (el.dataset.action || "Play");
+      const label = `${word} ${el.dataset.label || ""}`.trim();
+      if (button.getAttribute("aria-label") !== label) button.setAttribute("aria-label", label);
     });
   }
 
@@ -461,11 +628,23 @@
     if (window.scrollY > 0) window.scrollTo(0, 0);
   }
 
+  // iOS Safari's own scroll restoration fights a hash-routed SPA, so it is
+  // switched off at boot and each history entry remembers where it was left.
+  function saveCurrentScroll() {
+    const current = history.state;
+    if (!current || typeof current.path !== "string") return;
+    const scrollY = Math.max(0, Math.round(window.scrollY));
+    if (current.scrollY === scrollY) return;
+    try {
+      history.replaceState(Object.assign({}, current, { scrollY }), "", window.location.href);
+    } catch (_) { /* ignore */ }
+  }
+
   function pushHistory(path) {
     const depth = (Number(history.state && history.state.depth) || 0) + 1;
     state.depth = depth;
     try {
-      history.pushState({ path, depth }, "", "#" + path);
+      history.pushState({ path, depth, scrollY: 0 }, "", "#" + path);
     } catch (_) {
       window.location.hash = path;
     }
@@ -474,6 +653,7 @@
 
   async function navigate(path, options = {}) {
     const push = options.push !== false;
+    if (push) saveCurrentScroll();
     path = normalizePath(path);
     if (!path) path = sectionPath("latest");
     const seq = ++state.seq;
@@ -517,7 +697,8 @@
       if (!state.current) {
         document.title = state.title ? `${state.title} — Rave Player` : "Rave Player";
       }
-      scrollTop();
+      if (typeof options.scrollY === "number") window.scrollTo(0, options.scrollY);
+      else scrollTop();
     } catch (error) {
       if (seq !== state.seq) return;
       render([]);
@@ -542,18 +723,35 @@
     try {
       const data = await api(next);
       if (seq !== state.seq || state.next !== next) return;
-      const fresh = Array.isArray(data.items) ? data.items : [];
-      state.items = state.items.concat(fresh);
+      const fresh = (Array.isArray(data.items) ? data.items : [])
+        .filter((item) => item && typeof item === "object");
+      const known = new Set(state.items.map(itemKey));
+      const added = fresh.filter((item) => {
+        const key = itemKey(item);
+        if (known.has(key)) return false;
+        known.add(key);
+        return true;
+      });
+      state.items = state.items.concat(added);
       state.next = typeof data.next === "string" ? data.next : null;
       if (state.queueSource === state.path && state.queue.length) {
-        const known = new Set(state.queue.map(itemKey));
-        fresh.filter(playable).forEach((item) => {
-          if (!known.has(itemKey(item))) { state.queue.push(item); known.add(itemKey(item)); }
+        const queued = new Set(state.queue.map(itemKey));
+        added.filter(playable).forEach((item) => {
+          if (!queued.has(itemKey(item))) { state.queue.push(item); queued.add(itemKey(item)); }
         });
         updateQueueCount();
         if (!queueEl.hidden) renderQueue();
       }
-      render(state.items);
+      // Append rather than re-render: rebuilding every row steals the user's
+      // scroll position and re-decodes images on a phone.
+      if (added.length) {
+        const fragment = document.createDocumentFragment();
+        added.forEach((item) => fragment.appendChild(row(item)));
+        listEl.appendChild(fragment);
+      }
+      listEl.setAttribute("aria-busy", "false");
+      emptyEl.hidden = true;
+      paintNowPlaying();
       moreEl.hidden = !state.next;
       setStatus(`${state.items.length} ITEMS`);
     } catch (error) {
@@ -587,7 +785,6 @@
   }
 
   function setPlayIcon(playing) {
-    $("p-play").replaceChildren();
     setIcon($("p-play"), playing ? "pause" : "play");
     $("p-play").setAttribute("aria-label", playing ? "Pause" : "Play");
   }
@@ -595,8 +792,18 @@
   async function resolveAndPlay(item, index) {
     try {
       const data = await api(item.play_via);
-      if (!data.url) throw new Error("no stream");
-      playItem(item, data.url, index);
+      let url = typeof data.url === "string" ? data.url : "";
+      if (!url && Array.isArray(data.items)) {
+        // /api/filter/<key>/live resolves to a station *list*, not {url}; the
+        // "live now" row still has to play the first station.
+        const first = data.items.find((entry) => entry && typeof entry.play === "string" && entry.play);
+        if (first) url = first.play;
+      }
+      if (!url) throw new Error("no stream");
+      // This runs while Safari's ~5 s transient activation is still valid, so
+      // playItem()'s audio.play() is treated as gesture-started. If resolving
+      // took longer, the player says "Tap play" instead of failing silently.
+      playItem(item, url, index);
     } catch (error) {
       setPlayerStatus(`Could not resolve that stream (${messageFor(error)})`);
       toast(`Could not resolve that stream: ${messageFor(error)}`, 4000);
@@ -625,6 +832,7 @@
     setPlayerStatus("");
     player.hidden = false;
     document.body.classList.add("has-player");
+    measurePlayer();
     $("p-title").textContent = item.label || "Untitled";
     $("p-sub").textContent = item.sub || "";
     const art = item.art || "/static/art/radio.png";
@@ -637,16 +845,20 @@
     updateQueueCount();
     if (!queueEl.hidden) renderQueue();
     paintNowPlaying();
-    setMediaSession(item);
     document.title = `${item.label || "Rave Player"} — Rave Player`;
 
     audio.src = `/api/stream?u=${encodeURIComponent(url)}`;
+    updatePositionState.last = 0;
+    setMediaSession(item);
+    refreshAirPlayButton();
     const started = audio.play();
     if (started && typeof started.catch === "function") {
       started.catch((error) => {
         if (!error || error.name === "AbortError") return;
-        if (error.name === "NotAllowedError") setPlayerStatus("Press play to start audio");
-        else setPlayerStatus("Stream not started — press play to retry");
+        if (error.name === "NotAllowedError") setPlayerStatus("Tap play to start audio");
+        else setPlayerStatus("Stream not started — tap play to retry");
+        setPlayIcon(false);
+        mediaSessionState("paused");
       });
     }
   }
@@ -655,7 +867,8 @@
     const item = state.queue[index];
     if (!item) return;
     if (item.play_via) {
-      state.index = index;
+      // Do not move the queue position until the resolver hands back a URL;
+      // a failed resolve should leave the previous track selected.
       resolveAndPlay(item, index);
       return;
     }
@@ -686,7 +899,7 @@
       if (started && typeof started.catch === "function") {
         started.catch((error) => {
           if (error && error.name === "AbortError") return;
-          setPlayerStatus("Press play to start audio");
+          setPlayerStatus("Tap play to start audio");
         });
       }
     } else {
@@ -714,6 +927,7 @@
       return;
     }
     audio.currentTime = Math.max(0, Math.min(audio.duration - 0.25, audio.currentTime + seconds));
+    updatePositionState(true);
   }
 
   function closePlayer() {
@@ -727,6 +941,7 @@
     try { audio.load(); } catch (_) { /* ignore */ }
     player.hidden = true;
     document.body.classList.remove("has-player");
+    document.body.style.removeProperty("--player");
     setPlayerStatus("");
     $("p-title").textContent = "—";
     $("p-sub").textContent = "";
@@ -737,15 +952,69 @@
     setPlayIcon(false);
     updateQueueCount();
     toggleQueue(false);
-    if (MEDIA_SESSION) {
-      try { navigator.mediaSession.metadata = null; } catch (_) { /* ignore */ }
-      try { navigator.mediaSession.playbackState = "none"; } catch (_) { /* ignore */ }
-    }
+    clearMediaSession();
+    refreshAirPlayButton();
     document.title = state.title ? `${state.title} — Rave Player` : "Rave Player";
     paintNowPlaying();
   }
 
   /* ------------------------------------------------------------ media session */
+
+  // Actions Safari/Chrome do not support throw from setActionHandler; every
+  // call is guarded. Passing null clears an action, which is how the skip
+  // buttons are removed for live streams once the duration proves infinite.
+  const MEDIA_ACTIONS = ["play", "pause", "stop", "previoustrack", "nexttrack",
+                         "seekbackward", "seekforward", "seekto"];
+
+  function mediaPlay() {
+    const started = audio.play();
+    if (started && typeof started.catch === "function") started.catch(() => {});
+  }
+
+  function mediaPause() {
+    audio.pause();
+  }
+
+  function mediaSeekBack(details) {
+    seekBy(-((details && details.seekOffset) || 10));
+  }
+
+  function mediaSeekForward(details) {
+    seekBy((details && details.seekOffset) || 10);
+  }
+
+  function mediaSeekTo(details) {
+    if (!details || !isFinite(details.seekTime)) return;
+    const duration = audio.duration;
+    if (!isFinite(duration) || duration <= 0) return;
+    const target = Math.max(0, Math.min(details.seekTime, duration - 0.25));
+    try {
+      if (details.fastSeek && typeof audio.fastSeek === "function") audio.fastSeek(target);
+      else audio.currentTime = target;
+    } catch (_) { /* ignore */ }
+    updatePositionState(true);
+  }
+
+  function registerMediaSessionActions() {
+    if (!MEDIA_SESSION) return;
+    setAction("play", mediaPlay);
+    setAction("pause", mediaPause);
+    setAction("previoustrack", () => step(-1));
+    setAction("nexttrack", () => step(1));
+    setAction("stop", () => closePlayer());
+    updateMediaSessionSeekActions();
+  }
+
+  function updateMediaSessionSeekActions() {
+    if (!MEDIA_SESSION) return;
+    // Lock-screen skip controls only make sense for finite media. Live radio
+    // has duration Infinity; leaving the handlers registered would show skip
+    // buttons that can only pop a toast.
+    const seekable = isFinite(audio.duration) && audio.duration > 0;
+    setAction("seekbackward", seekable ? mediaSeekBack : null);
+    setAction("seekforward", seekable ? mediaSeekForward : null);
+    setAction("seekto", seekable ? mediaSeekTo : null);
+  }
 
   function setMediaSession(item) {
     if (!MEDIA_SESSION) return;
@@ -757,18 +1026,10 @@
         artwork: [{ src: absolutize(item.art || "/static/art/radio.png") }],
       });
     } catch (_) { /* ignore */ }
-    setAction("play", () => { const p = audio.play(); if (p) p.catch(() => {}); });
-    setAction("pause", () => audio.pause());
-    setAction("previoustrack", () => step(-1));
-    setAction("nexttrack", () => step(1));
-    setAction("seekbackward", (details) => seekBy(-((details && details.seekOffset) || 10)));
-    setAction("seekforward", (details) => seekBy((details && details.seekOffset) || 10));
-    setAction("seekto", (details) => {
-      if (details && isFinite(details.seekTime) && isFinite(audio.duration)) {
-        try { audio.currentTime = details.seekTime; } catch (_) { /* ignore */ }
-      }
-    });
-    setAction("stop", () => closePlayer());
+    registerMediaSessionActions();
+    mediaSessionState(audio.paused ? "paused" : "playing");
+    // Do not seed the position here: duration can still belong to the previous
+    // track until loadedmetadata lands. The metadata event sets it properly.
   }
 
   function setAction(name, handler) {
@@ -776,17 +1037,34 @@
     try { navigator.mediaSession.setActionHandler(name, handler); } catch (_) { /* unsupported */ }
   }
 
+  function clearMediaSession() {
+    if (!MEDIA_SESSION) return;
+    MEDIA_ACTIONS.forEach((name) => setAction(name, null));
+    try { navigator.mediaSession.metadata = null; } catch (_) { /* ignore */ }
+    mediaSessionState("none");
+    try {
+      if (typeof navigator.mediaSession.setPositionState === "function") {
+        navigator.mediaSession.setPositionState(null);
+      }
+    } catch (_) { /* ignore */ }
+  }
+
   function mediaSessionState(value) {
     if (!MEDIA_SESSION) return;
     try { navigator.mediaSession.playbackState = value; } catch (_) { /* ignore */ }
   }
 
-  function updatePositionState() {
+  function updatePositionState(force) {
     if (!MEDIA_SESSION || typeof navigator.mediaSession.setPositionState !== "function") return;
     const duration = audio.duration;
-    if (!isFinite(duration) || duration <= 0) return;
+    if (!isFinite(duration) || duration <= 0) {
+      if (force) {
+        try { navigator.mediaSession.setPositionState(null); } catch (_) { /* ignore */ }
+      }
+      return;
+    }
     const now = Date.now();
-    if (now - updatePositionState.last < 900) return;
+    if (!force && now - (updatePositionState.last || 0) < 900) return;
     updatePositionState.last = now;
     try {
       navigator.mediaSession.setPositionState({
@@ -795,6 +1073,21 @@
         position: Math.min(Math.max(audio.currentTime, 0), duration),
       });
     } catch (_) { /* ignore */ }
+  }
+
+  // iOS can drop media events while the page is hidden or in the back/forward
+  // cache; re-read the element rather than trusting the last painted state.
+  function resyncPlaybackUi() {
+    if (!state.current) return;
+    setPlayIcon(!audio.paused);
+    updateSeekDisplay();
+    paintNowPlaying();
+    if (MEDIA_SESSION) {
+      registerMediaSessionActions();
+      mediaSessionState(audio.paused ? "paused" : "playing");
+      updatePositionState(true);
+    }
+    refreshAirPlayButton();
   }
 
   /* ------------------------------------------------------------ favourites */
@@ -879,7 +1172,7 @@
 
   function renderQueue() {
     const list = $("queue-list");
-    list.textContent = "";
+    const fragment = document.createDocumentFragment();
     state.queue.forEach((item, index) => {
       const entry = document.createElement("li");
       const button = document.createElement("button");
@@ -895,11 +1188,17 @@
       button.append(number, label);
       button.addEventListener("click", () => playAt(index));
       entry.appendChild(button);
-      list.appendChild(entry);
+      fragment.appendChild(entry);
     });
+    list.textContent = "";
+    list.appendChild(fragment);
     $("queue-count").textContent = state.queue.length
       ? `${Math.max(state.index + 1, 0)} / ${state.queue.length}`
       : "empty";
+    const current = list.querySelector('[aria-current="true"]');
+    if (current && typeof current.scrollIntoView === "function") {
+      current.scrollIntoView({ block: "nearest" });
+    }
   }
 
   /* ------------------------------------------------------------ help */
@@ -907,8 +1206,16 @@
   function toggleHelp(force) {
     const open = typeof force === "boolean" ? force : helpEl.hidden;
     helpEl.hidden = !open;
-    if (open) $("help-close").focus();
-    else $("help-btn").focus();
+    if (open) {
+      // Focus the card, not the Close button: on a small screen focusing the
+      // button scrolls the card past the touch instructions.
+      const card = helpEl.querySelector(".help-card");
+      if (card && typeof card.focus === "function") {
+        try { card.focus({ preventScroll: true }); } catch (_) { card.focus(); }
+      }
+    } else {
+      $("help-btn").focus();
+    }
   }
 
   function trapFocus(event) {
@@ -916,7 +1223,7 @@
     if (!focusables.length) return;
     const first = focusables[0];
     const last = focusables[focusables.length - 1];
-    if (event.shiftKey && document.activeElement === first) {
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === helpEl.querySelector(".help-card"))) {
       event.preventDefault();
       last.focus();
     } else if (!event.shiftKey && document.activeElement === last) {
@@ -933,8 +1240,13 @@
     const path = stored || pathFromHash() || sectionPath("latest");
     state.depth = Number((history.state && history.state.depth) || 0) || 0;
     $("back").hidden = state.depth <= 0;
-    if (path === state.path) return;
-    navigate(path, { push: false });
+    const scrollY = history.state && Number.isFinite(history.state.scrollY)
+      ? history.state.scrollY : 0;
+    if (path === state.path) {
+      window.scrollTo(0, scrollY);
+      return;
+    }
+    navigate(path, { push: false, scrollY });
   }
 
   /* ------------------------------------------------------------ events */
@@ -1050,50 +1362,109 @@
   });
 
   let rangeActive = false;
+  let rangeCommitTimer = 0;
+
+  function seekFromSlider() {
+    const duration = audio.duration;
+    if (!isFinite(duration) || duration <= 0) return;
+    audio.currentTime = (Number(rangeEl.value) / 100) * duration;
+    updatePositionState(true);
+  }
+
+  function queueSliderCommit() {
+    clearTimeout(rangeCommitTimer);
+    // Native range inputs normally fire change on release; this is the
+    // fallback for the iOS cases where they don't.
+    rangeCommitTimer = setTimeout(() => {
+      if (rangeActive) seekFromSlider();
+      rangeActive = false;
+    }, 250);
+  }
+
   rangeEl.addEventListener("pointerdown", () => { rangeActive = true; });
-  rangeEl.addEventListener("pointerup", () => { rangeActive = false; });
-  document.addEventListener("pointerup", () => { rangeActive = false; });
+  rangeEl.addEventListener("pointerup", queueSliderCommit);
+  rangeEl.addEventListener("pointercancel", () => { rangeActive = false; });
+  // Older iOS: if pointer events are missing, touch end still commits.
+  rangeEl.addEventListener("touchend", queueSliderCommit, { passive: true });
+  rangeEl.addEventListener("touchcancel", () => { rangeActive = false; }, { passive: true });
   rangeEl.addEventListener("blur", () => { rangeActive = false; });
   rangeEl.addEventListener("input", () => {
-    if (!isFinite(audio.duration) || audio.duration <= 0) return;
-    audio.currentTime = (Number(rangeEl.value) / 100) * audio.duration;
+    // While the thumb is held, paint the time only. Seeking on every input
+    // event queues a Range request per pixel on iOS and fights timeupdate.
+    rangeActive = true;
+    const duration = audio.duration;
+    if (!isFinite(duration) || duration <= 0) return;
+    const seconds = (Number(rangeEl.value) / 100) * duration;
+    $("p-time").textContent = fmtTime(seconds);
+    rangeEl.setAttribute("aria-valuetext", `${fmtTime(seconds)} of ${fmtTime(duration)}`);
   });
-  rangeEl.addEventListener("change", () => { rangeActive = false; });
+  rangeEl.addEventListener("change", () => {
+    clearTimeout(rangeCommitTimer);
+    seekFromSlider();
+    rangeActive = false;
+  });
 
   audio.addEventListener("play", () => {
     setPlayIcon(true);
     mediaSessionState("playing");
     setPlayerStatus("");
     paintNowPlaying();
+    updatePositionState(true);
+    refreshAirPlayButton();
   });
   audio.addEventListener("pause", () => {
     if (!state.current) return;
     setPlayIcon(false);
     mediaSessionState("paused");
     paintNowPlaying();
+    updatePositionState(true);
   });
   audio.addEventListener("waiting", () => { if (state.current) setPlayerStatus("Buffering…"); });
-  audio.addEventListener("playing", () => { setPlayerStatus(""); setPlayIcon(true); });
+  audio.addEventListener("playing", () => {
+    setPlayerStatus("");
+    setPlayIcon(true);
+    updateMediaSessionSeekActions();
+    refreshAirPlayButton();
+  });
   audio.addEventListener("canplay", () => { if (state.current) setPlayerStatus(""); });
+  audio.addEventListener("loadedmetadata", () => {
+    updateSeekDisplay();
+    updateMediaSessionSeekActions();
+    updatePositionState(true);
+    refreshAirPlayButton();
+  });
+  audio.addEventListener("durationchange", () => {
+    updateSeekDisplay();
+    updateMediaSessionSeekActions();
+    updatePositionState(true);
+  });
+  audio.addEventListener("seeked", () => updatePositionState(true));
   audio.addEventListener("ended", () => {
     if (!state.current) return;
     if (state.queue.length > 1) step(1);
-    else { setPlayIcon(false); mediaSessionState("paused"); }
+    else {
+      setPlayIcon(false);
+      mediaSessionState("paused");
+      updateMediaSessionSeekActions();
+    }
   });
   audio.addEventListener("error", () => {
     if (!state.current) return;
     const code = audio.error && audio.error.code;
-    const message = code === 4 ? "This stream can't be played here"
+    let message = code === 4 ? "This stream can't be played here"
       : code === 2 ? "Network error — stream unavailable"
       : "Playback failed";
-    setPlayerStatus(`${message} — press play to retry`);
-    toast(message, 4000);
+    if (airplayIsWireless()) {
+      message = "The AirPlay device couldn't load this stream";
+      toast("AirPlay device couldn't load the stream — it must be able to reach this server (same Wi-Fi, no client isolation).", 6500);
+    } else {
+      toast(message, 4000);
+    }
+    setPlayerStatus(`${message} — tap play to retry`);
     setPlayIcon(false);
     mediaSessionState("paused");
     paintNowPlaying();
   });
-  audio.addEventListener("loadedmetadata", updateSeekDisplay);
-  audio.addEventListener("durationchange", updateSeekDisplay);
   audio.addEventListener("timeupdate", () => {
     if (!rangeActive) updateSeekDisplay();
     updatePositionState();
@@ -1125,6 +1496,25 @@
     toast("Back online");
   });
 
+  document.addEventListener("visibilitychange", () => {
+    // Never pause here: backgrounding or locking the phone is how a player is
+    // meant to work. WebKit throttles events while hidden, so re-read the
+    // element when the page comes back instead of trusting the last paint.
+    if (document.visibilityState === "visible") resyncPlaybackUi();
+    else updatePositionState(true);
+  });
+
+  window.addEventListener("pageshow", (event) => {
+    if (event.persisted) resyncPlaybackUi();
+  });
+
+  window.addEventListener("pagehide", (event) => {
+    // Do not pause: pagehide also fires when iOS moves the page into the
+    // back/forward cache after backgrounding, and pausing would kill
+    // background audio. A real unload tears the element down anyway.
+    if (!event.persisted) updatePositionState(true);
+  });
+
   /* ------------------------------------------------------------ boot */
 
   function measureTopbar() {
@@ -1139,8 +1529,35 @@
     window.addEventListener("resize", apply, { passive: true });
   }
 
+  // The player height changes with the safe-area inset and with the number of
+  // wrapped rows, so the stage padding must follow the measured height rather
+  // than a hard-coded 92/150 px.
+  function measurePlayer() {
+    if (player.hidden) {
+      document.body.style.removeProperty("--player");
+      return;
+    }
+    const height = Math.ceil(player.getBoundingClientRect().height);
+    if (height > 0 && document.body.style.getPropertyValue("--player") !== `${height}px`) {
+      document.body.style.setProperty("--player", `${height}px`);
+    }
+  }
+
+  function setupPlayerSizing() {
+    measurePlayer();
+    if ("ResizeObserver" in window) new ResizeObserver(measurePlayer).observe(player);
+    window.addEventListener("resize", measurePlayer, { passive: true });
+    window.addEventListener("orientationchange", measurePlayer, { passive: true });
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", measurePlayer, { passive: true });
+    }
+  }
+
   async function boot() {
     measureTopbar();
+    setupPlayerSizing();
+    setupRemotePlayback();
+    try { history.scrollRestoration = "manual"; } catch (_) { /* ignore */ }
     if (!navigator.onLine) {
       showBanner("You're offline. The current list stays usable; playback needs a connection.");
     }
@@ -1175,12 +1592,13 @@
 
     await loadFavedKeys();
     const initial = pathFromHash() || sectionPath("latest");
+    const initialScroll = Math.max(0, Math.round(window.scrollY));
     state.depth = 0;
     $("back").hidden = true;
     try {
-      history.replaceState({ path: initial, depth: 0 }, "", "#" + initial);
+      history.replaceState({ path: initial, depth: 0, scrollY: initialScroll }, "", "#" + initial);
     } catch (_) { /* ignore */ }
-    await navigate(initial, { push: false });
+    await navigate(initial, { push: false, scrollY: initialScroll });
   }
 
   boot();

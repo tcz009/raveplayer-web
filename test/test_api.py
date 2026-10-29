@@ -54,7 +54,9 @@ def test_index_page_has_app_shell(web):
     assert response.status_code == 200
     body = response.get_data(as_text=True)
     for marker in ('id="list"', 'id="player"', 'id="audio"', 'id="search-input"',
-                   'id="queue"', 'aria-live="polite"', 'rel="manifest"'):
+                   'id="queue"', 'id="p-airplay"', 'aria-live="polite"',
+                   'rel="manifest"', 'playsinline', 'webkit-playsinline',
+                   'x-webkit-airplay="allow"'):
         assert marker in body
     csp = response.headers.get("Content-Security-Policy", "")
     assert "default-src 'self'" in csp

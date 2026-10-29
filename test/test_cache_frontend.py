@@ -137,3 +137,110 @@ def test_template_references_only_existing_static_files():
     for src in re.findall(r'(?:src|href)="(/static/[^"]+)"', html):
         path = src.replace("/static/", "static/", 1)
         assert os.path.exists(os.path.join(ROOT, path)), "missing asset %s" % src
+
+
+# --------------------------------------------------------------------------- iOS / AirPlay
+
+
+def test_audio_element_is_ios_and_airplay_ready():
+    html = _read("templates/index.html")
+    match = re.search(r'<audio\b[^>]*\bid="audio"[^>]*>', html)
+    assert match, "audio element missing from index.html"
+    tag = match.group(0)
+    for attr in ('preload="none"', 'playsinline', 'webkit-playsinline',
+                 'x-webkit-airplay="allow"'):
+        assert attr in tag, "audio element is missing %s" % attr
+    assert "controls" not in tag, "the custom controls must not be duplicated by native ones"
+    # Exactly one slider: the seek bar. A volume range would be dead on iOS
+    # because WebKit ignores HTMLMediaElement.volume there.
+    assert html.count('type="range"') == 1
+
+
+def test_airplay_button_starts_hidden_and_carries_state():
+    html = _read("templates/index.html")
+    match = re.search(r'<button\b[^>]*\bid="p-airplay"[^>]*>', html)
+    assert match, "AirPlay button missing from index.html"
+    tag = match.group(0)
+    assert 'type="button"' in tag
+    assert 'aria-pressed="false"' in tag
+    assert "hidden" in tag, "the button must stay hidden until a track is loaded"
+
+
+def test_airplay_code_reads_webkit_state_instead_of_guessing():
+    js = _read("static/app.js")
+    for marker in ("webkitShowPlaybackTargetPicker",
+                   "webkitplaybacktargetavailabilitychanged",
+                   "webkitcurrentplaybacktargetiswirelesschanged",
+                   "webkitCurrentPlaybackTargetIsWireless",
+                   "watchAvailability",
+                   "remote.prompt",
+                   "airplayIsWireless",
+                   "aria-disabled",
+                   "airplayReachabilityHint"):
+        assert marker in js, "missing AirPlay marker %s" % marker
+
+
+def test_airplay_degrades_for_non_lan_origins():
+    js = _read("static/app.js")
+    # A TV fetching the stream cannot reach localhost or, usually, a
+    # Tailscale-only 100.x address; the UI must say so.
+    assert "100\\." in js and "ts\\.net" in js
+    assert "localhost" in js
+    assert "same Wi-Fi" in js
+
+
+def test_airplay_picker_call_stays_inside_the_gesture():
+    js = _read("static/app.js")
+    start = js.index("function onAirPlayClick")
+    end = js.index("function setupRemotePlayback", start)
+    block = js[start:end]
+    assert "webkitShowPlaybackTargetPicker()" in block
+    assert "await" not in block, "a gesture-gated picker call must not cross an await"
+
+
+def test_live_now_resolution_accepts_station_lists():
+    js = _read("static/app.js")
+    assert "if (!url && Array.isArray(data.items))" in js
+    assert 'typeof entry.play === "string"' in js
+
+
+def test_ios_media_lifecycle_is_handled_in_source():
+    js = _read("static/app.js")
+    for marker in ("history.scrollRestoration", "visibilitychange", "pageshow",
+                   "pagehide", "NotAllowedError", "IS_IOS",
+                   "dataset.nowplaying", "queueSliderCommit",
+                   "setPositionState(null)", "setAction(name, null)"):
+        assert marker in js, "missing iOS/media marker %s" % marker
+
+
+def test_no_dead_volume_control_or_volume_assignment():
+    html = _read("templates/index.html")
+    js = _read("static/app.js")
+    assert "audio.volume" not in js, "iOS ignores audio.volume; hide any volume UI there"
+    assert "volume" not in html.lower()
+
+
+def test_seek_slider_commits_on_release_not_on_every_input():
+    js = _read("static/app.js")
+    start = js.index('rangeEl.addEventListener("input"')
+    block = js[start:js.index("});", start)]
+    assert "audio.currentTime" not in block, "dragging must not queue a seek per pixel"
+    assert "seekFromSlider" in js
+    assert "queueSliderCommit" in js
+
+
+def test_mobile_shell_uses_safe_areas_and_dynamic_viewport():
+    css = _read("static/app.css")
+    for marker in ("100dvh", "-webkit-fill-available", "safe-area-inset-top",
+                   "safe-area-inset-left", "safe-area-inset-right",
+                   "overscroll-behavior", "touch-action: manipulation",
+                   "min-height: 0", "max-height: calc(100dvh"):
+        assert marker in css, "missing mobile layout marker %s" % marker
+
+
+def test_help_dialog_has_touch_guidance_and_scrolls():
+    html = _read("templates/index.html")
+    css = _read("static/app.css")
+    assert 'class="help-touch"' in html
+    assert ".help-touch" in css
+    assert "-webkit-overflow-scrolling: touch" in css
