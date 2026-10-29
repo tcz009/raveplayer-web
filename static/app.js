@@ -647,6 +647,7 @@
       years: "/api/years",
       mixcloud: "/api/mixcloud_hub",
       soundcloud: "/api/soundcloud",
+      raves: "/api/raves",
       legacy: "/api/legacy",
       favourites: "/api/favourites",
       search: "/api/search",

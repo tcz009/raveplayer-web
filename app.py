@@ -34,7 +34,7 @@ import urllib.parse
 from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 from werkzeug.exceptions import HTTPException
 
-from core import archive, cache, dnbradio, favourites, feeds, latest, legacy, mixcloud, radio, soundcloud
+from core import archive, cache, dnbradio, favourites, feeds, latest, legacy, mixcloud, radio, raves, soundcloud
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.config["JSON_SORT_KEYS"] = False
@@ -145,6 +145,7 @@ SECTIONS = [
     ("ukg", "UK Garage", "garage.png", "DJ EZ, garage sets, live"),
     ("mixcloud", "Mixcloud Sets", "djez.png", "Live club and rave sets"),
     ("soundcloud", "SoundCloud Sets", "pirate.png", "Curated live sets"),
+    ("raves", "Rave Nights", "rave.png", "Promotions, venues & pirate stations"),
     ("years", "By Year", "house.png", "Tape packs 1987 onwards"),
     ("legacy", "Legacy Sites", "pirate.png", "The 2014 survivors"),
     ("favourites", "Favourites", "about.png", "What you saved"),
@@ -484,6 +485,40 @@ def api_soundcloud():
         item["external"] = entry["url"]
         items.append(item)
     return jsonify({"title": "SoundCloud Sets", "items": items})
+
+
+@app.get("/api/raves")
+def api_raves():
+    items = []
+    for entry in raves.registry():
+        bits = []
+        if entry["archive_count"]:
+            bits.append("%d packs" % entry["archive_count"])
+        if entry["mixcloud_count"]:
+            bits.append("%d sets" % entry["mixcloud_count"])
+        items.append(_folder(entry["name"], " · ".join(bits) or "content",
+                             "/api/rave/%s" % entry["slug"], ART + "rave.png"))
+    items.sort(key=lambda item: item["label"].lower())
+    return jsonify({"title": "Rave Nights", "items": items})
+
+
+@app.get("/api/rave/<key>")
+def api_rave(key):
+    entry = raves.entry(key)
+    if not entry:
+        return jsonify({"error": "unknown rave"}), 404
+    items = []
+    if entry["mixcloud_query"] and entry["mixcloud_count"]:
+        for set_entry in mixcloud.search(entry["mixcloud_query"], limit=12):
+            item = _track(set_entry["title"], "Mixcloud · %s" % set_entry["user"], None,
+                          set_entry.get("thumb") or ART + "djez.png")
+            item["embed"] = set_entry["embed"]
+            item["external"] = set_entry["url"]
+            items.append(item)
+    if entry["archive_query"] and entry["archive_count"]:
+        docs, _ = archive.search(entry["archive_query"], rows=30)
+        items.extend(_pack_items(docs))
+    return jsonify({"title": entry["name"], "items": items})
 
 
 @app.get("/api/packs")

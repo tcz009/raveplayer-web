@@ -27,25 +27,25 @@
   {
     "id": "one-nation",
     "name": "One Nation",
-    "query": "collection:ravetapes AND \"One Nation\"",
+    "query": "title:(\"One Nation\") AND mediatype:audio",
     "plot": "One Nation tape packs."
   },
   {
     "id": "centreforce",
     "name": "Centreforce",
-    "query": "collection:ravetapes AND Centreforce",
+    "query": "title:(\"Centreforce\") AND mediatype:audio",
     "plot": "Centreforce sets."
   },
   {
     "id": "don-fm",
     "name": "Don FM",
-    "query": "collection:ravetapes AND \"Don FM\"",
+    "query": "title:(\"Don FM\") AND mediatype:audio",
     "plot": "Don FM sets."
   },
   {
     "id": "slammin-vinyl",
     "name": "Slammin' Vinyl",
-    "query": "collection:ravetapes AND \"Slammin\"",
+    "query": "title:(\"Slammin Vinyl\") AND mediatype:audio",
     "plot": "Slammin' Vinyl tape packs."
   },
   {

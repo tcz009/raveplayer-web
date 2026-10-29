@@ -145,3 +145,42 @@ def test_every_server_section_has_a_client_route():
     mapped = set(re.findall(r"([a-z-]+):\s*\"/api/", block.group(1)))
     for section_id, *_ in app.SECTIONS:
         assert section_id in mapped, "no client route for section %r" % section_id
+
+
+def test_rave_catalog_loads_and_has_content():
+    from core import raves
+    entries = raves.registry()
+    assert len(entries) >= 40, "research catalogue should be loaded"
+    assert any(e["archive_count"] for e in entries)
+    assert any(e["mixcloud_count"] for e in entries)
+    assert all(e["slug"] for e in entries)
+
+
+def test_raves_section_and_detail(web, monkeypatch):
+    from core import raves
+    monkeypatch.setattr(raves, "registry", lambda: [
+        {"name": "Pure X", "slug": "pure-x", "type": "promotion",
+         "archive_query": 'title:("Pure X") AND mediatype:audio', "mixcloud_query": "pure x rave",
+         "archive_count": 2, "mixcloud_count": 3},
+    ])
+    monkeypatch.setattr(app.mixcloud, "search", lambda *a, **k: [
+        {"title": "Pure X set", "url": "https://www.mixcloud.com/a/b/", "user": "U",
+         "embed": "https://www.mixcloud.com/widget/iframe/?feed=z", "thumb": "", "created": ""},
+    ])
+    monkeypatch.setattr(app.archive, "search", lambda *a, **k: (
+        [{"identifier": "pure-x-pack", "title": "Pure X 1993", "year": "1993"}], 2))
+    items = web.get("/api/raves").get_json()["items"]
+    assert items[0]["label"] == "Pure X"
+    detail = web.get("/api/rave/pure-x").get_json()
+    assert detail["title"] == "Pure X"
+    assert any("embed" in item for item in detail["items"])
+    assert any("open" in item for item in detail["items"])
+
+
+def test_broken_filters_now_use_archive_wide_queries():
+    import json
+    path = os.path.join(os.path.dirname(HERE), "filters.json")
+    entries = {entry["id"]: entry for entry in json.load(open(path, encoding="utf-8"))}
+    assert "collection:ravetapes" not in entries["centreforce"]["query"]
+    assert "collection:ravetapes" not in entries["don-fm"]["query"]
+    assert "collection:ravetapes" not in entries["slammin-vinyl"]["query"]

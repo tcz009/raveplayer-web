@@ -135,7 +135,7 @@ def test_css_has_focus_playing_and_mobile_rules():
 def test_template_references_only_existing_static_files():
     html = _read("templates/index.html")
     for src in re.findall(r'(?:src|href)="(/static/[^"]+)"', html):
-        path = src.replace("/static/", "static/", 1)
+        path = src.split("?")[0].replace("/static/", "static/", 1)
         assert os.path.exists(os.path.join(ROOT, path)), "missing asset %s" % src
 
 
