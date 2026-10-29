@@ -1,0 +1,23 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t raveplayer-web:ci .
+      - name: Smoke test
+        run: |
+          docker run -d --name smoke -p 8097:8097 -e RAVEWEB_DATA=/tmp/data raveplayer-web:ci
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8097/healthz; then exit 0; fi
+            sleep 2
+          done
+          docker logs smoke
+          exit 1

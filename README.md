@@ -5,6 +5,8 @@ Docker on the home server and be used from any device on the LAN.
 
 Live on `server-host`: <http://192.0.2.10:8097>
 
+Repo: <https://github.com/tcz009/raveplayer-web> · Kodi add-on: <https://github.com/tcz009/plugin.audio.raveplayer>
+
 ## What it does
 
 - **Latest** — newest podcasts, tape packs and DNB Radio shows, merged.
