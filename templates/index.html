@@ -10,7 +10,7 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" type="image/png" sizes="512x512" href="/static/art/icon.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/static/art/icon-180.png">
-  <link rel="stylesheet" href="/static/app.css">
+  <link rel="stylesheet" href="/static/app.css?v={{ version }}">
 </head>
 <body>
   <a class="skip" href="#main">Skip to content</a>
@@ -159,7 +159,7 @@
       <a href="/api/menu">/api/menu</a>.</p>
   </noscript>
 
-  <script src="/static/app.js" defer></script>
+  <script src="/static/app.js?v={{ version }}" defer></script>
 
   <div id="embed-panel" class="embed-panel" role="dialog" aria-modal="true" aria-labelledby="embed-title" hidden>
     <div class="embed-card">
