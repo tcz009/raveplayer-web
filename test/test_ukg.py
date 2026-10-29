@@ -90,3 +90,20 @@ def test_uk_garage_archive_section_registered():
     assert "garage" in keys
     radio_keys = {entry[0] for entry in app.RADIO_SECTIONS}
     assert "ukg" in radio_keys
+
+
+def test_soundcloud_registry_and_embed():
+    from core import soundcloud
+    entries = soundcloud.registry()
+    assert entries, "curated SoundCloud sets should not be empty"
+    assert all(entry["url"].startswith("https://soundcloud.com/") for entry in entries)
+    embed = soundcloud.embed_url(entries[0]["url"])
+    assert embed.startswith("https://w.soundcloud.com/player/?url=https%3A%2F%2Fsoundcloud.com%2F")
+
+
+def test_soundcloud_endpoint_shape(web):
+    payload = web.get("/api/soundcloud").get_json()
+    assert payload["title"] == "SoundCloud Sets"
+    assert payload["items"]
+    assert payload["items"][0]["embed"].startswith("https://w.soundcloud.com/player/")
+    assert payload["items"][0]["external"].startswith("https://soundcloud.com/")

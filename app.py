@@ -34,7 +34,7 @@ import urllib.parse
 from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 from werkzeug.exceptions import HTTPException
 
-from core import archive, cache, dnbradio, favourites, feeds, latest, legacy, mixcloud, radio
+from core import archive, cache, dnbradio, favourites, feeds, latest, legacy, mixcloud, radio, soundcloud
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.config["JSON_SORT_KEYS"] = False
@@ -144,6 +144,7 @@ SECTIONS = [
     ("dnb", "DNB Radio", "hardcore.png", "Recent jungle/DnB shows"),
     ("ukg", "UK Garage", "garage.png", "DJ EZ, garage sets, live"),
     ("mixcloud", "Mixcloud Sets", "djez.png", "Live club and rave sets"),
+    ("soundcloud", "SoundCloud Sets", "pirate.png", "Curated live sets"),
     ("years", "By Year", "house.png", "Tape packs 1987 onwards"),
     ("legacy", "Legacy Sites", "pirate.png", "The 2014 survivors"),
     ("favourites", "Favourites", "about.png", "What you saved"),
@@ -439,6 +440,17 @@ def api_mixcloud_hub():
         _folder(label, sub, "/api/mixcloud?q=%s" % urllib.parse.quote(query),
                 ART + "djez.png") for label, query, sub in MIXCLOUD_QUERIES
     ]})
+
+
+@app.get("/api/soundcloud")
+def api_soundcloud():
+    items = []
+    for entry in soundcloud.registry():
+        item = _track(entry["title"], "SoundCloud · live set", None, ART + "pirate.png")
+        item["embed"] = soundcloud.embed_url(entry["url"])
+        item["external"] = entry["url"]
+        items.append(item)
+    return jsonify({"title": "SoundCloud Sets", "items": items})
 
 
 @app.get("/api/packs")

@@ -619,6 +619,7 @@
       dnb: "/api/dnb",
       years: "/api/years",
       mixcloud: "/api/mixcloud_hub",
+      soundcloud: "/api/soundcloud",
       legacy: "/api/legacy",
       favourites: "/api/favourites",
       search: "/api/search",
