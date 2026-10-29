@@ -205,6 +205,32 @@
     }
   }
 
+  // SoundCloud's API needs a paid app, so pasting a set URL is the way to
+  // play anything outside the curated list. Same for Mixcloud.
+  function externalEmbed(raw) {
+    const value = String(raw || "").trim();
+    let match = value.match(/^https?:\/\/(?:www\.)?soundcloud\.com\/\S+$/i);
+    if (match) {
+      return {
+        label: "SoundCloud set",
+        external: value,
+        embed: `https://w.soundcloud.com/player/?url=${encodeURIComponent(value)}` +
+               "&color=%23e8ff00&auto_play=false&hide_related=1&show_comments=0&visual=0",
+      };
+    }
+    match = value.match(/^https?:\/\/(?:www\.)?mixcloud\.com\/\S+$/i);
+    if (match) {
+      const page = value.split("?")[0];
+      return {
+        label: "Mixcloud set",
+        external: page,
+        embed: "https://www.mixcloud.com/widget/iframe/?hide_cover=1&mini=1&light=0&feed=" +
+               encodeURIComponent(page),
+      };
+    }
+    return null;
+  }
+
   function setupRemotePlayback() {
     const button = $("p-airplay");
     if (!button) return;

@@ -125,3 +125,11 @@ def test_soundcloud_search_parses_tracks(monkeypatch):
     results = soundcloud.search("kool")
     assert results[0]["title"] == "Live at Kool FM"
     assert results[0]["embed"].startswith("https://w.soundcloud.com/player/")
+
+
+def test_ui_supports_pasting_set_urls():
+    path = os.path.join(os.path.dirname(HERE), "static", "app.js")
+    source = open(path, encoding="utf-8").read()
+    assert "externalEmbed" in source
+    assert "soundcloud.com" in source and "mixcloud.com" in source
+    assert "w.soundcloud.com/player" in source
