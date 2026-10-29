@@ -9,32 +9,93 @@ Two things make the browser work where an add-on does not:
 * a server-side stream proxy, because some sources are hotlink-protected and
   because mixed-content/CORS would otherwise block playback, and
 * one JSON endpoint per list, so the UI stays a thin client.
+
+The stream proxy is the security-sensitive part.  It only ever talks HTTP(S),
+resolves every hostname itself, validates *all* addresses, and then connects
+to the validated address while keeping the original hostname for the Host
+header, TLS SNI and certificate checks.  Redirects are followed by hand so
+every hop goes through the same checks.  Concurrency is capped so a pile of
+slow streams cannot take every gunicorn thread away from the API.
 """
 
-import io
+import datetime
+import http.client
 import ipaddress
 import json
 import os
+import re
 import socket
-import urllib.error
+import ssl
+import tempfile
+import threading
+import time
 import urllib.parse
-import urllib.request
 
 from flask import Flask, Response, jsonify, render_template, request, stream_with_context
+from werkzeug.exceptions import HTTPException
 
 from core import archive, cache, dnbradio, favourites, feeds, latest, legacy, radio
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.config["JSON_SORT_KEYS"] = False
+app.json.sort_keys = False
+app.config["MAX_CONTENT_LENGTH"] = 64 * 1024
 
 DATA_DIR = os.environ.get("RAVEWEB_DATA") or "/tmp/raveweb"
-os.makedirs(DATA_DIR, exist_ok=True)
+try:  # a read-only data dir must not stop the app from booting
+    os.makedirs(DATA_DIR, exist_ok=True)
+except OSError as exc:  # pragma: no cover - depends on the host
+    app.logger.warning("data dir %s is not writable at startup: %s", DATA_DIR, exc)
 
 ALLOW_PRIVATE = os.environ.get("RAVEWEB_ALLOW_PRIVATE", "") == "1"
 USER_AGENT = "RavePlayer-Web/1.0 (+https://github.com/tcz009/plugin.audio.raveplayer)"
 ART = "/static/art/"
+CSP = (
+    "default-src 'self'; img-src 'self' data: https: http:; media-src 'self'; "
+    "script-src 'self'; style-src 'self'; connect-src 'self'; manifest-src 'self'; "
+    "frame-ancestors 'self'; base-uri 'none'; form-action 'self'"
+)
 
 ROWS = 40
+MAX_PAGE = 500
+MAX_QUERY = 200
+MAX_URL = 2048
+MAX_TITLE = 300
+MIN_YEAR = 1987
+
+# Stream proxy limits.  Every stream holds one worker thread, so this is the
+# number that decides how much of a gunicorn worker a slow listener can take.
+MAX_STREAMS = 6
+MAX_REDIRECTS = 5
+CONNECT_TIMEOUT = 10
+READ_TIMEOUT = 30
+MAX_CHUNK = 64 * 1024
+STREAM_DEADLINE = 4 * 3600
+MAX_STREAM_BYTES = 8 * 1024 * 1024 * 1024
+
+_REDIRECT_CODES = frozenset((301, 302, 303, 307, 308))
+# Ports that are never plausible audio sources.  Privileged ports other than
+# 80/443 are refused too: radio streams live on 8000+ and the Archive on 443.
+_BLOCKED_PORTS = frozenset((
+    21, 22, 23, 25, 53, 110, 111, 135, 137, 138, 139, 143, 445, 465, 587,
+    993, 995, 1433, 1521, 2049, 2375, 2376, 3306, 3389, 5432, 5900, 6379,
+    6443, 9200, 9300, 11211, 27017,
+))
+_ALLOWED_LOW_PORTS = frozenset((80, 443))
+_EXTRA_BLOCKED_NETWORKS = tuple(ipaddress.ip_network(net) for net in (
+    "0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24",
+    "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4",
+))
+_CTRL_RE = re.compile(r"[\x00-\x1f\x7f]")
+_RANGE_RE = re.compile(r"^bytes=\d{0,18}-\d{0,18}$")
+_MEDIA_EXACT = frozenset((
+    "application/ogg", "application/x-ogg", "application/octet-stream",
+    "binary/octet-stream", "application/mp4", "application/x-m4a",
+    "application/x-mpeg", "application/mpegurl", "application/x-mpegurl",
+    "application/vnd.apple.mpegurl",
+))
+
+_SSL_CONTEXT = ssl.create_default_context()
 
 ARCHIVE_SECTIONS = [
     ("rave", "Rave Tape Packs", "collection:ravetapes AND mediatype:audio", "Rave tapes collection"),
@@ -72,6 +133,20 @@ SECTIONS = [
 # --------------------------------------------------------------------------- helpers
 
 
+def _env_int(name, default, minimum, maximum):
+    try:
+        value = int(os.environ.get(name, ""))
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(maximum, value))
+
+
+MAX_STREAMS = _env_int("RAVEWEB_MAX_STREAMS", MAX_STREAMS, 1, 64)
+STREAM_DEADLINE = _env_int("RAVEWEB_STREAM_SECONDS", STREAM_DEADLINE, 30, 24 * 3600)
+MAX_STREAM_BYTES = _env_int("RAVEWEB_STREAM_BYTES", MAX_STREAM_BYTES, 1 << 20, 1 << 40)
+_STREAM_SLOTS = threading.BoundedSemaphore(MAX_STREAMS)
+
+
 def _filters():
     path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "filters.json")
     try:
@@ -105,6 +180,68 @@ def _year_label(doc):
     return str(year) if year else ""
 
 
+def _human_duration(value):
+    try:
+        seconds = int(float(value))
+    except (TypeError, ValueError):
+        return ""
+    if seconds < 0:
+        return ""
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return "%d:%02d:%02d" % (hours, minutes, seconds)
+    return "%d:%02d" % (minutes, seconds)
+
+
+def _clean_text(value, limit):
+    """Return a single-line string with control characters removed."""
+    if not isinstance(value, str):
+        return ""
+    text = _CTRL_RE.sub(" ", value).strip()
+    return text[:limit]
+
+
+def _page_arg():
+    """Page number from the query string, clamped to a sane range."""
+    page = request.args.get("page", type=int)
+    if page is None or page < 1:
+        return 1
+    return min(page, MAX_PAGE)
+
+
+def _next_link(base, page, total):
+    if page >= MAX_PAGE or total <= page * ROWS:
+        return None
+    separator = "&" if "?" in base else "?"
+    return "%s%spage=%d" % (base, separator, page + 1)
+
+
+def _pack_items(docs):
+    """Turn Archive search docs into folder rows, skipping malformed entries."""
+    items = []
+    for doc in docs:
+        if not isinstance(doc, dict):
+            continue
+        identifier = doc.get("identifier")
+        if not isinstance(identifier, str) or not identifier:
+            continue
+        title = _clean_text(doc.get("title"), MAX_TITLE) or identifier
+        items.append(_folder(title, _year_label(doc),
+                             "/api/item/%s" % urllib.parse.quote(identifier),
+                             archive.thumb(identifier),
+                             {"kind": "pack", "target": identifier, "title": title}))
+    return items
+
+
+def _json_error(message, code, headers=None):
+    response = jsonify({"error": message})
+    response.status_code = code
+    for name, value in (headers or {}).items():
+        response.headers[name] = value
+    return response
+
+
 # --------------------------------------------------------------------------- api: structure
 
 
@@ -118,30 +255,44 @@ def api_menu():
 
 @app.get("/api/latest")
 def api_latest():
+    try:
+        entries = latest.merge(limit=60)
+    except Exception as exc:  # one dead source must not take the page down
+        app.logger.warning("latest merge failed: %s", exc)
+        return _json_error("could not load latest", 502)
     items = []
-    for entry in latest.merge(limit=60):
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
         when = entry.get("when")
         stamp = when.strftime("%d %b %Y") if when else ""
-        if entry["kind"] == "pack":
-            items.append(_folder(entry["title"], "%s · %s" % (entry["source"], stamp),
-                                 "/api/item/%s" % urllib.parse.quote(entry["identifier"]),
-                                 archive.thumb(entry["identifier"]),
-                                 {"kind": "pack", "target": entry["identifier"], "title": entry["title"]}))
-        elif entry["kind"] == "episode":
-            items.append(_track(entry["title"], "%s · %s" % (entry["source"], stamp), entry["url"],
+        kind = entry.get("kind")
+        title = _clean_text(entry.get("title"), MAX_TITLE)
+        if not title:
+            continue
+        if kind == "pack" and entry.get("identifier"):
+            identifier = str(entry["identifier"])
+            items.append(_folder(title, "%s · %s" % (entry.get("source", ""), stamp),
+                                 "/api/item/%s" % urllib.parse.quote(identifier),
+                                 archive.thumb(identifier),
+                                 {"kind": "pack", "target": identifier, "title": title}))
+        elif kind == "episode" and entry.get("url"):
+            url = str(entry["url"])
+            items.append(_track(title, "%s · %s" % (entry.get("source", ""), stamp), url,
                                 ART + "radio.png",
-                                {"kind": "stream", "target": entry["url"], "title": entry["title"]}))
-        else:
-            items.append(_track(entry["title"], "%s · %s" % (entry["source"], stamp), None,
-                                ART + "jungle.png"))
-            items[-1]["play_via"] = "/api/dnb/%s" % urllib.parse.quote(str(entry["id"]))
+                                {"kind": "stream", "target": url, "title": title}))
+        elif kind == "dnb" and entry.get("id") is not None:
+            item = _track(title, "%s · %s" % (entry.get("source", ""), stamp), None,
+                          ART + "jungle.png")
+            item["play_via"] = "/api/dnb/%s" % urllib.parse.quote(str(entry["id"]))
+            items.append(item)
     return jsonify({"title": "Latest", "items": items})
 
 
 @app.get("/api/filters")
 def api_filters():
     return jsonify({"title": "Quick Filters", "items": [
-        _folder(entry["name"], entry.get("plot", ""), "/api/filter/%s" % entry["id"])
+        _folder(entry["name"], entry.get("plot", ""), "/api/filter/%s" % urllib.parse.quote(entry["id"]))
         for entry in _filters()
     ]})
 
@@ -150,24 +301,19 @@ def api_filters():
 def api_filter(key):
     entry = _filter(key)
     if not entry:
-        return jsonify({"error": "unknown filter"}), 404
-    page = max(1, request.args.get("page", type=int) or 1)
+        return _json_error("unknown filter", 404)
+    page = _page_arg()
     items = []
     if page == 1 and entry.get("live_name"):
-        items.append(_track("▶ %s — live now" % entry["name"], "Live streams", None, ART + "radio.png"))
-        items[-1]["play_via"] = "/api/filter/%s/live" % key
+        item = _track("▶ %s — live now" % entry["name"], "Live streams", None, ART + "radio.png")
+        item["play_via"] = "/api/filter/%s/live" % urllib.parse.quote(key)
+        items.append(item)
     docs, total = archive.search(entry["query"], page=page, rows=ROWS)
-    for doc in docs:
-        identifier = doc.get("identifier")
-        if not identifier:
-            continue
-        title = doc.get("title") or identifier
-        items.append(_folder(title, _year_label(doc), "/api/item/%s" % urllib.parse.quote(identifier),
-                             archive.thumb(identifier),
-                             {"kind": "pack", "target": identifier, "title": title}))
+    items.extend(_pack_items(docs))
     payload = {"title": entry["name"], "items": items}
-    if total > page * ROWS:
-        payload["next"] = "/api/filter/%s?page=%d" % (key, page + 1)
+    nxt = _next_link("/api/filter/%s" % key, page, total)
+    if nxt:
+        payload["next"] = nxt
     return jsonify(payload)
 
 
@@ -175,12 +321,15 @@ def api_filter(key):
 def api_filter_live(key):
     entry = _filter(key)
     if not entry:
-        return jsonify({"error": "unknown filter"}), 404
+        return _json_error("unknown filter", 404)
     stations = radio.stations_by_name(entry.get("live_name", ""), limit=20)
     items = []
     for station in stations:
+        if not isinstance(station, dict):
+            continue
         name, meta = radio.display(station)
-        items.append(_track(name, meta, radio.stream_url(station), station.get("favicon") or ART + "radio.png"))
+        items.append(_track(name, meta, radio.stream_url(station),
+                            station.get("favicon") or ART + "radio.png"))
     return jsonify({"title": "%s — live" % entry["name"], "items": items})
 
 
@@ -196,12 +345,17 @@ def api_live():
 def api_live_tag(key):
     section = next((entry for entry in RADIO_SECTIONS if entry[0] == key), None)
     if not section:
-        return jsonify({"error": "unknown station group"}), 404
+        return _json_error("unknown station group", 404)
     stations = radio.stations(section[2], limit=100)
     items = []
     for station in stations:
+        if not isinstance(station, dict):
+            continue
         name, meta = radio.display(station)
-        items.append(_track(name, meta, radio.stream_url(station), station.get("favicon") or ART + "radio.png"))
+        url = radio.stream_url(station)
+        if not url:
+            continue
+        items.append(_track(name, meta, url, station.get("favicon") or ART + "radio.png"))
     return jsonify({"title": section[1], "items": items})
 
 
@@ -217,33 +371,31 @@ def api_packs():
 def api_pack_list(key):
     section = next((entry for entry in ARCHIVE_SECTIONS if entry[0] == key), None)
     if not section:
-        return jsonify({"error": "unknown section"}), 404
-    page = max(1, request.args.get("page", type=int) or 1)
+        return _json_error("unknown section", 404)
+    page = _page_arg()
     docs, total = archive.search(section[2], page=page, rows=ROWS)
-    items = []
-    for doc in docs:
-        identifier = doc.get("identifier")
-        if not identifier:
-            continue
-        title = doc.get("title") or identifier
-        items.append(_folder(title, _year_label(doc), "/api/item/%s" % urllib.parse.quote(identifier),
-                             archive.thumb(identifier),
-                             {"kind": "pack", "target": identifier, "title": title}))
-    payload = {"title": section[1], "items": items}
-    if total > page * ROWS:
-        payload["next"] = "/api/packs/%s?page=%d" % (key, page + 1)
+    payload = {"title": section[1], "items": _pack_items(docs)}
+    nxt = _next_link("/api/packs/%s" % key, page, total)
+    if nxt:
+        payload["next"] = nxt
     return jsonify(payload)
 
 
 @app.get("/api/item/<path:identifier>")
 def api_item(identifier):
+    identifier = _clean_text(identifier, MAX_QUERY)
+    if not identifier or "/" in identifier:
+        return _json_error("unknown item", 404)
     tracks = archive.audio_files(identifier)
+    if not tracks:
+        return _json_error("no playable audio for that item", 404)
     items = [
-        _track(track["title"], _human_duration(track.get("length")), track["url"], archive.thumb(identifier),
+        _track(track["title"], _human_duration(track.get("length")), track["url"],
+               archive.thumb(identifier),
                {"kind": "stream", "target": track["url"], "title": track["title"]})
         for track in tracks
     ]
-    return jsonify({"title": identifier.replace("-", " "), "items": items,
+    return jsonify({"title": identifier.replace("-", " ").replace("_", " "), "items": items,
                     "art": archive.thumb(identifier)})
 
 
@@ -255,7 +407,8 @@ def api_podcasts():
             count = len(feeds.episodes(entry["id"], limit=200))
         except Exception:
             count = 0
-        items.append(_folder(entry["name"], "%d episodes" % count, "/api/podcast/%s" % entry["id"],
+        items.append(_folder(entry["name"], "%d episodes" % count,
+                             "/api/podcast/%s" % urllib.parse.quote(entry["id"]),
                              ART + "radio.png"))
     return jsonify({"title": "Podcasts & Mixes", "items": items})
 
@@ -264,59 +417,64 @@ def api_podcasts():
 def api_podcast(feed_id):
     entry = feeds.feed(feed_id)
     if not entry:
-        return jsonify({"error": "unknown feed"}), 404
-    items = [
-        _track(episode["title"], (episode.get("published") or "")[:16], episode["url"], ART + "radio.png",
-               {"kind": "stream", "target": episode["url"], "title": episode["title"]})
-        for episode in feeds.episodes(feed_id)
-    ]
+        return _json_error("unknown feed", 404)
+    items = []
+    for episode in feeds.episodes(feed_id):
+        url = episode.get("url")
+        if not isinstance(url, str) or not url:
+            continue
+        title = _clean_text(episode.get("title"), MAX_TITLE) or "Untitled"
+        items.append(_track(title, (episode.get("published") or "")[:16], url, ART + "radio.png",
+                            {"kind": "stream", "target": url, "title": title}))
     return jsonify({"title": entry["name"], "items": items})
 
 
 @app.get("/api/dnb")
 def api_dnb():
-    items = [
-        _track(show["title"], show.get("date", ""), None, ART + "jungle.png")
-        for show in dnbradio.mixes()
-    ]
-    for item, show in zip(items, dnbradio.mixes()):
+    # One provider call: mixes() re-parses on every call, and two calls could
+    # disagree if the page changed between them (the old zip() mis-paired ids).
+    shows = dnbradio.mixes()
+    items = []
+    for show in shows:
+        if not isinstance(show, dict) or show.get("id") is None:
+            continue
+        title = _clean_text(show.get("title"), MAX_TITLE) or "Untitled"
+        item = _track(title, _clean_text(show.get("date"), 40), None, ART + "jungle.png")
         item["play_via"] = "/api/dnb/%s" % urllib.parse.quote(str(show["id"]))
+        items.append(item)
     return jsonify({"title": "DNB Radio", "items": items})
 
 
 @app.get("/api/dnb/<mix_id>")
 def api_dnb_resolve(mix_id):
-    url = dnbradio.stream_url(mix_id)
+    if not re.match(r"^\d{1,12}$", mix_id or ""):
+        return _json_error("could not resolve mix", 404)
+    key = "dnb:resolve:%s" % mix_id
+    url = cache.remember(key, 3600, lambda: dnbradio.stream_url(mix_id) or None)
     if not url:
-        return jsonify({"error": "could not resolve mix"}), 404
+        return _json_error("could not resolve mix", 404)
     return jsonify({"url": url})
 
 
 @app.get("/api/years")
 def api_years():
-    import datetime
     this_year = datetime.date.today().year
     items = [_folder(str(year), "Tape packs", "/api/year/%d" % year, ART + "tapepacks.png")
-             for year in range(this_year, 1987, -1)]
+             for year in range(this_year, MIN_YEAR - 1, -1)]
     return jsonify({"title": "By Year", "items": items})
 
 
 @app.get("/api/year/<int:year>")
 def api_year(year):
-    page = max(1, request.args.get("page", type=int) or 1)
+    this_year = datetime.date.today().year
+    if year < MIN_YEAR or year > this_year + 1:
+        return _json_error("unknown year", 404)
+    page = _page_arg()
     docs, total = archive.search(latest.year_query(year), page=page, rows=ROWS)
-    items = []
-    for doc in docs:
-        identifier = doc.get("identifier")
-        if not identifier:
-            continue
-        title = doc.get("title") or identifier
-        items.append(_folder(title, _year_label(doc), "/api/item/%s" % urllib.parse.quote(identifier),
-                             archive.thumb(identifier),
-                             {"kind": "pack", "target": identifier, "title": title}))
-    payload = {"title": str(year), "items": items}
-    if total > page * ROWS:
-        payload["next"] = "/api/year/%d?page=%d" % (year, page + 1)
+    payload = {"title": str(year), "items": _pack_items(docs)}
+    nxt = _next_link("/api/year/%d" % year, page, total)
+    if nxt:
+        payload["next"] = nxt
     return jsonify(payload)
 
 
@@ -331,166 +489,613 @@ def api_legacy():
 
 @app.get("/api/legacy/ravetapepacks")
 def api_legacy_rtp():
-    items = [_folder("%s (%d tapes)" % (entry["name"], len(entry["tracks"])), "RaveTapePacks.com",
-                     "/api/legacy/ravetapepacks/%s" % urllib.parse.quote(entry["key"]))
-             for entry in legacy.packs()]
+    items = []
+    for entry in legacy.packs():
+        if not isinstance(entry, dict) or not isinstance(entry.get("key"), str):
+            continue
+        tracks = entry.get("tracks") if isinstance(entry.get("tracks"), list) else []
+        items.append(_folder("%s (%d tapes)" % (entry.get("name") or entry["key"], len(tracks)),
+                             "RaveTapePacks.com",
+                             "/api/legacy/ravetapepacks/%s" % urllib.parse.quote(entry["key"])))
     return jsonify({"title": "RaveTapePacks.com", "items": items})
 
 
 @app.get("/api/legacy/ravetapepacks/<path:pack>")
 def api_legacy_rtp_pack(pack):
-    entry = next((item for item in legacy.packs() if item["key"] == pack), None)
+    entry = next((item for item in legacy.packs()
+                  if isinstance(item, dict) and item.get("key") == pack), None)
     if not entry:
-        return jsonify({"error": "unknown pack"}), 404
-    items = [_track(track["name"], "Tape", legacy.playable(track["url"]), ART + "tapepacks.png",
-                    {"kind": "stream", "target": legacy.playable(track["url"]), "title": track["name"]})
-             for track in entry["tracks"]]
-    return jsonify({"title": entry["name"], "items": items})
+        return _json_error("unknown pack", 404)
+    items = []
+    for track in entry.get("tracks") or []:
+        if not isinstance(track, dict) or not track.get("url"):
+            continue
+        playable = legacy.playable(track["url"])
+        name = _clean_text(track.get("name"), MAX_TITLE) or "Tape"
+        items.append(_track(name, "Tape", playable, ART + "tapepacks.png",
+                            {"kind": "stream", "target": playable, "title": name}))
+    return jsonify({"title": entry.get("name") or pack, "items": items})
 
 
 @app.get("/api/legacy/jungletapes")
 def api_legacy_jt():
-    items = [_folder(show["name"], "JungleTapes.com", "/api/legacy/jungletapes/%s" % urllib.parse.quote(show["key"]))
-             for show in legacy.jungle_shows()]
+    items = []
+    for show in legacy.jungle_shows():
+        if not isinstance(show, dict) or not isinstance(show.get("key"), str):
+            continue
+        items.append(_folder(show.get("name") or show["key"], "JungleTapes.com",
+                             "/api/legacy/jungletapes/%s" % urllib.parse.quote(show["key"])))
     return jsonify({"title": "JungleTapes.com", "items": items})
 
 
 @app.get("/api/legacy/jungletapes/<path:show_key>")
 def api_legacy_jt_show(show_key):
-    items = [_track(track["name"], "JungleTapes.com", track["url"], ART + "jungle.png",
-                    {"kind": "stream", "target": track["url"], "title": track["name"]})
-             for track in legacy.jungle_tracks(show_key)]
-    return jsonify({"title": show_key.replace("-", " "), "items": items})
+    show_key = _clean_text(show_key, MAX_QUERY)
+    if not show_key or "/" in show_key:
+        return _json_error("unknown show", 404)
+    items = []
+    for track in legacy.jungle_tracks(show_key):
+        if not isinstance(track, dict) or not track.get("url"):
+            continue
+        name = _clean_text(track.get("name"), MAX_TITLE) or "Track"
+        items.append(_track(name, "JungleTapes.com", track["url"], ART + "jungle.png",
+                            {"kind": "stream", "target": track["url"], "title": name}))
+    if not items:
+        return _json_error("no recordings for that show", 404)
+    return jsonify({"title": show_key.replace("-", " ").replace("_", " "), "items": items})
 
 
 @app.get("/api/legacy/toronto")
 def api_legacy_toronto():
-    items = [_track(track["name"], "Toronto Rave Mixtape Archive", track["url"], ART + "rave.png",
-                    {"kind": "stream", "target": track["url"], "title": track["name"]})
-             for track in legacy.toronto_tracks()]
+    items = []
+    for track in legacy.toronto_tracks():
+        if not isinstance(track, dict) or not track.get("url"):
+            continue
+        name = _clean_text(track.get("name"), MAX_TITLE) or "Track"
+        items.append(_track(name, "Toronto Rave Mixtape Archive", track["url"], ART + "rave.png",
+                            {"kind": "stream", "target": track["url"], "title": name}))
     return jsonify({"title": "Toronto Rave Mixtape Archive", "items": items})
 
 
 @app.get("/api/search")
 def api_search():
-    query = request.args.get("q", "").strip()
+    query = _clean_text(request.args.get("q", ""), MAX_QUERY)
     if not query:
         return jsonify({"title": "Search", "items": []})
-    # Search the curated collection first — full-text Archive search is noisy —
-    # then widen to all audio if the curated hit list is thin.
-    docs, total = archive.search("%s AND %s" % (query, latest.RAVE_COLLECTION), rows=ROWS)
-    if total < 10:
+    page = _page_arg()
+    docs, total = archive.search("%s AND %s" % (query, latest.RAVE_COLLECTION),
+                                 page=page, rows=ROWS)
+    widened = False
+    # Full-text Archive search is noisy; widen to all audio only on the first
+    # page when the curated collection has almost nothing.
+    if total < 10 and page == 1:
         wider, _ = archive.search("%s AND mediatype:audio" % query, rows=ROWS)
-        seen = {doc.get("identifier") for doc in docs}
-        docs += [doc for doc in wider if doc.get("identifier") not in seen]
-    items = []
-    for doc in docs:
-        identifier = doc.get("identifier")
-        if not identifier:
-            continue
-        title = doc.get("title") or identifier
-        items.append(_folder(title, _year_label(doc), "/api/item/%s" % urllib.parse.quote(identifier),
-                             archive.thumb(identifier),
-                             {"kind": "pack", "target": identifier, "title": title}))
-    return jsonify({"title": "Search: %s" % query, "items": items})
+        seen = {doc.get("identifier") for doc in docs if isinstance(doc, dict)}
+        docs += [doc for doc in wider
+                 if isinstance(doc, dict) and doc.get("identifier") not in seen]
+        widened = True
+    payload = {"title": "Search: %s" % query, "items": _pack_items(docs)}
+    nxt = None if widened else _next_link("/api/search?q=%s" % urllib.parse.quote(query),
+                                          page, total)
+    if nxt:
+        payload["next"] = nxt
+    return jsonify(payload)
 
 
 # --------------------------------------------------------------------------- favourites
 
 
+def _fav_target(entry):
+    """Return a playable URL for a stored stream favourite.
+
+    Legacy tracks are stored with Kodi's ``|Referer=...`` suffix; /api/stream
+    understands that syntax, so the value can be passed through unchanged.
+    """
+    target = entry.get("target")
+    return target if isinstance(target, str) else ""
+
+
 @app.get("/api/favourites")
 def api_fav_list():
-    entries = favourites.load()
     items = []
+    try:
+        entries = favourites.load()
+    except Exception as exc:  # best effort: a broken store is an empty list
+        app.logger.warning("favourites load failed: %s", exc)
+        entries = []
     for entry in entries:
-        key = favourites.key(entry)
-        base = {"fav_key": key}
+        if not isinstance(entry, dict):
+            continue
+        title = _clean_text(entry.get("title"), MAX_TITLE)
+        target = _fav_target(entry)
+        if not title or not target:
+            continue
+        try:
+            key = favourites.key(entry)
+        except Exception:
+            continue
         if entry.get("kind") == "pack":
-            item = _folder(entry["title"], "Tape pack", "/api/item/%s" % urllib.parse.quote(entry["target"]),
-                           archive.thumb(entry["target"]))
+            item = _folder(title, "Tape pack",
+                           "/api/item/%s" % urllib.parse.quote(target),
+                           archive.thumb(target))
         else:
-            item = _track(entry["title"], "Show", entry["target"], ART + "radio.png")
-        item.update(base)
+            item = _track(title, "Show", target, ART + "radio.png")
+        item["fav_key"] = key
         items.append(item)
     return jsonify({"title": "Favourites", "items": items})
 
 
+def _fav_payload():
+    """Validate a favourites POST body; returns (entry, error)."""
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return None, "expected a JSON object"
+    kind = payload.get("kind", "pack")
+    if kind not in ("pack", "stream"):
+        return None, "kind must be pack or stream"
+    title = _clean_text(payload.get("title"), MAX_TITLE)
+    target = _clean_text(payload.get("target"), MAX_URL)
+    if not title:
+        return None, "title is required"
+    if not target:
+        return None, "target is required"
+    if kind == "stream":
+        try:
+            base = _split_kodi_target(target)[0]
+            parsed = urllib.parse.urlsplit(base)
+        except ValueError:
+            return None, "stream target must be an http(s) url"
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            return None, "stream target must be an http(s) url"
+    return {"kind": kind, "target": target, "title": title}, None
+
+
 @app.post("/api/favourites")
 def api_fav_add():
-    payload = request.get_json(silent=True) or {}
-    saved = favourites.add({
-        "kind": payload.get("kind", "pack"),
-        "target": payload.get("target", ""),
-        "title": payload.get("title", ""),
-    })
-    return jsonify({"saved": saved})
+    entry, error = _fav_payload()
+    if error:
+        return jsonify({"saved": False, "error": error}), 400
+    try:
+        saved = favourites.add(entry)
+    except Exception as exc:  # read-only or full data dir
+        app.logger.warning("favourites add failed: %s", exc)
+        saved = False
+    return jsonify({"saved": bool(saved)})
 
 
-@app.delete("/api/favourites/<key>")
+@app.delete("/api/favourites/<path:key>")
 def api_fav_remove(key):
-    return jsonify({"removed": favourites.remove(key)})
+    key = _clean_text(key, MAX_URL)
+    try:
+        existed = any(favourites.key(entry) == key for entry in favourites.load()
+                      if isinstance(entry, dict))
+        removed = favourites.remove(key) if existed else False
+    except Exception as exc:
+        app.logger.warning("favourites remove failed: %s", exc)
+        existed, removed = False, False
+    return jsonify({"removed": bool(existed and removed)})
 
 
 # --------------------------------------------------------------------------- streaming
 
 
-def _host_allowed(url):
-    if ALLOW_PRIVATE:
-        return True
-    parsed = urllib.parse.urlparse(url)
-    if parsed.scheme not in ("http", "https") or not parsed.hostname:
-        return False
+class UpstreamError(Exception):
+    """Base class for proxy failures; the view maps these to JSON errors."""
+
+    code = 502
+    message = "upstream connection failed"
+
+
+class BlockedURL(UpstreamError):
+    code = 400
+    message = "blocked or missing url"
+
+
+class UpstreamTimeout(UpstreamError):
+    code = 504
+    message = "upstream timed out"
+
+
+def _split_kodi_target(value):
+    """Split Kodi's ``url|Referer=...&User-Agent=...`` syntax.
+
+    Legacy providers append this suffix to hotlink-protected URLs.  Browsers
+    cannot turn it into headers, so the proxy does.  A plain URL without a
+    suffix is returned untouched.
+    """
+    value = str(value or "").strip()
+    if "|" not in value:
+        return value, {}
+    head, _, tail = value.partition("|")
+    if not head or "=" not in tail:
+        return value, {}
+    options = {}
+    for part in tail.split("&"):
+        name, sep, raw = part.partition("=")
+        if not sep:
+            continue
+        name = name.strip().lower()
+        if name in ("referer", "user-agent") and raw:
+            try:
+                raw = urllib.parse.unquote(raw)
+            except Exception:
+                pass
+            options[name] = raw
+    return head.strip(), options
+
+
+def _safe_header(value, limit):
+    """Return a header-safe value, or '' if it contains controls/oversize."""
+    if not isinstance(value, str):
+        return ""
+    value = value.strip()
+    if not value or len(value) > limit or _CTRL_RE.search(value):
+        return ""
+    return value
+
+
+def _clean_range(value):
+    """Only forward a single, well-formed byte range."""
+    value = _safe_header(value, 64)
+    if not value:
+        return ""
+    compact = value.replace(" ", "")
+    if not _RANGE_RE.match(compact) or compact == "bytes=-":
+        return ""
+    return compact
+
+
+def _request_target(url):
+    """Percent-encode the path/query so non-ASCII URLs cannot break http.client."""
+    parts = urllib.parse.urlsplit(url)
+    path = urllib.parse.quote(parts.path or "/", safe="/%:@!$&'()*+,;=-._~")
+    query = urllib.parse.quote(parts.query, safe="=&%:@!$'()*+,;/?-._~")
+    return path + ("?" + query if query else "")
+
+
+def _check_port(port):
+    if port < 1 or port > 65535:
+        raise BlockedURL("bad port")
+    if port < 1024 and port not in _ALLOWED_LOW_PORTS:
+        raise BlockedURL("privileged port")
+    if port in _BLOCKED_PORTS:
+        raise BlockedURL("blocked port")
+
+
+def _parse_target(url):
+    """Validate scheme/host/port without DNS.  Returns (scheme, host, port)."""
+    if not url or len(url) > MAX_URL:
+        raise BlockedURL("missing or oversized url")
+    if _CTRL_RE.search(url) or re.search(r"\s", url):
+        raise BlockedURL("control characters in url")
     try:
-        infos = socket.getaddrinfo(parsed.hostname, None)
-    except socket.gaierror:
-        return False
+        parsed = urllib.parse.urlsplit(url)
+    except ValueError:
+        raise BlockedURL("unparsable url")
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise BlockedURL("bad scheme or host")
+    if parsed.username is not None or parsed.password is not None:
+        raise BlockedURL("credentials in url")
+    host = parsed.hostname
+    if not host or len(host) > 253:
+        raise BlockedURL("bad host")
+    try:
+        port = parsed.port
+    except ValueError:
+        raise BlockedURL("bad port")
+    if port is None:
+        port = 443 if parsed.scheme == "https" else 80
+    _check_port(port)
+    try:  # IP literals are already ASCII; IDNA only applies to names
+        ipaddress.ip_address(host)
+        encoded = host
+    except ValueError:
+        try:
+            encoded = host.encode("idna").decode("ascii")
+        except (UnicodeError, UnicodeDecodeError):
+            raise BlockedURL("bad host")
+    return parsed.scheme, encoded, port
+
+
+def _ip_blocked(address):
+    if address.version == 6 and address.ipv4_mapped is not None:
+        address = address.ipv4_mapped
+    if (address.is_private or address.is_loopback or address.is_link_local
+            or address.is_multicast or address.is_reserved or address.is_unspecified):
+        return True
+    return any(address in network for network in _EXTRA_BLOCKED_NETWORKS)
+
+
+def _resolve_target(url):
+    """Resolve and validate a URL; returns (scheme, host, port, ip).
+
+    Every address the hostname resolves to must be public.  The returned IP is
+    the one the proxy connects to, so a second DNS answer cannot redirect the
+    connection to a private address (DNS rebinding).
+    """
+    scheme, host, port = _parse_target(url)
+    try:
+        literal = ipaddress.ip_address(host)
+    except ValueError:
+        literal = None
+    if literal is not None:
+        if not ALLOW_PRIVATE and _ip_blocked(literal):
+            raise BlockedURL("private address")
+        return scheme, host, port, str(literal)
+    try:
+        infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except (socket.gaierror, UnicodeError, OSError):
+        raise BlockedURL("host could not be resolved")
+    if not infos:
+        raise BlockedURL("host could not be resolved")
+    addresses = []
     for info in infos:
-        address = ipaddress.ip_address(info[4][0])
-        if address.is_private or address.is_loopback or address.is_link_local:
-            return False
+        raw = str(info[4][0]).split("%", 1)[0]
+        try:
+            addresses.append(ipaddress.ip_address(raw))
+        except ValueError:
+            raise BlockedURL("unusable address")
+    if not ALLOW_PRIVATE and any(_ip_blocked(address) for address in addresses):
+        raise BlockedURL("private address")
+    # Prefer IPv4: some home networks have broken IPv6 routing.
+    chosen = next((address for address in addresses if address.version == 4),
+                  addresses[0])
+    return scheme, host, port, str(chosen)
+
+
+def _host_allowed(url):
+    """Backwards-compatible boolean wrapper around the SSRF checks."""
+    try:
+        _resolve_target(url)
+    except UpstreamError:
+        return False
     return True
+
+
+def _new_connection(scheme, host, port, ip):
+    """Open a connection pinned to ``ip`` while keeping ``host`` for TLS/Host."""
+    timeout = CONNECT_TIMEOUT
+    if scheme == "https":
+        conn = http.client.HTTPSConnection(host, port, timeout=timeout, context=_SSL_CONTEXT)
+    else:
+        conn = http.client.HTTPConnection(host, port, timeout=timeout)
+
+    def create(address, timeout=None, source_address=None):
+        return socket.create_connection((ip, port), timeout, source_address)
+
+    conn._create_connection = create
+    return conn
+
+
+def _upstream_headers(target, options, requested_range, ref_override):
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Accept": "*/*",
+        # Never let a gzip layer make Content-Length meaningless for audio.
+        "Accept-Encoding": "identity",
+        "Connection": "close",
+    }
+    user_agent = _safe_header(options.get("user-agent"), 200)
+    if user_agent:
+        headers["User-Agent"] = user_agent
+    referer = _safe_header(options.get("referer") or ref_override, 512)
+    if not referer:
+        try:
+            host = urllib.parse.urlsplit(target).hostname or ""
+        except ValueError:
+            host = ""
+        referer = "https://%s/" % host
+    headers["Referer"] = referer
+    byte_range = _clean_range(requested_range)
+    if byte_range:
+        headers["Range"] = byte_range
+    return headers
+
+
+def _open_stream(url, headers, deadline):
+    """GET url, following public redirects by hand.  Returns (conn, resp, url)."""
+    current = url
+    for _ in range(MAX_REDIRECTS + 1):
+        if time.monotonic() >= deadline:
+            raise UpstreamTimeout()
+        try:
+            scheme, host, port, ip = _resolve_target(current)
+        except BlockedURL:
+            if current != url:
+                app.logger.warning("redirect to a blocked address from %s",
+                                   _safe_log_url(url))
+                raise UpstreamError()
+            raise
+        conn = _new_connection(scheme, host, port, ip)
+        try:
+            conn.request("GET", _request_target(current), headers=headers)
+            resp = conn.getresponse()
+        except (socket.timeout, TimeoutError):
+            conn.close()
+            raise UpstreamTimeout()
+        except (http.client.HTTPException, ssl.SSLError, OSError, ValueError) as exc:
+            conn.close()
+            app.logger.info("upstream connect failed for %s: %s", _safe_log_url(current), exc)
+            raise UpstreamError()
+        if resp.status in _REDIRECT_CODES:
+            location = resp.getheader("Location") or ""
+            try:
+                resp.close()
+            except Exception:
+                pass
+            conn.close()
+            if not location:
+                raise UpstreamError()
+            current = urllib.parse.urljoin(current, location)
+            continue
+        try:
+            conn.sock.settimeout(READ_TIMEOUT)
+        except (AttributeError, OSError):
+            pass
+        return conn, resp, current
+    raise UpstreamError()
+
+
+def _safe_log_url(url):
+    """Keep credentials/query strings out of logs."""
+    try:
+        parts = urllib.parse.urlsplit(url)
+        return urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+    except ValueError:
+        return "<unparsable url>"
+
+
+def _is_media_type(content_type):
+    if not content_type:
+        return True
+    if content_type.startswith(("audio/", "video/")):
+        return True
+    return content_type in _MEDIA_EXACT
+
+
+def _stream_error(code, message, retry=None):
+    headers = {}
+    if retry is not None:
+        headers["Retry-After"] = str(retry)
+    return _json_error(message, code, headers)
 
 
 @app.get("/api/stream")
 def api_stream():
     """Proxy the audio so Referer-guarded files and CORS/mixed-content work."""
-    target = request.args.get("u", "")
-    if not target or not _host_allowed(target):
-        return jsonify({"error": "blocked or missing url"}), 400
+    target, options = _split_kodi_target(request.args.get("u", ""))
+    if not target:
+        return _stream_error(400, "blocked or missing url")
+    try:
+        _parse_target(target)
+    except UpstreamError:
+        return _stream_error(400, "blocked or missing url")
 
-    headers = {"User-Agent": USER_AGENT, "Accept": "*/*"}
-    referer = request.args.get("ref") or "https://%s/" % urllib.parse.urlparse(target).hostname
-    headers["Referer"] = referer
-    if request.headers.get("Range"):
-        headers["Range"] = request.headers["Range"]
+    if not _STREAM_SLOTS.acquire(timeout=2.0):
+        return _stream_error(503, "too many streams in progress, retry shortly", retry=2)
+
+    released = [False]
+
+    def release():
+        if not released[0]:
+            released[0] = True
+            try:
+                _STREAM_SLOTS.release()
+            except ValueError:  # pragma: no cover - double release guard
+                pass
 
     try:
-        upstream = urllib.request.urlopen(urllib.request.Request(target, headers=headers), timeout=30)
-    except urllib.error.HTTPError as exc:
-        return jsonify({"error": "upstream %s" % exc.code}), 502
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 502
+        headers = _upstream_headers(target, options, request.headers.get("Range"),
+                                    request.args.get("ref"))
+        deadline = time.monotonic() + STREAM_DEADLINE
+        conn, resp, final_url = _open_stream(target, headers, deadline)
+    except BlockedURL:
+        release()
+        return _stream_error(400, "blocked or missing url")
+    except UpstreamTimeout:
+        release()
+        return _stream_error(504, "upstream timed out")
+    except UpstreamError:
+        release()
+        return _stream_error(502, "upstream connection failed")
+    except Exception as exc:  # never leak a traceback to the client
+        release()
+        app.logger.warning("stream setup failed for %s: %s", _safe_log_url(target), exc)
+        return _stream_error(502, "upstream connection failed")
 
-    passthrough = {}
-    for header in ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges"):
-        if upstream.headers.get(header):
-            passthrough[header] = upstream.headers[header]
-    passthrough.setdefault("Content-Type", "audio/mpeg")
-    passthrough["Cache-Control"] = "no-store"
-    passthrough["Access-Control-Allow-Origin"] = "*"
+    status = resp.status
+    try:
+        if status in (401, 403):
+            return _close_and_error(conn, resp, release, 403, "upstream refused access")
+        if status in (404, 410):
+            return _close_and_error(conn, resp, release, 404, "upstream media not found")
+        if status >= 500:
+            return _close_and_error(conn, resp, release, 502, "upstream unavailable")
+        if status == 416:
+            headers_out = _passthrough_headers(resp)
+            _close_quietly(conn, resp, release)
+            return Response(b"", status=416, headers=headers_out)
+        if status < 200 or status >= 300:
+            return _close_and_error(conn, resp, release, 502, "unexpected upstream status")
+        if (resp.getheader("Content-Encoding") or "").strip().lower() not in ("", "identity"):
+            return _close_and_error(conn, resp, release, 502, "upstream sent an encoded stream")
+        content_type = (resp.getheader("Content-Type") or "").split(";")[0].strip().lower()
+        if not _is_media_type(content_type):
+            app.logger.info("stream refused non-media content-type %r for %s",
+                            content_type, _safe_log_url(final_url))
+            return _close_and_error(conn, resp, release, 502, "upstream did not return audio")
+    except Exception:
+        _close_quietly(conn, resp, release)
+        raise
+
+    headers_out = _passthrough_headers(resp)
+    headers_out.setdefault("Content-Type", content_type or "audio/mpeg")
+    headers_out.setdefault("Cache-Control", "no-store")
+    headers_out["Cache-Control"] = "no-store"
+    headers_out["Access-Control-Allow-Origin"] = "*"
+    headers_out["X-Content-Type-Options"] = "nosniff"
 
     def generate():
+        sent = 0
         try:
             while True:
-                chunk = upstream.read(64 * 1024)
+                if time.monotonic() >= deadline:
+                    app.logger.warning("stream deadline reached for %s",
+                                       _safe_log_url(final_url))
+                    break
+                if sent >= MAX_STREAM_BYTES:
+                    app.logger.warning("stream byte cap reached for %s",
+                                       _safe_log_url(final_url))
+                    break
+                try:
+                    chunk = resp.read1(MAX_CHUNK)
+                except (socket.timeout, TimeoutError):
+                    app.logger.info("upstream read timed out for %s",
+                                    _safe_log_url(final_url))
+                    break
+                except (http.client.HTTPException, OSError, ValueError):
+                    break
                 if not chunk:
                     break
+                sent += len(chunk)
                 yield chunk
         finally:
-            upstream.close()
+            _close_quietly(conn, resp, release)
 
-    return Response(stream_with_context(generate()), status=upstream.status, headers=passthrough,
-                    direct_passthrough=True)
+    response = Response(stream_with_context(generate()), status=status,
+                        headers=headers_out, direct_passthrough=True)
+    response.call_on_close(release)
+    return response
+
+
+def _passthrough_headers(resp):
+    headers = {}
+    for name in ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges",
+                 "Last-Modified", "ETag"):
+        value = resp.getheader(name)
+        if value:
+            headers[name] = value
+    return headers
+
+
+def _close_quietly(conn, resp, release):
+    try:
+        resp.close()
+    except Exception:
+        pass
+    try:
+        conn.close()
+    except Exception:
+        pass
+    release()
+
+
+def _close_and_error(conn, resp, release, code, message, headers_out=None):
+    _close_quietly(conn, resp, release)
+    response = _json_error(message, code)
+    for name, value in (headers_out or {}).items():
+        response.headers[name] = value
+    return response
 
 
 # --------------------------------------------------------------------------- pages
@@ -498,7 +1103,29 @@ def api_stream():
 
 @app.get("/healthz")
 def healthz():
-    return jsonify({"ok": True, "version": app.config.get("RAVEWEB_VERSION", "1.0")})
+    return jsonify({"ok": True,
+                    "version": app.config.get("RAVEWEB_VERSION", "1.0"),
+                    "data_writable": _data_writable()})
+
+
+_DATA_PROBE = {"at": 0.0, "ok": True}
+
+
+def _data_writable():
+    """Best-effort, memoised check that favourites/cache can be written."""
+    now = time.time()
+    if now - _DATA_PROBE["at"] < 60:
+        return _DATA_PROBE["ok"]
+    ok = False
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=DATA_DIR, prefix=".health-", delete=True):
+            ok = True
+    except OSError:
+        ok = False
+    _DATA_PROBE["at"] = now
+    _DATA_PROBE["ok"] = ok
+    return ok
 
 
 @app.get("/")
@@ -512,6 +1139,7 @@ def manifest():
         "name": "Rave Player",
         "short_name": "Rave Player",
         "start_url": "/",
+        "scope": "/",
         "display": "standalone",
         "background_color": "#0a0a0f",
         "theme_color": "#e8ff00",
@@ -519,16 +1147,84 @@ def manifest():
     }), 200, {"Content-Type": "application/manifest+json"}
 
 
-def _human_duration(value):
+# --------------------------------------------------------------------------- headers / errors
+
+
+@app.after_request
+def _response_headers(response):
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    if request.path == "/" or request.path.startswith("/static/"):
+        response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+        response.headers.setdefault("Content-Security-Policy", CSP)
+    if request.path.startswith("/api/"):
+        response.headers.setdefault("Cache-Control", "no-store")
+    return response
+
+
+_SHORT_ERRORS = {
+    400: "bad request",
+    404: "not found",
+    405: "method not allowed",
+    413: "request body too large",
+    500: "internal error",
+}
+
+
+@app.errorhandler(HTTPException)
+def _http_error(exc):
+    code = exc.code or 500
+    if request.path.startswith("/api/"):
+        if code == 500:
+            app.logger.error("unhandled error on %s", request.path,
+                             exc_info=getattr(exc, "original_exception", None))
+        return _json_error(_SHORT_ERRORS.get(code, exc.description or "error"), code)
+    if code == 500:
+        app.logger.error("unhandled error on %s", request.path,
+                         exc_info=getattr(exc, "original_exception", None))
+        return "Internal Server Error", 500
+    return exc
+
+
+def _prune_cache():
+    """Drop stale cache files so a long-lived /data volume cannot fill up.
+
+    The shared cache never deletes expired entries; searches create one file
+    per query.  This is best-effort and must never raise at import time.
+    """
     try:
-        seconds = int(float(value))
-    except (TypeError, ValueError):
-        return ""
-    minutes, seconds = divmod(seconds, 60)
-    hours, minutes = divmod(minutes, 60)
-    if hours:
-        return "%d:%02d:%02d" % (hours, minutes, seconds)
-    return "%d:%02d" % (minutes, seconds)
+        directory = os.path.dirname(cache.path_for("prune-probe"))
+    except Exception:
+        return
+    now = time.time()
+    limit = now - 14 * 24 * 3600
+    removed = 0
+    try:
+        names = os.listdir(directory)
+    except OSError:
+        return
+    for name in names[:5000]:
+        if removed >= 400:
+            break
+        path = os.path.join(directory, name)
+        try:
+            if name.startswith(".tmp-"):
+                if os.path.getmtime(path) < now - 3600:
+                    os.remove(path)
+                    removed += 1
+                continue
+            if not re.match(r"^[0-9a-f]{64}\.json$", name):
+                continue
+            if os.path.getmtime(path) < limit:
+                os.remove(path)
+                removed += 1
+        except OSError:
+            continue
+    if removed:
+        app.logger.info("pruned %d stale cache files from %s", removed, directory)
+
+
+_prune_cache()
 
 
 if __name__ == "__main__":

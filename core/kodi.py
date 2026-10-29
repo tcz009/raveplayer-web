@@ -13,7 +13,10 @@ import os
 LOG = logging.getLogger("raveweb")
 
 DATA_DIR = os.environ.get("RAVEWEB_DATA") or "/tmp/raveweb"
-os.makedirs(DATA_DIR, exist_ok=True)
+try:  # a read-only data dir must not stop the providers from importing
+    os.makedirs(DATA_DIR, exist_ok=True)
+except OSError:
+    pass
 
 ICON = "static/art/icon.png"
 FANART = "static/art/fanart.jpg"

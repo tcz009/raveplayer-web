@@ -9,7 +9,15 @@ services:
       - ./data:/data
     environment:
       RAVEWEB_DATA: /data
+      # Set to "1" only if you intentionally proxy LAN/Tailscale streams.
       RAVEWEB_ALLOW_PRIVATE: "0"
+      # Concurrent proxied streams per worker (default 6).
+      RAVEWEB_MAX_STREAMS: "6"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 25s
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8097/healthz',timeout=4)"]
       interval: 30s

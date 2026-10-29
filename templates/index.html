@@ -2,52 +2,81 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#08080d">
+  <meta name="description" content="Rave Player — jungle, hardcore and rave tape packs, live radio and podcasts from the Internet Archive.">
   <title>Rave Player</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/static/art/icon.png">
+  <link rel="apple-touch-icon" href="/static/art/icon.png">
   <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
+  <a class="skip" href="#main">Skip to content</a>
   <div class="halftone" aria-hidden="true"></div>
 
   <header class="topbar">
-    <a class="brand" href="#/latest">
-      <span class="mark">◆</span>
+    <a class="brand" href="#/latest" aria-label="Rave Player — home">
+      <span class="mark" aria-hidden="true">◆</span>
       <span class="name">RAVE<em>PLAYER</em></span>
       <span class="tag">93/94 · JUNGLE · HARDCORE</span>
     </a>
-    <form class="search" id="search-form" autocomplete="off">
-      <input id="search-input" type="search" placeholder="Search the archive…" aria-label="Search the archive">
+    <form class="search" id="search-form" role="search" autocomplete="off">
+      <label class="sr-only" for="search-input">Search the archive</label>
+      <input id="search-input" type="search" placeholder="Search the archive…" autocomplete="off"
+             enterkeyhint="search" spellcheck="false">
       <button type="submit" aria-label="Search">⏎</button>
     </form>
-    <div class="status" id="status">READY</div>
+    <button class="help-btn" id="help-btn" type="button" aria-label="Keyboard shortcuts"
+            title="Keyboard shortcuts (?)">?</button>
+    <div class="status" id="status" role="status" aria-live="polite">READY</div>
   </header>
 
   <nav class="rail" id="nav" aria-label="Sections">
     <span class="rail-loading">Loading sections…</span>
   </nav>
 
-  <main class="stage">
+  <main class="stage" id="main" tabindex="-1">
+    <div class="banner" id="banner" role="alert" hidden></div>
+
     <div class="stage-head">
       <h1 id="title">Latest</h1>
-      <button class="back" id="back" hidden>← Back</button>
+      <button class="back" id="back" type="button" hidden>← Back</button>
     </div>
-    <div id="list" class="list" aria-live="polite"></div>
-    <div id="more" class="more" hidden><button id="more-btn">Load more</button></div>
+
+    <div class="state" id="state" hidden>
+      <div class="state-text" id="state-text"></div>
+      <button class="state-action" id="state-action" type="button" hidden>Retry</button>
+    </div>
+
+    <div id="list" class="list" aria-busy="false"></div>
+
+    <div id="more" class="more" hidden>
+      <button id="more-btn" type="button">Load more</button>
+    </div>
     <div id="empty" class="empty" hidden>Nothing here — try another section.</div>
   </main>
 
-  <footer class="player" id="player" hidden>
-    <img id="p-art" class="p-art" src="/static/art/radio.png" alt="">
+  <footer class="player" id="player" aria-label="Audio player" hidden>
+    <img id="p-art" class="p-art" src="/static/art/radio.png" alt="" width="54" height="54">
     <div class="p-meta">
       <div class="p-title" id="p-title">—</div>
       <div class="p-sub" id="p-sub"></div>
+      <div class="p-status" id="p-status" role="status" aria-live="polite" hidden></div>
     </div>
     <div class="p-controls">
-      <button id="p-prev" aria-label="Previous">⏮</button>
-      <button id="p-play" class="p-play" aria-label="Play/pause">▶</button>
-      <button id="p-next" aria-label="Next">⏭</button>
+      <button id="p-prev" type="button" aria-label="Previous track">
+        <svg viewBox="0 0 24 24" aria-hidden="true" class="ic"><path d="M19 6v12l-9-6 9-6Z" fill="currentColor"/><rect x="5" y="6" width="2.2" height="12" rx="1.1" fill="currentColor"/></svg>
+      </button>
+      <button id="p-play" class="p-play" type="button" aria-label="Play">
+        <svg viewBox="0 0 24 24" aria-hidden="true" class="ic ic-play"><path d="M8 5.4v13.2L19 12 8 5.4Z" fill="currentColor"/></svg>
+      </button>
+      <button id="p-next" type="button" aria-label="Next track">
+        <svg viewBox="0 0 24 24" aria-hidden="true" class="ic"><path d="M5 6v12l9-6-9-6Z" fill="currentColor"/><rect x="16.8" y="6" width="2.2" height="12" rx="1.1" fill="currentColor"/></svg>
+      </button>
+      <button id="p-airplay" type="button" aria-label="AirPlay" title="Play on AirPlay or Cast device" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true" class="ic"><rect x="3.5" y="5" width="17" height="11.5" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 15.2l4.2 5.3H7.8L12 15.2Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
+      </button>
     </div>
     <div class="p-seek">
       <span id="p-time">0:00</span>
@@ -55,15 +84,51 @@
       <span id="p-dur">0:00</span>
     </div>
     <div class="p-extra">
-      <span id="p-queue" class="queue">0 in queue</span>
-      <button id="p-fav" class="fav" aria-label="Add to favourites">♡</button>
-      <button id="p-close" aria-label="Close player">✕</button>
+      <button id="p-queue" class="queue" type="button" aria-expanded="false"
+              aria-controls="queue" aria-label="Show play queue">0/0</button>
+      <button id="p-fav" class="fav" type="button" aria-label="Add to favourites" aria-pressed="false">
+        <svg viewBox="0 0 24 24" aria-hidden="true" class="ic"><path class="heart-path" d="M12 20s-7-4.6-7-9.4C5 7.5 6.9 6 9 6c1.5 0 2.6.8 3 1.7.4-.9 1.5-1.7 3-1.7 2.1 0 4 1.5 4 4.6C19 15.4 12 20 12 20Z" fill="none" stroke="currentColor" stroke-width="1.9"/></svg>
+      </button>
+      <button id="p-close" type="button" aria-label="Close player">
+        <svg viewBox="0 0 24 24" aria-hidden="true" class="ic"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+      </button>
     </div>
-    <audio id="audio" preload="none"></audio>
+    <audio id="audio" preload="none" x-webkit-airplay="allow"></audio>
   </footer>
 
-  <div id="toast" class="toast" hidden></div>
+  <section id="queue" class="queue-panel" aria-label="Play queue" hidden>
+    <header class="queue-head">
+      <h2>Queue</h2>
+      <span id="queue-count" class="queue-count"></span>
+      <button id="queue-close" type="button" aria-label="Close play queue">✕</button>
+    </header>
+    <ol id="queue-list" class="queue-list"></ol>
+    <p class="queue-hint">Tap a track to jump to it.</p>
+  </section>
 
-  <script src="/static/app.js"></script>
+  <div id="help" class="help" role="dialog" aria-modal="true" aria-labelledby="help-title" hidden>
+    <div class="help-card">
+      <h2 id="help-title">Keyboard shortcuts</h2>
+      <dl class="help-list">
+        <div><dt><kbd>Space</kbd></dt><dd>Play / pause</dd></div>
+        <div><dt><kbd>/</kbd></dt><dd>Focus search</dd></div>
+        <div><dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Seek 5 seconds</dd></div>
+        <div><dt><kbd>Shift</kbd>+<kbd>←</kbd>/<kbd>→</kbd></dt><dd>Seek 30 seconds</dd></div>
+        <div><dt><kbd>n</kbd> / <kbd>p</kbd></dt><dd>Next / previous track</dd></div>
+        <div><dt><kbd>q</kbd></dt><dd>Show the queue</dd></div>
+        <div><dt><kbd>Esc</kbd></dt><dd>Close this or the queue</dd></div>
+      </dl>
+      <button id="help-close" type="button">Close</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" aria-atomic="true" hidden></div>
+
+  <noscript>
+    <p class="noscript">Rave Player needs JavaScript for playback. The API is still available at
+      <a href="/api/menu">/api/menu</a>.</p>
+  </noscript>
+
+  <script src="/static/app.js" defer></script>
 </body>
 </html>

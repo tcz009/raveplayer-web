@@ -1,0 +1,3 @@
+# Test-only dependencies. The runtime image only needs requirements.txt.
+-r requirements.txt
+pytest==8.4.2
