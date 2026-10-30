@@ -69,6 +69,9 @@ USER_AGENT = "RavePlayer-Web/1.0 (+https://github.com/tcz009/plugin.audio.ravepl
 ART = "/static/art/"
 CSP = (
     "default-src 'self'; img-src 'self' data: https: http:; media-src 'self'; "
+    # The Mixcloud and SoundCloud sections play sets in the providers' own
+    # iframes, so exactly those two widget hosts are allowed to be framed.
+    "frame-src https://www.mixcloud.com https://w.soundcloud.com; "
     "script-src 'self'; style-src 'self'; connect-src 'self'; manifest-src 'self'; "
     "frame-ancestors 'self'; base-uri 'none'; form-action 'self'"
 )

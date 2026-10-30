@@ -66,6 +66,33 @@ def test_index_page_has_app_shell(web):
     assert response.headers["X-Content-Type-Options"] == "nosniff"
 
 
+def test_csp_allows_the_embed_players_without_widening_anything_else(web):
+    """The Mixcloud/SoundCloud sections frame the providers' own widgets.
+
+    `frame-src` falls back to `default-src 'self'`, so without this directive
+    the iframes in the embed panel are refused (audit risk 1).  Keep the list
+    to the two widget hosts and leave every other directive unchanged.
+    """
+    csp = web.get("/").headers["Content-Security-Policy"]
+    assert "frame-src https://www.mixcloud.com https://w.soundcloud.com" in csp
+    for directive in ("default-src 'self'", "img-src 'self' data: https: http:",
+                      "media-src 'self'", "script-src 'self'", "style-src 'self'",
+                      "connect-src 'self'", "manifest-src 'self'",
+                      "frame-ancestors 'self'", "base-uri 'none'", "form-action 'self'"):
+        assert directive in csp, "CSP lost %r" % directive
+    frame_src = [part.strip() for part in csp.split(";") if part.strip().startswith("frame-src")]
+    assert frame_src == ["frame-src https://www.mixcloud.com https://w.soundcloud.com"]
+
+
+def test_csp_is_identical_on_the_static_asset_responses(web):
+    """The app deliberately applies the same policy to /static/* responses;
+    keep the two in sync so the header cannot drift by route."""
+    page = web.get("/").headers["Content-Security-Policy"]
+    asset = web.get("/static/app.js").headers["Content-Security-Policy"]
+    assert asset == page
+    assert "frame-src https://www.mixcloud.com https://w.soundcloud.com" in asset
+
+
 def test_api_404_is_json(web):
     response = web.get("/api/does-not-exist")
     assert response.status_code == 404

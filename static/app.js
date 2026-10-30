@@ -328,8 +328,14 @@
     const title = $("embed-title");
     const external = $("embed-external");
     if (!panel || !frame) return;
-    title.textContent = item.label || "Mixcloud";
-    external.href = item.external || "https://www.mixcloud.com/";
+    // Route and label the panel from the item itself: a pasted SoundCloud URL
+    // must not open with "Open on Mixcloud" / "Mixcloud player".
+    const isSoundCloud = /soundcloud\.com/i.test(String(item.external || item.embed || ""));
+    const provider = isSoundCloud ? "SoundCloud" : "Mixcloud";
+    title.textContent = item.label || provider;
+    external.href = item.external || (isSoundCloud ? "https://soundcloud.com/" : "https://www.mixcloud.com/");
+    external.textContent = `Open on ${provider} ↗`;
+    frame.title = `${provider} player`;
     const wrap = panel.querySelector(".embed-frame-wrap");
     if (wrap) { wrap.classList.add("is-loading"); wrap.classList.remove("is-loaded"); }
     if (frame.getAttribute("src") !== item.embed) frame.setAttribute("src", item.embed);
@@ -1391,6 +1397,13 @@
     if (!query) {
       toast("Type something to search");
       searchInput.focus();
+      return;
+    }
+    // A pasted Mixcloud/SoundCloud set URL is not a text query: open the
+    // provider's own player panel instead of sending it to the Archive search.
+    const embed = externalEmbed(query);
+    if (embed) {
+      openEmbed(embed);
       return;
     }
     navigate(`/api/search?q=${encodeURIComponent(query)}`);

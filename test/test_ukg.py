@@ -127,12 +127,42 @@ def test_soundcloud_search_parses_tracks(monkeypatch):
     assert results[0]["embed"].startswith("https://w.soundcloud.com/player/")
 
 
-def test_ui_supports_pasting_set_urls():
+def _app_js():
     path = os.path.join(os.path.dirname(HERE), "static", "app.js")
-    source = open(path, encoding="utf-8").read()
-    assert "externalEmbed" in source
-    assert "soundcloud.com" in source and "mixcloud.com" in source
-    assert "w.soundcloud.com/player" in source
+    return open(path, encoding="utf-8").read()
+
+
+def test_search_submit_opens_a_pasted_set_before_archive_search():
+    """Regression: the 1.4.2 claim was dead code — the submit handler always
+    navigated to /api/search and externalEmbed() was never called (audit
+    risk 2).  Assert the actual handler, not just that the function exists."""
+    source = _app_js()
+    start = source.index('$("search-form").addEventListener("submit"')
+    end = source.index('$("back").addEventListener', start)
+    handler = source[start:end]
+    assert "const embed = externalEmbed(query);" in handler
+    assert "if (embed)" in handler
+    assert "openEmbed(embed)" in handler
+    # The embed branch must run before the normal Archive navigation.
+    assert handler.index("externalEmbed(query)") < handler.index("navigate(`/api/search")
+    assert handler.index("openEmbed(embed)") < handler.index("navigate(`/api/search")
+    # Normal text search is unchanged.
+    assert "navigate(`/api/search?q=${encodeURIComponent(query)}`)" in handler
+    assert 'toast("Type something to search")' in handler
+
+
+def test_client_embed_iframes_are_allowed_by_the_csp():
+    """The widget hosts hard-coded in app.js must be the hosts the CSP frames.
+
+    A change to a widget URL without the matching `frame-src` entry silently
+    breaks the embed panel in a browser but passes every endpoint test."""
+    from urllib.parse import urlsplit
+    source = _app_js()
+    for widget in ("https://w.soundcloud.com/player/",
+                   "https://www.mixcloud.com/widget/iframe/"):
+        assert widget in source, "app.js no longer uses %s" % widget
+        assert "https://" + urlsplit(widget).netloc in app.CSP, \
+            "%s is not allowed by the CSP frame-src" % widget
 
 
 def test_every_server_section_has_a_client_route():

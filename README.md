@@ -9,22 +9,49 @@ Repo: <https://github.com/tcz009/raveplayer-web> · Kodi add-on: <https://github
 
 ## What it does
 
+Fifteen sections in the live `/api/menu`:
+
 - **Latest** — newest podcasts, tape packs and DNB Radio shows, merged.
 - **Kool FM** — the station live now plus every Kool FM set in the archive.
-- **Quick Filters** — Dreamscape, Helter Skelter, Fantazia, One Nation,
-  Centreforce, Don FM, Slammin' Vinyl (data in `filters.json`).
-- **Live Radio** — six genre groups from radio-browser.
-- **Tape Packs / By Year / Search** — the Internet Archive `ravetapes`
-  collection, 1987 to today.
+- **Quick Filters** — 15 classic series and stations: Dreamscape, Helter
+  Skelter, Fantazia, One Nation, Centreforce, Don FM, Slammin' Vinyl, DJ EZ,
+  Garage Nation, One In The Jungle and more (data in `filters.json`).
+- **Live Radio** — seven genre groups from radio-browser.
+- **Tape Packs** — the Internet Archive `ravetapes` collection, 1987 to today.
+- **By Year** — the same collection browsed by year.
 - **Podcasts & Mixes** — present-day shows from RSS feeds (`feeds.json`).
 - **DNB Radio** — recent jungle/DnB shows, stream resolved on demand.
+- **UK Garage** — DJ EZ and garage sets from Mixcloud plus Archive garage packs
+  (garage stations are in Live Radio).
+- **Mixcloud Sets** — a discovery hub of club and rave sets, played in
+  Mixcloud's own embedded player.
+- **SoundCloud Sets** — curated live sets from `soundcloud.json`, played in
+  SoundCloud's own embedded player. `/api/soundcloud?q=` adds API text search
+  when `SOUNDCLOUD_CLIENT_ID` is set.
+- **Rave Nights** — the 55-name researched catalogue of promotions, venues and
+  pirate stations, opening the Archive packs and Mixcloud sets recorded for
+  each.
 - **Legacy Sites** — RaveTapePacks.com, JungleTapes.com, Toronto archive.
 - **Favourites** — stored server-side in `RAVEWEB_DATA`.
-- **AirPlay / Cast** — the player shows an AirPlay button in Safari (and a Cast
-  button in Chromium-based browsers) once a track is loaded. It reports the
-  browser's real route availability and connection state; it never fakes a
-  "connected" badge. See [`docs/IOS-AIRPLAY.md`](docs/IOS-AIRPLAY.md) for the
-  iPhone/Range/receiver-reachability details.
+- **Search** — Archive text search. Paste a Mixcloud or SoundCloud set URL into
+  the search box instead and the embed panel opens that set.
+
+The player also shows an AirPlay button in Safari (and a Cast button in
+Chromium-based browsers) once a track is loaded. It reports the browser's real
+route availability and connection state; it never fakes a "connected" badge.
+See [`docs/IOS-AIRPLAY.md`](docs/IOS-AIRPLAY.md) for the iPhone/Range/
+receiver-reachability details.
+
+### Mixcloud and SoundCloud embeds
+
+Both set sections play in the providers' own player instead of proxying their
+audio: the iframe points at `https://www.mixcloud.com/widget/iframe/?…` or
+`https://w.soundcloud.com/player/?…`. The page CSP therefore allows exactly
+those two framed hosts (`frame-src`), and everything else is still refused by
+`default-src 'self'`. Pasting either kind of set URL into search opens the same
+panel, labelled for the provider, with an "Open on … ↗" link to the original
+page. A provider that moves its widget to a new domain needs the CSP entry
+updated (and a browser check — the offline tests only assert the header).
 
 ## Why a server proxy
 
@@ -101,6 +128,8 @@ check without guesswork.
 | `RAVEWEB_MAX_STREAMS` | `6` | Concurrent proxied streams per worker |
 | `RAVEWEB_STREAM_SECONDS` | `14400` | Absolute cap on one proxied stream |
 | `RAVEWEB_STREAM_BYTES` | `8 GiB` | Byte cap on one proxied stream |
+| `RAVEWEB_VERSION` | `VERSION` file | Overrides the version reported by `/healthz` and `/api/menu`, and the `?v=` cache-buster on the page |
+| `SOUNDCLOUD_CLIENT_ID` | empty | Enables `/api/soundcloud?q=` API text search; without it only the curated `soundcloud.json` sets are listed |
 
 The data directory is best effort: if it is read-only, favourites still list
 and the app keeps working, it just cannot save new ones. Stale cache entries
@@ -112,11 +141,17 @@ are pruned at startup (14 days), so a long-lived volume does not fill up.
 |---|---|
 | `/api/menu` | sections |
 | `/api/latest` | merged newest |
+| `/api/filters` | the quick-filter list |
 | `/api/packs`, `/api/packs/<key>` | Archive sections (`?page=`) |
 | `/api/item/<id>` | tracks in a tape pack |
-| `/api/filter/<key>` | quick filters (Kool FM included) |
+| `/api/filter/<key>` | one quick filter (Kool FM included) |
 | `/api/filter/<key>/live` | live stations for a filter |
 | `/api/live`, `/api/live/<tag>` | radio |
+| `/api/mixcloud?q=` | Mixcloud search; items carry the widget `embed` URL |
+| `/api/mixcloud_hub` | Mixcloud Sets hub (topic folders) |
+| `/api/ukg` | UK Garage hub: Mixcloud sets + Archive packs |
+| `/api/soundcloud?q=` | curated SoundCloud sets, or API search when configured |
+| `/api/raves`, `/api/rave/<key>` | Rave Nights catalogue and one entry |
 | `/api/podcasts`, `/api/podcast/<id>` | RSS feeds |
 | `/api/dnb`, `/api/dnb/<mix>` | DNB Radio |
 | `/api/years`, `/api/year/<year>` | by-year browse |
@@ -183,8 +218,8 @@ typography, hero and texture language — is documented in
 
 ## Tests
 
-The suite is offline (all providers mocked) and uses the Flask test client.
-`pytest` is a test-only dependency:
+The suite is 190 offline cases (all providers mocked) and uses the Flask test
+client. `pytest` is a test-only dependency:
 
 ```sh
 ./.venv/bin/pip install -r requirements-dev.txt
@@ -193,7 +228,8 @@ The suite is offline (all providers mocked) and uses the Flask test client.
 
 Covers the API routes, favourites lifecycle (including a read-only data dir),
 the SSRF rules, redirect handling, range/header behaviour and every stream
-error path, cache TTL/pruning, and static checks that every element id used by
+error path, cache TTL/pruning, the CSP `frame-src`/embed-host contract, the
+search-submit paste wiring, and static checks that every element id used by
 `app.js` exists in the template and that the JavaScript parses.
 
 See [`docs/CODE-REVIEW.md`](docs/CODE-REVIEW.md) for the review notes and the
@@ -207,6 +243,9 @@ changes ranked by value.
   `<audio>` element.
 - The first cold load of `/api/latest` waits for five RSS feeds plus the
   Archive; later loads are served from the on-disk TTL cache.
+- Mixcloud and SoundCloud sets play in the providers' own iframes. The CSP
+  allows exactly the two widget hosts above; a provider domain change breaks
+  the panel until the `frame-src` entry is updated.
 - No authentication. This is a LAN app: do not publish port 8097 directly.
 
 ## Layout
