@@ -15,7 +15,7 @@ MAX_STREAMS="${MAX_STREAMS:-6}"
 tar czf /tmp/raveplayer-web.tgz \
     --exclude='.venv' --exclude='.git' --exclude='test' --exclude='docs' \
     --exclude='.pytest_cache' --exclude='__pycache__' --exclude='*.pyc' \
-    --exclude='data' -C . .
+    --exclude='data' --exclude='AGENTS.md' --exclude='rave-player-space' -C . .
 scp -q -i "$KEY" -o BatchMode=yes /tmp/raveplayer-web.tgz "$HOST:/tmp/raveplayer-web.tgz"
 
 ssh -i "$KEY" -o BatchMode=yes "$HOST" "bash -s" <<REMOTE
