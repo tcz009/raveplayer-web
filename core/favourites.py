@@ -56,11 +56,35 @@ def load():
 
 
 def save(entries):
+    """Write the list atomically: same-dir temp file, fsync, then replace.
+
+    A crash or full disk in the middle of a plain ``open(..., "w")`` could
+    truncate the store and lose every favourite (audit risk 7).  The temp
+    file lives next to the real one so ``os.replace`` stays on one
+    filesystem, and the previous file is only swapped out once the new JSON
+    is safely on disk.  The stored shape (a plain JSON list) is unchanged.
+    """
+    path = _path()
+    directory = os.path.dirname(path)
+    temporary = None
     try:
-        with open(_path(), "w", encoding="utf-8") as handle:
+        os.makedirs(directory, exist_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=directory,
+            prefix=".tmp-", suffix=".json", delete=False,
+        ) as handle:
+            temporary = handle.name
             json.dump(entries[:MAX_ENTRIES], handle, ensure_ascii=False)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
         return True
-    except OSError:
+    except (OSError, TypeError, ValueError):
+        if temporary:
+            try:
+                os.remove(temporary)
+            except OSError:
+                pass
         return False
 
 

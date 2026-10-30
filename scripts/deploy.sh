@@ -2,15 +2,26 @@
 # Deploy the web build to server-host and restart the container.
 #   SSH_KEY=<key-dir>/key-file ./scripts/deploy.sh
 #   ALLOW_PRIVATE=1 MAX_STREAMS=8 ./scripts/deploy.sh   # optional overrides
+#
+# The image is pinned to VERSION (e.g. raveplayer-web:1.6.6) and also tagged
+# :latest, with the version and the checked-out git revision recorded as
+# org.opencontainers.image.* labels so a deployed box can be traced back to a
+# commit.  Bump VERSION, commit and tag vX.Y.Z on main before deploying.
 set -eu
 cd "$(dirname "$0")/.."
 HOST="${HOST:-user@192.0.2.10}"
 KEY="${SSH_KEY:-$HOME/.ssh/key-file}"
 DEST=/opt/raveplayer-web
 PORT="${PORT:-8097}"
-IMAGE=raveplayer-web:1.0
+VERSION="$(cat VERSION 2>/dev/null || true)"
+[ -n "$VERSION" ] || { echo "VERSION file is missing or empty" >&2; exit 1; }
+REVISION="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+IMAGE="raveplayer-web:$VERSION"
+LATEST_IMAGE="raveplayer-web:latest"
 ALLOW_PRIVATE="${ALLOW_PRIVATE:-0}"
 MAX_STREAMS="${MAX_STREAMS:-6}"
+
+echo "deploying $IMAGE (git $REVISION), also tagging $LATEST_IMAGE"
 
 tar czf /tmp/raveplayer-web.tgz \
     --exclude='.venv' --exclude='.git' --exclude='test' --exclude='docs' \
@@ -31,7 +42,10 @@ mkdir -p $DEST/data
 [ -d /tmp/raveplayer-data ] && cp -a /tmp/raveplayer-data/. $DEST/data/ && rm -rf /tmp/raveplayer-data
 chown -R 10001:10001 $DEST/data
 cd $DEST
-docker build -q -t $IMAGE .
+docker build -q \
+  --label "org.opencontainers.image.version=$VERSION" \
+  --label "org.opencontainers.image.revision=$REVISION" \
+  -t $IMAGE -t $LATEST_IMAGE .
 docker rm -f raveplayer-web >/dev/null 2>&1 || true
 docker run -d --name raveplayer-web --restart unless-stopped \
   --security-opt no-new-privileges:true \
@@ -45,7 +59,7 @@ docker run -d --name raveplayer-web --restart unless-stopped \
 for i in \$(seq 1 20); do
   if curl -fsS -m 4 http://127.0.0.1:$PORT/healthz; then
     echo
-    echo "healthy after \${i}s"
+    echo "healthy after \${i}s - $IMAGE (revision $REVISION)"
     docker ps --filter name=raveplayer-web --format '{{.Names}} {{.Status}}'
     exit 0
   fi
@@ -57,4 +71,4 @@ exit 1
 REMOTE
 
 rm -f /tmp/raveplayer-web.tgz
-echo "deployed: http://192.0.2.10:$PORT"
+echo "deployed: http://192.0.2.10:$PORT ($IMAGE, revision $REVISION)"

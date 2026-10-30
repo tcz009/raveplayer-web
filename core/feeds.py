@@ -11,7 +11,7 @@ import os
 import re
 import xml.etree.ElementTree as ET
 
-from . import fetch as http
+from . import cache, fetch as http
 
 ITUNES = "{http://www.itunes.com/dtds/podcast-1.0.0}"
 MEDIA = "{http://search.yahoo.com/mrss/}"
@@ -142,3 +142,29 @@ def episodes(feed_id, limit=60):
     if not body:
         return []
     return parse(body)[:limit]
+
+
+def _count_from_body(entry):
+    """Parse one feed and return its episode count, or None on a fetch miss."""
+    body = http.fetch(entry["url"], timeout=25, ttl=FEED_TTL)
+    if not body:
+        return None
+    return len(parse(body))
+
+
+def count(feed_id):
+    """Episode count for a feed, cached for :data:`FEED_TTL`.
+
+    ``/api/podcasts`` only needs the number for its folder rows, and fetching
+    and parsing the full 200-episode document for every feed on every page
+    load is wasted work.  The count shares the feed body cache TTL, so it is
+    recomputed at most once per TTL window.  A failed fetch returns 0 and is
+    not cached, so a temporary outage recovers on the next request.
+    """
+    entry = feed(feed_id)
+    if not entry:
+        return 0
+    cached = cache.remember(
+        "feeds:count:%s" % entry["url"], FEED_TTL, lambda: _count_from_body(entry)
+    )
+    return cached if isinstance(cached, int) and cached >= 0 else 0

@@ -304,10 +304,28 @@ def test_podcasts(web, monkeypatch):
     monkeypatch.setattr("app.feeds.registry", lambda: [
         {"id": "jungle-lab", "name": "Jungle Lab", "url": "https://x/feed", "plot": ""},
     ])
-    monkeypatch.setattr("app.feeds.episodes", lambda feed_id, limit=60: [{"title": "a", "url": "u"}])
+    monkeypatch.setattr("app.feeds.count", lambda feed_id: 1)
     payload = web.get("/api/podcasts").get_json()
     assert payload["items"][0]["sub"] == "1 episodes"
     assert payload["items"][0]["open"] == "/api/podcast/jungle-lab"
+
+
+def test_podcasts_uses_cached_counts_without_downloading_episode_lists(web, monkeypatch):
+    """Regression: /api/podcasts fetched every feed (limit 200) just to count."""
+    monkeypatch.setattr("app.feeds.registry", lambda: [
+        {"id": "one", "name": "Feed One", "url": "https://x/1", "plot": ""},
+        {"id": "two", "name": "Feed Two", "url": "https://x/2", "plot": ""},
+    ])
+    monkeypatch.setattr("app.feeds.count", lambda feed_id: {"one": 5, "two": 0}[feed_id])
+
+    def boom(*args, **kwargs):
+        raise AssertionError("podcasts must not download full episode lists to count")
+
+    monkeypatch.setattr("app.feeds.episodes", boom)
+    payload = web.get("/api/podcasts").get_json()
+    assert payload["title"] == "Podcasts & Mixes"
+    assert [item["label"] for item in payload["items"]] == ["Feed One", "Feed Two"]
+    assert [item["sub"] for item in payload["items"]] == ["5 episodes", "0 episodes"]
 
 
 def test_podcast_episodes(web, monkeypatch):

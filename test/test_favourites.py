@@ -192,3 +192,54 @@ def test_store_is_plain_json(web, tmp_path, monkeypatch):
     stored = json.loads((fav_dir / "favourites.json").read_text(encoding="utf-8"))
     assert stored[0]["title"] == "Episode 1"
     assert stored[0]["kind"] == "stream"
+
+
+# --------------------------------------------------------------------------- atomic save
+
+
+def test_save_is_atomic_in_the_same_directory(tmp_path, monkeypatch):
+    """One fsync'd temp file next to the store, then a single os.replace."""
+    from core import favourites
+
+    fav_dir = tmp_path / "favs-atomic"
+    monkeypatch.setenv("RAVEPLAYER_FAV_DIR", str(fav_dir))
+    replaces, fsyncs = [], []
+    real_replace, real_fsync = os.replace, os.fsync
+
+    def spy_replace(src, dst):
+        replaces.append((src, dst))
+        real_replace(src, dst)
+
+    def spy_fsync(fd):
+        fsyncs.append(fd)
+        real_fsync(fd)
+
+    monkeypatch.setattr(favourites.os, "replace", spy_replace)
+    monkeypatch.setattr(favourites.os, "fsync", spy_fsync)
+
+    assert favourites.save([PACK_FAV, STREAM_FAV]) is True
+    assert len(replaces) == 1
+    temporary, destination = replaces[0]
+    assert os.path.dirname(temporary) == os.path.dirname(destination) == str(fav_dir)
+    assert os.path.basename(temporary).startswith(".tmp-")
+    assert destination == str(fav_dir / "favourites.json")
+    assert fsyncs, "the temp file must be fsync'd before the replace"
+    assert not list(fav_dir.glob(".tmp-*")), "temporary file left behind"
+    assert [entry["title"] for entry in favourites.load()] == ["Dreamscape 10", "Episode 1"]
+
+
+def test_failed_replace_keeps_the_previous_store(tmp_path, monkeypatch):
+    """A crash/full disk during save must not truncate the old favourites."""
+    from core import favourites
+
+    fav_dir = tmp_path / "favs-failed"
+    monkeypatch.setenv("RAVEPLAYER_FAV_DIR", str(fav_dir))
+    assert favourites.save([PACK_FAV]) is True
+
+    def explode(src, dst):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(favourites.os, "replace", explode)
+    assert favourites.save([STREAM_FAV]) is False
+    assert [entry["title"] for entry in favourites.load()] == ["Dreamscape 10"]
+    assert not list(fav_dir.glob(".tmp-*")), "failed save left a temporary file"

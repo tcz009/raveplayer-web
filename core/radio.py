@@ -1,5 +1,14 @@
 # -*- coding: utf-8 -*-
-"""Live radio via radio-browser.info — a community directory that stays current."""
+"""Live radio via radio-browser.info — a community directory that stays current.
+
+Web-only latency optimisation: every section open used to hit radio-browser,
+so a cold ``/api/live/<tag>`` paid a network round trip each time.  The web
+copies of this module cache the directory listing for :data:`LIVE_TTL`
+seconds.  The Kodi add-on deliberately keeps its radio lists uncached (the
+directory is a live view, and the add-on opens one list at a time with a
+user-waiting spinner), so keep this TTL on the web side when the two copies
+are mirrored.
+"""
 
 from . import fetch as http
 
@@ -8,6 +17,8 @@ MIRRORS = [
     "https://nl1.api.radio-browser.info",
     "https://at1.api.radio-browser.info",
 ]
+
+LIVE_TTL = 600
 
 
 def stations(tag, limit=100):
@@ -21,7 +32,7 @@ def stations(tag, limit=100):
         "&order=clickcount&reverse=true" % (http.quote(str(tag)), limit)
     )
     for mirror in MIRRORS:
-        data = http.fetch_json(mirror + query, timeout=20)
+        data = http.fetch_json(mirror + query, timeout=20, ttl=LIVE_TTL)
         if not isinstance(data, list):
             continue
         stations = [
@@ -42,7 +53,7 @@ def stations_by_name(name, limit=20):
     query = "/json/stations/search?name=%s&limit=%d&hidebroken=true&order=clickcount&reverse=true" % (
         http.quote(name), limit)
     for mirror in MIRRORS:
-        data = http.fetch_json(mirror + query, timeout=20)
+        data = http.fetch_json(mirror + query, timeout=20, ttl=LIVE_TTL)
         if isinstance(data, list):
             return [station for station in data if isinstance(station, dict)]
     return []

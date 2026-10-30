@@ -394,14 +394,18 @@ def api_live_tag(key):
 def api_mixcloud():
     query = request.args.get("q", "DJ EZ").strip()
     limit = request.args.get("limit", type=int) or 24
-    items = [
-        _track(entry["title"], "%s%s" % (entry["user"], (" · " + entry["created"][:10]) if entry.get("created") else ""),
-               None, entry.get("thumb") or ART + "radio.png")
-        for entry in mixcloud.search(query, limit=limit)
-    ]
-    for item, entry in zip(items, mixcloud.search(query, limit=limit)):
+    # One search call: two calls could see different cache states and pair a
+    # title with another set's embed URL (audit risk 3).
+    entries = mixcloud.search(query, limit=limit)
+    items = []
+    for entry in entries:
+        item = _track(entry["title"],
+                      "%s%s" % (entry["user"],
+                                (" · " + entry["created"][:10]) if entry.get("created") else ""),
+                      None, entry.get("thumb") or ART + "radio.png")
         item["embed"] = entry["embed"]
         item["external"] = entry["url"]
+        items.append(item)
     return jsonify({"title": "Mixcloud: %s" % query, "items": items})
 
 
@@ -570,7 +574,9 @@ def api_podcasts():
     items = []
     for entry in feeds.registry():
         try:
-            count = len(feeds.episodes(entry["id"], limit=200))
+            # Cached body + count: this list only needs the number, not the
+            # full 200-episode document for every feed on every load.
+            count = feeds.count(entry["id"])
         except Exception:
             count = 0
         items.append(_folder(entry["name"], "%d episodes" % count,

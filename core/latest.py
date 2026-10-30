@@ -4,15 +4,25 @@
 Sources emit different date shapes (RFC 822 from feeds, ISO from DNBRADIO,
 year/date strings from the Archive), so everything is normalised to a
 `datetime` here and undated items sort last.
+
+Web-first latency fix: the feeds, Archive and DNBRADIO requests are
+independent, so ``merge()`` runs them in a small bounded thread pool instead
+of adding their timeouts together.  The Kodi add-on's copy still merges
+sequentially today; mirror this change there deliberately if the add-on
+starts using the same merge (its UI already paginates per source).
 """
 
 import datetime
 import random
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from . import archive, dnbradio, feeds
+from . import archive, dnbradio, feeds, kodi
 
 RAVE_COLLECTION = "collection:ravetapes AND mediatype:audio"
+# Small on purpose: a household doesn't need more sockets, and capping this
+# keeps a dead provider from spawning threads without bound.
+MERGE_WORKERS = 4
 
 
 def parse_date(value):
@@ -38,19 +48,25 @@ def parse_date(value):
     return None
 
 
+def _feed_items(entry, per_feed=6):
+    items = []
+    for episode in feeds.episodes(entry["id"], limit=per_feed):
+        when = parse_date(episode.get("published"))
+        items.append({
+            "kind": "episode",
+            "title": episode["title"],
+            "url": episode["url"],
+            "source": entry["name"],
+            "when": when,
+            "duration": episode.get("duration"),
+        })
+    return items
+
+
 def recent_episodes(per_feed=6):
     items = []
     for entry in feeds.registry():
-        for episode in feeds.episodes(entry["id"], limit=per_feed):
-            when = parse_date(episode.get("published"))
-            items.append({
-                "kind": "episode",
-                "title": episode["title"],
-                "url": episode["url"],
-                "source": entry["name"],
-                "when": when,
-                "duration": episode.get("duration"),
-            })
+        items.extend(_feed_items(entry, per_feed))
     return items
 
 
@@ -86,7 +102,34 @@ def recent_dnb(limit=12):
 
 
 def merge(limit=60):
-    items = recent_episodes() + recent_packs() + recent_dnb()
+    """Newest items from every source, date-sorted, undated last.
+
+    Each feed and the Archive/DNBRADIO calls are independent, so they run in
+    a bounded pool.  A provider that raises is logged and contributes no
+    items; the others still land.  Results are reassembled in the old
+    source order so equal timestamps keep their previous ordering.
+    """
+    loaders = [
+        ("podcast:%s" % entry["id"], (lambda entry=entry: _feed_items(entry)))
+        for entry in feeds.registry()
+    ]
+    loaders.append(("packs", recent_packs))
+    loaders.append(("dnb", recent_dnb))
+
+    found = {}
+    with ThreadPoolExecutor(max_workers=MERGE_WORKERS) as pool:
+        futures = {pool.submit(loader): name for name, loader in loaders}
+        for future in as_completed(futures):
+            name = futures[future]
+            try:
+                found[name] = list(future.result() or [])
+            except Exception as exc:  # one dead source must not hide the rest
+                found[name] = []
+                kodi.log("latest: ignoring %s (%s)" % (name, exc), level=30)
+
+    items = []
+    for name, _loader in loaders:
+        items.extend(found.get(name, []))
     dated = [item for item in items if item.get("when")]
     undated = [item for item in items if not item.get("when")]
     dated.sort(key=lambda item: item["when"], reverse=True)

@@ -76,6 +76,44 @@ def test_mixcloud_endpoint_shape(web, monkeypatch):
     assert "embed" in payload["items"][0]
 
 
+def test_mixcloud_endpoint_searches_once_and_pairs_its_own_entries(web, monkeypatch):
+    """Regression: the route used to search twice and zip the two lists.
+
+    A cache expiry between the calls could pair a title with a different
+    set's embed URL (audit risk 3). The route must call search exactly once
+    and copy embed/external from that same list.
+    """
+    calls = []
+    first = [
+        {"title": "First set", "url": "https://www.mixcloud.com/a/one/", "user": "A",
+         "embed": "https://www.mixcloud.com/widget/iframe/?feed=one", "thumb": "",
+         "created": "2026-01-01"},
+        {"title": "Second set", "url": "https://www.mixcloud.com/b/two/", "user": "B",
+         "embed": "https://www.mixcloud.com/widget/iframe/?feed=two", "thumb": "",
+         "created": ""},
+    ]
+    second = [
+        {"title": "WRONG", "url": "https://www.mixcloud.com/wrong/", "user": "X",
+         "embed": "https://www.mixcloud.com/widget/iframe/?feed=wrong", "thumb": "",
+         "created": ""},
+    ]
+
+    def fake_search(query, limit=24):
+        calls.append((query, limit))
+        return first if len(calls) == 1 else second
+
+    monkeypatch.setattr(app.mixcloud, "search", fake_search)
+    payload = web.get("/api/mixcloud?q=careful&limit=2").get_json()
+    assert calls == [("careful", 2)], "search must be called exactly once"
+    items = payload["items"]
+    assert [item["label"] for item in items] == ["First set", "Second set"]
+    assert items[0]["embed"] == "https://www.mixcloud.com/widget/iframe/?feed=one"
+    assert items[0]["external"] == "https://www.mixcloud.com/a/one/"
+    assert items[1]["embed"] == "https://www.mixcloud.com/widget/iframe/?feed=two"
+    assert items[1]["external"] == "https://www.mixcloud.com/b/two/"
+    assert "WRONG" not in [item["label"] for item in items]
+
+
 def test_garage_filters_exist():
     import json
     path = os.path.join(os.path.dirname(HERE), "filters.json")

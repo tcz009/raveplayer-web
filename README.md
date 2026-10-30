@@ -100,20 +100,40 @@ python3 -m venv .venv
 Or with Docker:
 
 ```sh
-docker build -t raveplayer-web:1.0 .
+docker build -t raveplayer-web:latest .
 docker run -d --name raveplayer-web --restart unless-stopped \
-  -p 8097:8097 -v "$PWD/data:/data" -e RAVEWEB_DATA=/data raveplayer-web:1.0
+  -p 8097:8097 -v "$PWD/data:/data" -e RAVEWEB_DATA=/data raveplayer-web:latest
 ```
 
 `docker compose up -d` also works where the Compose plugin is installed
 (the NAS currently has plain Docker only).
 
-Deploy to the NAS from a checkout:
+Deploy to the NAS from a checkout (on this Mac the key lives at
+`<key-dir>/key-file`; the script's default is `~/.ssh/key-file`):
 
 ```sh
-SSH_KEY=~/.ssh/key-file ./scripts/deploy.sh
+SSH_KEY=<key-dir>/key-file ./scripts/deploy.sh
 # optional: ALLOW_PRIVATE=1 MAX_STREAMS=8 ./scripts/deploy.sh
 ```
+
+`deploy.sh` reads `VERSION`, builds `raveplayer-web:<version>` and also tags
+it `raveplayer-web:latest`, and records `org.opencontainers.image.version`
+plus `org.opencontainers.image.revision` (the checked-out git short sha) as
+image labels, so a deployed box can be traced to a commit. It preserves
+`/data`, fixes its ownership and polls `/healthz` for 20 s.
+
+### Release note
+
+Web releases are git tags on `main`; there is no release automation.
+
+1. bump `VERSION` and update the docs/test counts;
+2. commit on `main` and push;
+3. tag `vX.Y.Z` and push the tag:
+   `git tag vX.Y.Z && git push origin vX.Y.Z`;
+4. deploy from that checkout with `deploy.sh`.
+
+The image tag matches `VERSION`, so rollback is a redeploy of the previous
+tag/checkout (check out that tag, run `deploy.sh` again).
 
 The bind-mounted `data/` directory must be writable by uid 10001 (the
 container user) — `deploy.sh` fixes that for you. Favourites failing silently
@@ -219,7 +239,7 @@ typography, hero and texture language — is documented in
 
 ## Tests
 
-The suite is 190 offline cases (all providers mocked) and uses the Flask test
+The suite is 203 offline cases (all providers mocked) and uses the Flask test
 client. `pytest` is a test-only dependency:
 
 ```sh
@@ -227,10 +247,13 @@ client. `pytest` is a test-only dependency:
 ./.venv/bin/python -m pytest test -q
 ```
 
-Covers the API routes, favourites lifecycle (including a read-only data dir),
-the SSRF rules, redirect handling, range/header behaviour and every stream
-error path, cache TTL/pruning, the CSP `frame-src`/embed-host contract, the
-search-submit paste wiring, and static checks that every element id used by
+Covers the API routes, favourites lifecycle (including read-only and
+failed-write/atomic-save cases), the SSRF rules, redirect handling,
+range/header behaviour and every stream error path, cache TTL/pruning, the
+radio/podcast TTL caches, the parallel `/api/latest` merge (ordering, failure
+tolerance and concurrency), the CSP `frame-src`/embed-host contract, the
+search-submit paste wiring, the deploy script's version pinning/labels
+(parsed with `sh -n`), and static checks that every element id used by
 `app.js` exists in the template and that the JavaScript parses.
 
 See [`docs/CODE-REVIEW.md`](docs/CODE-REVIEW.md) for the review notes and the
@@ -242,8 +265,12 @@ changes ranked by value.
   supported by Python's `http.client`; use an HTTP/Icecast mount instead.
 - HLS (`.m3u8`) stations are proxied but only Safari can play them in a
   `<audio>` element.
-- The first cold load of `/api/latest` waits for five RSS feeds plus the
-  Archive; later loads are served from the on-disk TTL cache.
+- The first cold load of `/api/latest` fetches five RSS feeds, the Archive and
+  DNB Radio in a small thread pool, so the wait is bounded by the slowest
+  source rather than their sum (still a few seconds on an empty cache).
+- Live radio lists and podcast episode counts are cached on disk for 10 and
+  15 minutes (`core/radio.LIVE_TTL`, `core/feeds.FEED_TTL`), so a new station
+  or episode can take up to one TTL window to appear.
 - Mixcloud and SoundCloud sets play in the providers' own iframes. The CSP
   allows exactly the two widget hosts above; a provider domain change breaks
   the panel until the `frame-src` entry is updated.

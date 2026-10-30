@@ -9,15 +9,18 @@ Everything below was run locally on the stated commit with the app served by
 gunicorn on `127.0.0.1:8098` against the real Internet Archive, radio-browser,
 RSS feeds and ravetapepacks.com, plus an offline pytest suite.
 
-> **Update note (30 Oct 2026, web 1.6.4).** This is a historical review and is
-> left as written. It is now stale in several places: the app has **15
-> sections** in `/api/menu`, not 11; the suite is **190 offline tests**, not
+> **Update note (30 Oct 2026, web 1.6.4–1.6.6).** This is a historical review
+> and is left as written. It is now stale in several places: the app has **15
+> sections** in `/api/menu`, not 11; the suite is **203 offline tests**, not
 > 153; the API now includes `/api/filters`, `/api/mixcloud`,
 > `/api/mixcloud_hub`, `/api/ukg`, `/api/raves`, `/api/rave/<key>` and
 > `/api/soundcloud`; `RAVEWEB_VERSION` and `SOUNDCLOUD_CLIENT_ID` are
-> documented; and 1.6.4 added CSP `frame-src` for the Mixcloud widget
-> (`www.mixcloud.com`) and the SoundCloud widget (`w.soundcloud.com`) plus the
-> paste-a-set-URL search flow. Current behaviour, routes and counts: see
+> documented; 1.6.4 added CSP `frame-src` for the Mixcloud/SoundCloud widgets
+> plus the paste-a-set-URL search flow (1.6.5 followed Mixcloud's redirect to
+> `player-widget.mixcloud.com`); and 1.6.6 made favourites writes atomic,
+> removed the `/api/mixcloud` double search, cached live-radio lists and
+> podcast counts, parallelised `/api/latest`, and pinned deploys to `VERSION`
+> with OCI version/revision labels. Current behaviour, routes and counts: see
 > [`../README.md`](../README.md). The historical findings below (proxy, SSRF,
 > favourites) are unchanged and still useful.
 
