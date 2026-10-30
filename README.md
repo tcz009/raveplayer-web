@@ -46,8 +46,9 @@ receiver-reachability details.
 
 Both set sections play in the providers' own player instead of proxying their
 audio: the iframe points at `https://www.mixcloud.com/widget/iframe/?…` or
-`https://w.soundcloud.com/player/?…`. The page CSP therefore allows exactly
-those two framed hosts (`frame-src`), and everything else is still refused by
+`https://w.soundcloud.com/player/?…`. Mixcloud answers with a 301 to
+`https://player-widget.mixcloud.com/…`, so the page CSP allows exactly those
+three framed hosts (`frame-src`); everything else is still refused by
 `default-src 'self'`. Pasting either kind of set URL into search opens the same
 panel, labelled for the provider, with an "Open on … ↗" link to the original
 page. A provider that moves its widget to a new domain needs the CSP entry
@@ -92,8 +93,8 @@ provider marks hotlink-protected MP3s.
 
 ```sh
 python3 -m venv .venv
-./.venv/bin/pip install -r requirements.txt
-./.venv/bin/gunicorn -w 2 -k gthread --threads 8 -b 0.0.0.0:8097 app:app
+./.venv/bin/python -m pip install -r requirements.txt
+./.venv/bin/python -m gunicorn -w 2 -k gthread --threads 8 -b 0.0.0.0:8097 app:app
 ```
 
 Or with Docker:
@@ -222,7 +223,7 @@ The suite is 190 offline cases (all providers mocked) and uses the Flask test
 client. `pytest` is a test-only dependency:
 
 ```sh
-./.venv/bin/pip install -r requirements-dev.txt
+./.venv/bin/python -m pip install -r requirements-dev.txt
 ./.venv/bin/python -m pytest test -q
 ```
 

@@ -74,14 +74,14 @@ def test_csp_allows_the_embed_players_without_widening_anything_else(web):
     to the two widget hosts and leave every other directive unchanged.
     """
     csp = web.get("/").headers["Content-Security-Policy"]
-    assert "frame-src https://www.mixcloud.com https://w.soundcloud.com" in csp
+    assert "frame-src https://www.mixcloud.com https://player-widget.mixcloud.com https://w.soundcloud.com" in csp
     for directive in ("default-src 'self'", "img-src 'self' data: https: http:",
                       "media-src 'self'", "script-src 'self'", "style-src 'self'",
                       "connect-src 'self'", "manifest-src 'self'",
                       "frame-ancestors 'self'", "base-uri 'none'", "form-action 'self'"):
         assert directive in csp, "CSP lost %r" % directive
     frame_src = [part.strip() for part in csp.split(";") if part.strip().startswith("frame-src")]
-    assert frame_src == ["frame-src https://www.mixcloud.com https://w.soundcloud.com"]
+    assert frame_src == ["frame-src https://www.mixcloud.com https://player-widget.mixcloud.com https://w.soundcloud.com"]
 
 
 def test_csp_is_identical_on_the_static_asset_responses(web):
@@ -90,7 +90,7 @@ def test_csp_is_identical_on_the_static_asset_responses(web):
     page = web.get("/").headers["Content-Security-Policy"]
     asset = web.get("/static/app.js").headers["Content-Security-Policy"]
     assert asset == page
-    assert "frame-src https://www.mixcloud.com https://w.soundcloud.com" in asset
+    assert "frame-src https://www.mixcloud.com https://player-widget.mixcloud.com https://w.soundcloud.com" in asset
 
 
 def test_api_404_is_json(web):

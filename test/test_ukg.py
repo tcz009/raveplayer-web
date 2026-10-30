@@ -163,6 +163,9 @@ def test_client_embed_iframes_are_allowed_by_the_csp():
         assert widget in source, "app.js no longer uses %s" % widget
         assert "https://" + urlsplit(widget).netloc in app.CSP, \
             "%s is not allowed by the CSP frame-src" % widget
+    # Mixcloud's widget redirects to player-widget.mixcloud.com; CSP checks
+    # every redirect hop, so the canonical widget host alone is not enough.
+    assert "https://player-widget.mixcloud.com" in app.CSP
 
 
 def test_every_server_section_has_a_client_route():
