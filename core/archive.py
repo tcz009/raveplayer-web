@@ -117,16 +117,32 @@ def audio_files(identifier):
     if not isinstance(metadata, dict):
         metadata = {}
     item_title = _as_text(metadata.get("title"))
+    base = _direct_base(data)
     return [
         {
             "name": entry.get("name"),
             "title": _track_title(entry, item_title),
             "size": _as_int(entry.get("size")),
             "length": _duration(entry.get("length")),
-            "url": DOWNLOAD_URL % (_quote(identifier), urllib.parse.quote(entry["name"], safe="/")),
+            "url": (base + urllib.parse.quote(entry["name"], safe="/")) if base
+                   else DOWNLOAD_URL % (_quote(identifier), urllib.parse.quote(entry["name"], safe="/")),
         }
         for entry in ordered
     ]
+
+
+def _direct_base(data):
+    """Storage node base URL from item metadata (avoids a bad /download redirect)."""
+    if not isinstance(data, dict):
+        return ""
+    directory = data.get("dir")
+    if not isinstance(directory, str) or not directory.startswith("/"):
+        return ""
+    for key in ("d1", "server", "d2"):
+        node = data.get(key)
+        if isinstance(node, str) and node and "/" not in node and " " not in node:
+            return "https://%s%s/" % (node, directory.rstrip("/"))
+    return ""
 
 
 def _file_key(name):
