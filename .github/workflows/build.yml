@@ -23,7 +23,9 @@ jobs:
   browser:
     # Kept out of the offline job: this needs Chromium (~2 min) and exists to
     # catch what unit tests cannot (CSP/embed panel, paste-a-set, boot/nav).
-    runs-on: ubuntu-latest
+    # Pin Ubuntu: Playwright 1.60 does not support the ubuntu-26.04 runner yet
+    # ("Playwright does not support chromium on ubuntu26.04-x64").
+    runs-on: ubuntu-24.04
     needs: test
     timeout-minutes: 15
     steps:
