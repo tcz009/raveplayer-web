@@ -448,8 +448,8 @@ a 256-colour palette so the textures stay small.
 
 ## 11. Verification
 
-- `./.venv/bin/python -m pytest test -q` → 171 passed (the current tree has
-  seven more tests than the 164 in the brief; all are green).
+- `./.venv/bin/python -m pytest test -q` → 203 passed (offline suite; the
+  headless-browser smoke suite adds 7 more via `pytest test_e2e`).
 - `node --check static/app.js` → clean.
 - `gunicorn -b 127.0.0.1:8101 app:app`, then `curl` `/`, `/static/app.css` and
   every referenced `/static/art/*` → 200; server stopped afterwards.

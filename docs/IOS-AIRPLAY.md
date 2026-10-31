@@ -264,7 +264,7 @@ the button; waking the Apple TV normally re-fires the event.
 
 ```
 ./.venv/bin/python -m pytest test -q
-164 passed
+203 passed
 
 node --check static/app.js
 (ok)
