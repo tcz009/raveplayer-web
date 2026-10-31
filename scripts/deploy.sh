@@ -1,6 +1,6 @@
 #!/bin/sh
-# Deploy the web build to server-host and restart the container.
-#   SSH_KEY=<key-dir>/key-file ./scripts/deploy.sh
+# Deploy the web build to a Docker host and restart the container.
+#   HOST=user@server SSH_KEY=/path/to/private/key ./scripts/deploy.sh
 #   ALLOW_PRIVATE=1 MAX_STREAMS=8 ./scripts/deploy.sh   # optional overrides
 #
 # The image is pinned to VERSION (e.g. raveplayer-web:1.6.6) and also tagged
@@ -9,9 +9,9 @@
 # commit.  Bump VERSION, commit and tag vX.Y.Z on main before deploying.
 set -eu
 cd "$(dirname "$0")/.."
-HOST="${HOST:-user@192.0.2.10}"
-KEY="${SSH_KEY:-$HOME/.ssh/key-file}"
-DEST=/opt/raveplayer-web
+HOST="${HOST:?set HOST=user@server}"
+KEY="${SSH_KEY:?set SSH_KEY=/path/to/private/key}"
+DEST="${DEST:-/opt/raveplayer-web}"
 PORT="${PORT:-8097}"
 VERSION="$(cat VERSION 2>/dev/null || true)"
 [ -n "$VERSION" ] || { echo "VERSION file is missing or empty" >&2; exit 1; }
@@ -71,4 +71,4 @@ exit 1
 REMOTE
 
 rm -f /tmp/raveplayer-web.tgz
-echo "deployed: http://192.0.2.10:$PORT ($IMAGE, revision $REVISION)"
+echo "deployed on $HOST (port $PORT): $IMAGE, revision $REVISION"

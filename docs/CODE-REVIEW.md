@@ -1,6 +1,6 @@
 # Rave Player web — code review
 
-Review of `raveplayer-web` (Flask app behind `http://192.0.2.10:8097`).
+Review of `raveplayer-web` (Flask app behind `http://<server>:8097`).
 Scope: `app.py`, templates, CSS/JS, scripts, packaging, tests. The shared
 provider modules in `core/` (except the Kodi shim) were off limits; findings
 there are reported at the end instead of edited.

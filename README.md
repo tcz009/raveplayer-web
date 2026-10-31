@@ -3,7 +3,7 @@
 The Kodi add-on's content sources, served as a browser app so it can run in
 Docker on the home server and be used from any device on the LAN.
 
-Live on `server-host`: <http://192.0.2.10:8097>
+Self-hosted; examples below use `http://<server>:8097`.
 
 Repo: <https://github.com/tcz009/raveplayer-web> · Kodi add-on: <https://github.com/tcz009/plugin.audio.raveplayer>
 
@@ -108,11 +108,11 @@ docker run -d --name raveplayer-web --restart unless-stopped \
 `docker compose up -d` also works where the Compose plugin is installed
 (the NAS currently has plain Docker only).
 
-Deploy to the NAS from a checkout (on this Mac the key lives at
-`<key-dir>/key-file`; the script's default is `~/.ssh/key-file`):
+Deploy to a Docker host from a checkout (the script requires an SSH target and
+key; nothing about the server is baked into the repo):
 
 ```sh
-SSH_KEY=<key-dir>/key-file ./scripts/deploy.sh
+HOST=user@server SSH_KEY=/path/to/private/key ./scripts/deploy.sh
 # optional: ALLOW_PRIVATE=1 MAX_STREAMS=8 ./scripts/deploy.sh
 ```
 

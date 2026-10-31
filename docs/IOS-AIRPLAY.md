@@ -2,7 +2,7 @@
 
 Scope: `templates/index.html`, `static/app.js`, `static/app.css`, tests and this
 document. The app is served as plain HTTP on a private LAN address
-(`http://192.0.2.10:8097`) and used on an iPhone, sometimes on an iPad or a
+(`http://<server>:8097`) and used on an iPhone, sometimes on an iPad or a
 desktop Safari. No `app.py`, `core/**`, artwork or deployment files were
 changed.
 
@@ -165,7 +165,7 @@ the button; waking the Apple TV normally re-fires the event.
 
 ## What AirPlay does on this deployment
 
-1. iPhone Safari opens `http://192.0.2.10:8097` over the LAN. The AirPlay
+1. iPhone Safari opens `http://<server>:8097` over the LAN. The AirPlay
    picker and the Media Session API do **not** require HTTPS; plain HTTP on a
    private IP is fine for this. (There is no mixed-content problem because the
    audio URL is same-origin.)
@@ -176,7 +176,7 @@ the button; waking the Apple TV normally re-fires the event.
    why.
 3. Tapping it calls `webkitShowPlaybackTargetPicker()` inside the tap. Choosing
    the Apple TV hands the media URL to the receiver. **The Apple TV fetches
-   `http://192.0.2.10:8097/api/stream?...` itself**, not through the phone.
+   `http://<server>:8097/api/stream?...` itself**, not through the phone.
    That is why the LAN address (not localhost/Tailscale) matters. The proxy is
    Range-capable, so seeking works on the receiver.
 4. `webkitCurrentPlaybackTargetIsWireless` becomes true, the icon turns cyan,
@@ -237,7 +237,7 @@ the button; waking the Apple TV normally re-fires the event.
 
 ## Device checklist
 
-1. On the iPhone, open `http://192.0.2.10:8097` (not a Tailscale or
+1. On the iPhone, open `http://<server>:8097` (not a Tailscale or
    localhost URL) while the Apple TV/HomePod is awake on the same Wi-Fi.
 2. Tap a tape pack track. The player appears; the AirPlay icon is in the
    transport row.

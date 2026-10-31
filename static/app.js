@@ -109,16 +109,15 @@
   // part of the AirPlay contract: an Apple TV can reach a LAN address, but not
   // the iPhone's localhost or (usually) a Tailscale-only 100.x address.
   function airplayReachabilityHint() {
-    const appAddress = "http://192.0.2.10:8097";
     const host = (window.location.hostname || "").replace(/^\[|\]$/g, "");
     if (window.location.protocol === "file:") {
-      return `An AirPlay device can't fetch audio from a local file — open ${appAddress}.`;
+      return "An AirPlay device can't fetch audio from a local file — open the app from the server's address instead.";
     }
     if (host === "localhost" || host === "127.0.0.1" || host === "::1" || /\.localhost$/i.test(host)) {
-      return `The TV can't fetch audio from "${host}". Open ${appAddress} on the iPhone instead.`;
+      return `The TV can't fetch audio from "${host}". Open the app from the server's LAN address on the iPhone instead.`;
     }
     if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(host) || /\.ts\.net$/i.test(host)) {
-      return "This page is open over Tailscale. AirPlay only works if the TV is on the tailnet too — otherwise use the LAN address (192.0.2.10:8097).";
+      return "This page is open over Tailscale. AirPlay only works if the TV is on the tailnet too — otherwise use the server's LAN address.";
     }
     return "";
   }
