@@ -141,6 +141,7 @@ RADIO_SECTIONS = [
 SECTIONS = [
     ("latest", "Latest", "rave.png", "Newest of everything"),
     ("kool", "Kool FM", "radio.png", "Kool FM live plus archive sets"),
+    ("rinse", "Rinse FM", "radio.png", "Rinse FM live plus archive sets"),
     ("filters", "Quick Filters", "tapepacks.png", "Classic pack series"),
     ("live", "Live Radio", "radio.png", "Stations streaming now"),
     ("packs", "Tape Packs", "tapepacks.png", "The ravetapes collection"),
@@ -352,7 +353,11 @@ def api_filter_live(key):
     entry = _filter(key)
     if not entry:
         return _json_error("unknown filter", 404)
-    stations = radio.stations_by_name(entry.get("live_name", ""), limit=20)
+    stations = radio.curated(entry.get("live_name", ""))
+    if not stations:
+        token = str(entry.get("live_name", "")).lower()
+        stations = [station for station in radio.stations_by_name(entry.get("live_name", ""), limit=20)
+                    if token and token in str(station.get("name", "")).lower()]
     items = []
     for station in stations:
         if not isinstance(station, dict):

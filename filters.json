@@ -7,6 +7,13 @@
     "plot": "Kool FM sets from the archive, plus the station live now."
   },
   {
+    "id": "rinse",
+    "name": "Rinse FM",
+    "query": "title:(\"Rinse FM\") AND mediatype:audio",
+    "live_name": "Rinse",
+    "plot": "Rinse FM sets from the archive, plus the station live now."
+  },
+  {
     "id": "dreamscape",
     "name": "Dreamscape",
     "query": "collection:ravetapes AND Dreamscape",
@@ -64,7 +71,7 @@
     "id": "one-in-the-jungle",
     "name": "One In The Jungle",
     "query": "title:(\"one in the jungle\") AND mediatype:audio",
-    "plot": "BBC Radio 1 jungle shows \u2014 LTJ Bukem, Goldie, A Guy Called Gerald and more."
+    "plot": "BBC Radio 1 jungle shows — LTJ Bukem, Goldie, A Guy Called Gerald and more."
   },
   {
     "id": "jungle-fever",

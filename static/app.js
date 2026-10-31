@@ -643,6 +643,7 @@
     const map = {
       latest: "/api/latest",
       kool: "/api/filter/kool",
+      rinse: "/api/filter/rinse",
       filters: "/api/filters",
       live: "/api/live",
       packs: "/api/packs",
