@@ -122,7 +122,7 @@ ARCHIVE_SECTIONS = [
     ("rave", "Rave Tape Packs", "collection:ravetapes AND mediatype:audio", "Rave tapes collection"),
     ("jungle", "Jungle / Drum & Bass", 'collection:ravetapes AND (jungle OR "drum and bass")', "Jungle and DnB"),
     ("hardcore", "Hardcore", "collection:ravetapes AND hardcore", "Hardcore sets"),
-    ("house", "House & Garage", "collection:ravetapes AND (garage OR house)", "House and garage"),
+    ("house", "House", "collection:ravetapes AND house", "House music sets"),
     ("pirate", "Pirate Radio", 'collection:ravetapes AND (Kool OR Centreforce OR "Don FM")', "Pirate radio sets"),
     ("tapepacks", "All Tape Packs", '(jungle OR "drum and bass" OR hardcore OR house) AND "tape pack"', "Everything tagged tape pack"),
     ("garage", "UK Garage", '(title:("uk garage") OR title:("garage nation") OR title:("pure garage") OR title:("speed garage")) AND mediatype:audio', "UK garage, 90s to now"),
@@ -133,7 +133,7 @@ RADIO_SECTIONS = [
     ("jungle", "Jungle", "jungle"),
     ("dnb", "Drum & Bass", "drum and bass"),
     ("hardcore", "Hardcore", "hardcore"),
-    ("garage", "House & Garage", "garage"),
+    ("house", "House", "house"),
     ("ukg", "UK Garage", "uk garage"),
     ("breakbeat", "Breakbeat", "breakbeat"),
 ]

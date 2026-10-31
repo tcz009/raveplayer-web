@@ -255,3 +255,14 @@ def test_broken_filters_now_use_archive_wide_queries():
     assert "collection:ravetapes" not in entries["centreforce"]["query"]
     assert "collection:ravetapes" not in entries["don-fm"]["query"]
     assert "collection:ravetapes" not in entries["slammin-vinyl"]["query"]
+
+
+def test_house_section_is_house_only_and_garage_has_its_own_section():
+    archive = next(entry for entry in app.ARCHIVE_SECTIONS if entry[0] == "house")
+    assert archive[1] == "House"
+    assert "garage" not in archive[2].lower()
+    radio = next(entry for entry in app.RADIO_SECTIONS if entry[0] == "house")
+    assert radio[1] == "House"
+    assert radio[2] == "house"
+    labels = [entry[1] for entry in app.ARCHIVE_SECTIONS + app.RADIO_SECTIONS]
+    assert "House & Garage" not in labels
