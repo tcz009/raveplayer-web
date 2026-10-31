@@ -239,7 +239,9 @@ typography, hero and texture language — is documented in
 
 ## Tests
 
-The suite is 203 offline cases (all providers mocked) and uses the Flask test
+### Offline suite (203 cases)
+
+The offline suite is 203 cases (all providers mocked) and uses the Flask test
 client. `pytest` is a test-only dependency:
 
 ```sh
@@ -255,6 +257,34 @@ tolerance and concurrency), the CSP `frame-src`/embed-host contract, the
 search-submit paste wiring, the deploy script's version pinning/labels
 (parsed with `sh -n`), and static checks that every element id used by
 `app.js` exists in the template and that the JavaScript parses.
+
+### Browser smoke tests (7 cases)
+
+`test_e2e/` drives the real app in headless Chromium through Playwright. It
+covers what the offline suite cannot: boot with all 15 sections, section
+navigation rendering rows, pasting a Mixcloud or SoundCloud URL into search
+(embed panel provider label, widget `src`, close and backdrop behaviour,
+CSP `frame-src` not refusing the iframe), normal text search, and a
+favourites add/remove round trip. The Flask app runs on a random localhost
+port with a temporary `RAVEWEB_DATA`; providers are stubbed and the browser's
+external requests are intercepted, so the tests need no internet.
+
+```sh
+./.venv/bin/python -m pip install -r requirements-browser.txt
+./.venv/bin/python -m playwright install chromium   # add --with-deps on Linux
+./.venv/bin/python -m pytest test_e2e -q
+```
+
+Playwright is test-only (not in the runtime image or `requirements.txt`). If
+the package or its Chromium build is missing, the browser tests skip cleanly;
+set `RAVEWEB_REQUIRE_BROWSER=1` to turn that skip into a failure (the CI
+browser job does, so a broken install cannot pass silently). In a restricted
+local sandbox `RAVEWEB_PLAYWRIGHT_NO_SANDBOX=1` may be needed, and
+`RAVEWEB_CHROMIUM_EXECUTABLE=/path/to/chrome` reuses an existing Chrome.
+
+GitHub Actions runs the fast offline job first, then a separate `browser` job
+that installs Chromium and runs `test_e2e`; the browser job is gated behind
+the offline job so it never slows the main test job down.
 
 See [`docs/CODE-REVIEW.md`](docs/CODE-REVIEW.md) for the review notes and the
 changes ranked by value.
@@ -284,8 +314,11 @@ core/               providers shared with the Kodi add-on, plus a Kodi shim
 static/             app.css, app.js, artwork
 templates/          index.html
 test/               offline pytest suite
+test_e2e/           headless-browser smoke tests (Playwright)
 docs/               code review notes
 feeds.json          podcast feeds
 filters.json        quick filters
+requirements-dev.txt      test-only dependencies (offline suite)
+requirements-browser.txt  test-only dependencies (browser smoke tests)
 Dockerfile          python:3.12-slim + gunicorn
 ```

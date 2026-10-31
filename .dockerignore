@@ -5,6 +5,8 @@ data
 .git
 .venv
 test
+test_e2e
 docs
+requirements-browser.txt
 AGENTS.md
 rave-player-space

@@ -1,0 +1,6 @@
+# Browser smoke-test dependencies (test-only; not in the runtime image).
+# Install the browser after this file:
+#   python -m playwright install chromium        # Linux CI: --with-deps
+# Tests live in test_e2e/ and skip cleanly when Playwright/Chromium is absent.
+-r requirements-dev.txt
+playwright==1.60.0

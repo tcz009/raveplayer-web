@@ -24,8 +24,8 @@ MAX_STREAMS="${MAX_STREAMS:-6}"
 echo "deploying $IMAGE (git $REVISION), also tagging $LATEST_IMAGE"
 
 tar czf /tmp/raveplayer-web.tgz \
-    --exclude='.venv' --exclude='.git' --exclude='test' --exclude='docs' \
-    --exclude='.pytest_cache' --exclude='__pycache__' --exclude='*.pyc' \
+    --exclude='.venv' --exclude='.git' --exclude='test' --exclude='test_e2e' \
+    --exclude='docs' --exclude='.pytest_cache' --exclude='__pycache__' --exclude='*.pyc' \
     --exclude='data' --exclude='AGENTS.md' --exclude='rave-player-space' -C . .
 scp -q -i "$KEY" -o BatchMode=yes /tmp/raveplayer-web.tgz "$HOST:/tmp/raveplayer-web.tgz"
 
