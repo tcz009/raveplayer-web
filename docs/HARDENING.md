@@ -1,17 +1,40 @@
-# Hardening pass — Rave Player web (`raveplayer-web` 1.6.16)
+# Hardening pass — Rave Player web (`raveplayer-web` 1.6.17)
 
-**Branch:** `feature/1.6.16` (not pushed) · **Base:** `feature/1.6.15` @ `c83f891` (web 1.6.15)
+**Branch:** `feature/1.6.17` (not pushed) · **Base:** `main` @ `645f22a` (1.6.16)
 **Scope:** `app.py`, `core/`, `static/app.js`, `scripts/deploy.sh`, `docs/`, `test/`,
 `test_e2e/`, `VERSION`. No UX or content changes. No `data/` or advert files touched.
 
-**Result:** `205 → 293 passed` (`.venv/bin/python -m pytest -q test`), all
-offline; browser suite `test_e2e` **13 passed** (system Chrome, Playwright 1.60);
+**Result:** `205 → 302 passed` (`.venv/bin/python -m pytest -q test`), all
+offline; browser suite `test_e2e` **17 passed** (system Chrome, Playwright 1.60);
 `node --check static/app.js` and `sh -n scripts/deploy.sh` clean.
 
 Inputs folded in: the internal task-22 brief and the adversarial pre-review
 (`docs/ADVERSARIAL-REVIEW.md`, web findings W1–W8). The review's "what is solid" list
 (stream SSRF guard, SPA escaping, CSP, content-type gate, atomic writes) was kept intact.
 
+
+## 1.6.17 — spinner pass (progress panel, loading pill, Surprise reveal)
+
+UI/animation release; the security surface is unchanged:
+
+- **No new fetch path:** the NDJSON progress stream is the same proxy-save code
+  (`_download_chunks` via `_open_stream`), just yielding progress lines. The
+  per-file/total/free-space caps, source allow-list and atomic write are
+  unchanged. Cancel only adds the client id to an in-memory set checked once per
+  chunk; the partial file is discarded in a `finally` (including client
+  disconnect), and ids are regex-validated.
+- **Progress endpoint** `POST /api/downloads` with `Accept: application/x-ndjson`
+  streams `started`/`progress`/`saved`/`cancelled`/`error`; default clients still
+  get the original JSON. `POST /api/downloads/cancel/<client_id>` validates
+  `[A-Za-z0-9_-]{6,64}` and is best-effort.
+- **Spinner art** is the Kodi 2026 pack copied verbatim (10 × 128/256 px); the
+  sprite sheets are derived tiling, not redrawn. CSS is `steps(10)` with
+  `image-set` for 2x; `prefers-reduced-motion` disables all spinner/bar/stamp
+  animation. Loading pill is aria-live and only appears after 150 ms; no
+  innerHTML; CSP unchanged (only same-origin sprite PNGs).
+- Tests: 302 offline (+9 `test/test_spinner.py`) and 17 e2e (download panel +
+  cancel, pill grace/clear, Surprise spin/stamp, reduced motion).
+  Screenshots: `rave-player-space/reports/web-1.6.17/07-09*.png`.
 
 ## 1.6.16 — Downloads/offline, phase 1 (web side)
 
@@ -338,10 +361,10 @@ that the module layout matches.
 
 ```sh
 cd "Rave Player"
-.venv/bin/python -m pytest -q test        # 293 passed
+.venv/bin/python -m pytest -q test        # 302 passed
 node --check static/app.js
 sh -n scripts/deploy.sh
-git diff --stat main..feature/1.6.16
+git diff --stat main..feature/1.6.17
 ```
 
 ## Post-merge fix — deploy.sh heredoc escaping (found on first real deploy)

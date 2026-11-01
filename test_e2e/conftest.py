@@ -20,6 +20,7 @@ import os
 import sys
 import tempfile
 import threading
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -98,12 +99,15 @@ def _no_outbound_request(*args, **kwargs):
 
 
 class _FakeDownloadResponse(object):
-    """A tiny audio body for the downloads endpoint (no network)."""
+    """A slow, chunked audio body so the progress panel stays observable."""
 
     status = 200
+    BODY = b"ID3" + b"\xff" * (2 * 1024 * 1024 - 3)
+    CHUNK = 64 * 1024
+    DELAY = 0.025  # ~0.8 s total: long enough for progress/cancel in the UI
 
-    def __init__(self, body):
-        self._body = body
+    def __init__(self, body=None):
+        self._body = body if body is not None else self.BODY
         self._offset = 0
 
     def getheader(self, name):
@@ -115,7 +119,11 @@ class _FakeDownloadResponse(object):
         return None
 
     def read(self, size=-1):
-        chunk = self._body[self._offset:self._offset + size]
+        if self._offset >= len(self._body):
+            return b""
+        time.sleep(self.DELAY)
+        step = min(size if size and size > 0 else self.CHUNK, self.CHUNK)
+        chunk = self._body[self._offset:self._offset + step]
         self._offset += len(chunk)
         return chunk
 
@@ -129,8 +137,7 @@ class _FakeDownloadConnection(object):
 
 
 def _fake_open_stream(url, headers, deadline):
-    return (_FakeDownloadConnection(),
-            _FakeDownloadResponse(b"ID3" + b"\xff" * 2048), url)
+    return (_FakeDownloadConnection(), _FakeDownloadResponse(), url)
 
 
 # --------------------------------------------------------------------------- server

@@ -61,6 +61,14 @@ The sections behind the groups:
   pages (Mixcloud/SoundCloud/YouTube), live streams, HLS, podcasts, legacy
   scrapers and GetDarker are never downloadable in phase 1; nothing downloads
   automatically. See [`docs/DOWNLOADS.md`](docs/DOWNLOADS.md).
+
+
+Downloads, section loads and Surprise Me share the Kodi spinning-head art
+(`static/art/spinner/`, 10 frames): a progress panel with filename, lime bar,
+%, MB done/total, ETA and Cancel; a topbar loading pill that only appears after
+150 ms; and the Surprise reveal that spins then stamps the pick. All are CSS
+`steps(10)` sprite animations with a reduced-motion fallback — see
+[`docs/SPINNER.md`](docs/SPINNER.md).
 - **Search** — Archive text search. Paste a Mixcloud or SoundCloud set URL into
   the search box instead and the embed panel opens that set.
 
@@ -307,16 +315,18 @@ search-submit paste wiring, the deploy script's version pinning/labels
 (parsed with `sh -n`), and static checks that every element id used by
 `app.js` exists in the template and that the JavaScript parses.
 
-### Browser smoke tests (13 cases)
+### Browser smoke tests (17 cases)
 
 `test_e2e/` drives the real app in headless Chromium through Playwright. It
 covers what the offline suite cannot: boot with the grouped 9-button rail and
 every hub reachable, the rail fitting a 1440×900 window with Favourites and
 Downloads visible (the 21-button overflow regression), the pinned back button
 staying put while scrolling, Surprise Me opening a random pack/show, the phone
-rail/back layout, the Download action → Downloads library → offline playback →
-delete round trip (and no Download action on podcast-like rows), section
-navigation rendering every row, the Mixcloud/SoundCloud embed panel (widget
+rail/back layout, the Download action → progress panel (save and cancel) → Downloads library →
+offline playback → delete round trip (and no Download action on podcast-like
+rows), the 150 ms loading pill (fast and slow requests), the Surprise spin/
+stamp reveal plus its reduced-motion skip, section navigation rendering every
+row, the Mixcloud/SoundCloud embed panel (widget
 `src`, provider label, close/backdrop, CSP `frame-src`), normal text search, and
 a favourites add/remove round trip. The Flask app runs on a random localhost
 port with a temporary `RAVEWEB_DATA`; providers are stubbed and the browser's

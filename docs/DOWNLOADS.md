@@ -28,7 +28,8 @@ stream proxy's `_open_stream` (public addresses only, DNS pinned).
 | Method / path | Purpose |
 |---|---|
 | `GET /api/downloads` | library list (`items`, `storage.used/limit/items`) |
-| `POST /api/downloads` `{url,title,source}` | proxy-save one direct audio file; duplicate URLs are idempotent |
+| `POST /api/downloads` `{url,title,source}` | proxy-save one direct audio file; duplicate URLs are idempotent. With `Accept: application/x-ndjson` it streams `started`/`progress`/`saved`/`cancelled`/`error` lines for the progress panel (1.6.17) |
+| `POST /api/downloads/cancel/<client_id>` | best-effort cancel of a streaming save; the partial file is discarded |
 | `GET /api/downloads/<id>/stream` | offline playback from the local copy (Range, CORP `same-origin`, `nosniff`) |
 | `GET /api/downloads/<id>/file` | save the local copy to a device (`Content-Disposition: attachment`, safe filename, Range) |
 | `DELETE /api/downloads/<id>` | delete file + index entry |

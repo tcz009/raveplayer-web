@@ -1,7 +1,7 @@
 # Independent code review — brief
 
 **Project:** Rave Player — web app (`raveplayer-web`)
-**Version under review:** 1.6.16 (`feature/1.6.16`, based on the signed-off `feature/1.6.15` tree)
+**Version under review:** 1.6.17 (`feature/1.6.17`, based on `main` @ `645f22a` / 1.6.16)
 **Reviewer target:** `app.py`, `core/`, `static/`, `templates/`, `test/`; ignore `data/`, `__pycache__/`, `.venv/`.
 
 ## What it is
@@ -77,7 +77,15 @@ A prepared `.venv` exists in this checkout.
   offline library with size/delete/play (Range) and a Content-Disposition save
   endpoint. No provider pages/live/HLS/podcasts/legacy/GetDarker; no
   auto-download; no CSP or innerHTML change.
-- Tests: `205 → 293` offline (`pytest -q test`) and **13 browser e2e**
+- **1.6.17 spinner pass** (`docs/SPINNER.md`): the Kodi 3.9.19 head frames
+  (10 × 128/256 px, copied verbatim) are played as a CSS `steps(10)` sprite;
+  the download response now streams NDJSON progress/saved/cancelled/error lines
+  to a panel (filename, %, size, ETA, Cancel with a server-side cancel set), a
+  150 ms-delayed topbar loading pill covers every `api()` call, and Surprise Me
+  spins then stamps its pick. Reduced motion disables every animation and skips
+  the reveal wait. No innerHTML/CSP change; no new fetch path (the progress
+  stream reuses the same guarded download helper).
+- Tests: `205 → 302` offline (`pytest -q test`) and **17 browser e2e**
   (`pytest test_e2e`, see `docs/E2E.md`).
 
 ## Areas worth scrutiny

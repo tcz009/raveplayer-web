@@ -59,3 +59,10 @@ scroll, Surprise result, phone rail/back.
   Surprise/rail only navigate internal `/api/*` paths.
 - Logo/wordmark/character untouched (tested).
 - Back/rail/surprise are real buttons with ≥44 px hit areas and labels.
+
+## Spinner (1.6.17)
+
+The Kodi 3.9.19 spinning-head frames (10 × 128/256 px, verbatim) are a CSS
+`steps(10)` sprite used by the download progress panel, the loading pill and the
+Surprise reveal; see [`SPINNER.md`](SPINNER.md). Reduced motion disables the
+spin/bar/stamp animation and skips the reveal wait.

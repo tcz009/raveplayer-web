@@ -408,7 +408,43 @@
 
   /* ------------------------------------------------------------ data */
 
+  // Global loading pill: any in-flight api() request counts, but the pill is
+  // only revealed after 150 ms so fast section switches never flicker it.
+  const LOADING = { count: 0, timer: 0 };
+
+  function showLoadingPill() {
+    const pill = $("loading-pill");
+    if (pill) pill.hidden = false;
+    // The status field also says LOADING; dim it while the pill carries the
+    // message so the topbar never repeats the same word twice.
+    document.body.classList.add("loading-active");
+  }
+
+  function hideLoadingPill() {
+    const pill = $("loading-pill");
+    if (pill) pill.hidden = true;
+    document.body.classList.remove("loading-active");
+  }
+
+  function beginLoad() {
+    LOADING.count += 1;
+    if (LOADING.count === 1) {
+      clearTimeout(LOADING.timer);
+      LOADING.timer = setTimeout(showLoadingPill, 150);
+    }
+  }
+
+  function endLoad() {
+    LOADING.count = Math.max(0, LOADING.count - 1);
+    if (LOADING.count === 0) {
+      clearTimeout(LOADING.timer);
+      LOADING.timer = 0;
+      hideLoadingPill();
+    }
+  }
+
   async function api(path, options = {}) {
+    beginLoad();
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), options.timeout || 40000);
     try {
@@ -440,6 +476,7 @@
       throw error;
     } finally {
       clearTimeout(timer);
+      endLoad();
     }
   }
 
@@ -764,7 +801,11 @@
 
   function labelForPath(path) {
     const button = [...navEl.querySelectorAll("button")].find((entry) => entry.dataset.path === path);
-    return button ? button.textContent.trim() : "";
+    if (!button) return "";
+    // The catalogue code is aria-hidden decoration; never include it in the
+    // accessible loading text.
+    const label = button.querySelector(".rail-label");
+    return (label ? label.textContent : button.textContent).trim();
   }
 
   function railGroup(path) {
@@ -1318,8 +1359,192 @@
     }
   }
 
+  /* ------------------------------------------------------------ downloads */
+
+  function prefersReducedMotion() {
+    return !!(window.matchMedia
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+  }
+
+  // Same formatting as the Kodi spinner (spinner.format_bytes/format_remaining).
+  function formatBytes(value) {
+    let size = Math.max(0, Number(value) || 0);
+    if (size >= 1024 * 1024 * 1024) return (size / (1024 * 1024 * 1024)).toFixed(1) + " GB";
+    if (size >= 1024 * 1024) return (size / (1024 * 1024)).toFixed(1) + " MB";
+    if (size >= 1024) return Math.round(size / 1024) + " KB";
+    return Math.round(size) + " B";
+  }
+
+  function formatRemaining(done, total, elapsed) {
+    done = Math.max(0, Number(done) || 0);
+    total = Math.max(0, Number(total) || 0);
+    elapsed = Math.max(0, Number(elapsed) || 0);
+    if (total <= 0) return "Size unknown";
+    if (done <= 0 || elapsed <= 0) return "Starting…";
+    const rate = done / elapsed;
+    if (rate <= 0) return "Starting…";
+    const remaining = Math.max(0, total - done) / rate;
+    if (remaining >= 60) {
+      return Math.floor(remaining / 60) + ":" + String(Math.floor(remaining % 60)).padStart(2, "0") + " remaining";
+    }
+    return Math.floor(remaining) + " sec remaining";
+  }
+
+  const DOWNLOAD = { active: false, controller: null, id: "", startedAt: 0, closeTimer: 0 };
+
+  function downloadClientId() {
+    if (window.crypto && typeof window.crypto.randomUUID === "function") {
+      return window.crypto.randomUUID().replace(/-/g, "");
+    }
+    return "dl" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  }
+
+  function showDownloadPanel(item) {
+    const panel = $("download-panel");
+    if (!panel) return;
+    clearTimeout(DOWNLOAD.closeTimer);
+    $("dl-title").textContent = item.label || "Preparing download…";
+    $("dl-percent").textContent = "0%";
+    $("dl-size").textContent = "0 B of 0 B";
+    $("dl-remaining").textContent = "Starting…";
+    $("dl-hint").textContent = "Downloading…";
+    $("dl-bar").classList.add("indeterminate");
+    $("dl-bar").setAttribute("aria-valuenow", "0");
+    $("dl-bar-fill").style.width = "0%";
+    const cancel = $("dl-cancel");
+    cancel.disabled = false;
+    cancel.textContent = "Cancel";
+    panel.hidden = false;
+  }
+
+  function updateDownloadPanel(received, total) {
+    const known = typeof total === "number" && total > 0;
+    const percent = known ? Math.max(0, Math.min(100, Math.floor(received * 100 / total))) : 0;
+    const bar = $("dl-bar");
+    bar.classList.toggle("indeterminate", !known);
+    bar.setAttribute("aria-valuenow", String(known ? percent : 0));
+    $("dl-bar-fill").style.width = (known ? percent : 100) + "%";
+    $("dl-percent").textContent = known ? percent + "%" : "…";
+    $("dl-size").textContent = known
+      ? `${formatBytes(received)} of ${formatBytes(total)}`
+      : `${formatBytes(received)} downloaded`;
+    $("dl-remaining").textContent = formatRemaining(
+      received, total || 0, (performance.now() - DOWNLOAD.startedAt) / 1000);
+  }
+
+  function closeDownloadPanel() {
+    clearTimeout(DOWNLOAD.closeTimer);
+    DOWNLOAD.closeTimer = 0;
+    const panel = $("download-panel");
+    if (panel) panel.hidden = true;
+  }
+
+  function finishDownloadPanel(message) {
+    const bar = $("dl-bar");
+    bar.classList.remove("indeterminate");
+    bar.setAttribute("aria-valuenow", "100");
+    $("dl-bar-fill").style.width = "100%";
+    $("dl-percent").textContent = "100%";
+    $("dl-remaining").textContent = message || "Complete";
+    $("dl-hint").textContent = "Complete";
+    $("dl-cancel").disabled = true;
+    clearTimeout(DOWNLOAD.closeTimer);
+    DOWNLOAD.closeTimer = setTimeout(closeDownloadPanel, 1400);
+  }
+
+  async function cancelDownload() {
+    if (!DOWNLOAD.active) return;
+    const cancel = $("dl-cancel");
+    cancel.disabled = true;
+    cancel.textContent = "Cancelling…";
+    $("dl-hint").textContent = "Cancelling…";
+    const identifier = DOWNLOAD.id;
+    try {
+      if (DOWNLOAD.controller) DOWNLOAD.controller.abort();
+    } catch (_) { /* ignore */ }
+    try {
+      await api(`/api/downloads/cancel/${encodeURIComponent(identifier)}`, {
+        method: "POST", timeout: 8000,
+      });
+    } catch (_) { /* best effort */ }
+    DOWNLOAD.active = false;
+    closeDownloadPanel();
+    toast("Download cancelled");
+  }
+
+  function handleDownloadEvent(event) {
+    if (!event || typeof event.state !== "string") return false;
+    if (event.state === "started") {
+      if (typeof event.filename === "string" && event.filename) {
+        $("dl-title").textContent = event.filename;
+      }
+      updateDownloadPanel(0, typeof event.total === "number" ? event.total : null);
+      return false;
+    }
+    if (event.state === "progress") {
+      updateDownloadPanel(Number(event.received) || 0,
+                          typeof event.total === "number" ? event.total : null);
+      return false;
+    }
+    if (event.state === "saved") {
+      DOWNLOAD.active = false;
+      finishDownloadPanel("Saved");
+      toast("Saved to Downloads");
+      if (state.path === "/api/downloads") navigate("/api/downloads", { push: false });
+      return true;
+    }
+    if (event.state === "cancelled") {
+      DOWNLOAD.active = false;
+      closeDownloadPanel();
+      toast("Download cancelled");
+      return true;
+    }
+    if (event.state === "error") {
+      DOWNLOAD.active = false;
+      closeDownloadPanel();
+      toast(`Could not download: ${event.error || "unknown error"}`, 4000);
+      return true;
+    }
+    return false;
+  }
+
+  async function readDownloadStream(response) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let finished = false;
+    try {
+      while (!finished) {
+        const part = await reader.read();
+        if (part.done) break;
+        buffer += decoder.decode(part.value, { stream: true });
+        let newline = buffer.indexOf("\n");
+        while (newline >= 0) {
+          const line = buffer.slice(0, newline).trim();
+          buffer = buffer.slice(newline + 1);
+          if (line) {
+            let event = null;
+            try { event = JSON.parse(line); } catch (_) { event = null; }
+            if (event && handleDownloadEvent(event)) { finished = true; break; }
+          }
+          newline = buffer.indexOf("\n");
+        }
+      }
+      if (!finished && buffer.trim()) {
+        let event = null;
+        try { event = JSON.parse(buffer.trim()); } catch (_) { event = null; }
+        if (event) handleDownloadEvent(event);
+      }
+    } finally {
+      try {
+        const cancelled = reader.cancel();
+        if (cancelled && typeof cancelled.catch === "function") cancelled.catch(() => {});
+      } catch (_) { /* ignore */ }
+    }
+  }
+
   async function downloadItem(item, button) {
-    if (!downloadable(item) || button.dataset.busy === "1") return;
+    if (!downloadable(item) || DOWNLOAD.active || button.dataset.busy === "1") return;
     button.dataset.busy = "1";
     button.disabled = true;
     try {
@@ -1331,22 +1556,63 @@
         url = item.play;
       }
       if (!url) throw new Error("no downloadable file");
-      toast("Downloading…", 6000);
-      await api("/api/downloads", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url,
-          title: item.label || "Download",
-          source: item.download.source,
-        }),
-        timeout: 900000,
-      });
-      toast("Saved to Downloads");
-      if (state.path === "/api/downloads") navigate("/api/downloads", { push: false });
+      DOWNLOAD.active = true;
+      DOWNLOAD.id = downloadClientId();
+      DOWNLOAD.startedAt = performance.now();
+      DOWNLOAD.controller = new AbortController();
+      showDownloadPanel(item);
+      let response;
+      try {
+        response = await fetch("/api/downloads", {
+          method: "POST",
+          headers: {
+            Accept: "application/x-ndjson",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            url,
+            title: item.label || "Download",
+            source: item.download.source,
+            client_id: DOWNLOAD.id,
+          }),
+          signal: DOWNLOAD.controller.signal,
+        });
+      } catch (error) {
+        if (error && error.name === "AbortError") return;  // Cancel closed the panel
+        throw error;
+      }
+      const kind = (response.headers.get("Content-Type") || "").toLowerCase();
+      if (response.ok && kind.includes("application/x-ndjson") && response.body) {
+        await readDownloadStream(response);
+      } else {
+        let payload = null;
+        try { payload = await response.json(); } catch (_) { payload = null; }
+        if (!response.ok) {
+          const error = new Error((payload && payload.error) || `HTTP ${response.status}`);
+          error.status = response.status;
+          throw error;
+        }
+        if (payload && payload.already) {
+          DOWNLOAD.active = false;
+          finishDownloadPanel("Already saved");
+          toast("Already saved in Downloads");
+        } else if (payload && payload.saved) {
+          DOWNLOAD.active = false;
+          finishDownloadPanel("Saved");
+          toast("Saved to Downloads");
+          if (state.path === "/api/downloads") navigate("/api/downloads", { push: false });
+        } else {
+          throw new Error("could not save that download");
+        }
+      }
     } catch (error) {
-      toast(`Could not download: ${messageFor(error)}`, 4000);
+      if (DOWNLOAD.active) {
+        DOWNLOAD.active = false;
+        closeDownloadPanel();
+        toast(`Could not download: ${messageFor(error)}`, 4000);
+      }
     } finally {
+      DOWNLOAD.controller = null;
       button.dataset.busy = "";
       button.disabled = false;
     }
@@ -1572,15 +1838,44 @@
     else navigate(sectionPath("latest"), { push: false });
   });
 
+  const SURPRISE_MIN_MS = 900;   // head spins at least this long (when animated)
+  const SURPRISE_LAND_MS = 620;  // stamp settle before opening the pick
+
+  function wait(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   async function surpriseMe() {
     const button = $("surprise");
     if (!button || button.disabled) return;
+    const reduced = prefersReducedMotion();
     const original = button.textContent;
+    const reveal = $("surprise-reveal");
+    const pick = $("surprise-pick");
+    const status = $("surprise-status");
+    const started = performance.now();
     button.disabled = true;
     button.textContent = "Rolling…";
+    if (!reduced && reveal) {
+      // The fetch starts immediately; only the reveal/navigate waits.
+      reveal.hidden = false;
+      reveal.classList.remove("landed");
+      pick.textContent = "";
+      status.textContent = "Rolling…";
+    }
     try {
       const data = await api("/api/surprise", { timeout: 20000 });
       if (data && data.open) {
+        if (!reduced && reveal) {
+          const label = data.label || "a random pick";
+          const remain = Math.max(0, SURPRISE_MIN_MS - (performance.now() - started));
+          if (remain > 0) await wait(remain);
+          status.textContent = "Landing on";
+          pick.textContent = label;
+          reveal.classList.add("landed");
+          await wait(SURPRISE_LAND_MS);
+          reveal.hidden = true;
+        }
         toast(data.label ? `Surprise: ${data.label}` : "Surprise!");
         navigate(data.open);
       } else if (data && data.play) {
@@ -1591,12 +1886,14 @@
     } catch (error) {
       toast(`Could not roll a surprise: ${messageFor(error)}`, 4000);
     } finally {
+      if (reveal) reveal.hidden = true;
       button.disabled = false;
       button.textContent = original;
     }
   }
 
   $("surprise").addEventListener("click", surpriseMe);
+  $("dl-cancel").addEventListener("click", cancelDownload);
 
   moreEl.addEventListener("click", loadMore);
 

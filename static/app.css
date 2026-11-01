@@ -1339,3 +1339,200 @@ body.has-embed { overflow: hidden; }
   .search { order: 6; }
   .back { min-width: 104px; padding: 0 14px; }
 }
+
+/* ============================================================================
+   1.6.17 — spinner pass (Kodi head frames, progress panel, loading pill,
+   Surprise reveal).  The frames are the Kodi 2026 art, untouched; the sheet is
+   just the ten frames tiled horizontally so CSS steps() can play them.
+   ========================================================================= */
+
+.spinner-head {
+  --head: 28px;
+  display: inline-block;
+  flex: 0 0 auto;
+  width: var(--head);
+  height: var(--head);
+  background-image: url("/static/art/spinner/sprite-128.png");
+  background-image: image-set(
+    url("/static/art/spinner/sprite-128.png") 1x,
+    url("/static/art/spinner/sprite-256.png") 2x);
+  background-repeat: no-repeat;
+  background-size: calc(var(--head) * 10) var(--head);
+  animation: head-spin 1s steps(10) infinite;
+}
+.spinner-head.small { --head: 20px; }
+.spinner-head.medium { --head: 60px; }
+.spinner-head.large { --head: 104px; }
+
+@keyframes head-spin {
+  from { background-position: 0 0; }
+  to { background-position: calc(var(--head) * -10) 0; }
+}
+
+/* topbar global loading pill (shown after 150 ms, clears on settle) */
+.loading-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 1px 9px;
+  border: 1px solid var(--acid);
+  border-radius: 0;
+  background: rgba(7, 7, 11, 0.72);
+  color: var(--acid);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  box-shadow: 2px 2px 0 rgba(255, 45, 143, 0.6);
+  white-space: nowrap;
+}
+.loading-pill .spinner-head { --head: 20px; }
+
+/* download progress panel — mirrors the Kodi SpinnerWindow layout/wording */
+.download-panel {
+  position: fixed;
+  left: max(14px, env(safe-area-inset-left));
+  bottom: calc(var(--player) + 14px);
+  z-index: 60;
+  display: flex;
+  gap: 12px;
+  width: min(400px, calc(100vw - 28px));
+  padding: 14px;
+  border: 2px solid var(--paper);
+  border-radius: 0;
+  background: var(--ink-2);
+  color: var(--paper);
+  box-shadow: 6px 6px 0 var(--magenta);
+}
+.download-head { margin-top: 2px; }
+.download-copy { flex: 1 1 auto; min-width: 0; }
+.download-title {
+  font-family: var(--font-display);
+  font-size: 15px;
+  letter-spacing: 0.03em;
+  line-height: 1.05;
+  text-transform: uppercase;
+  color: var(--paper);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dl-bar {
+  position: relative;
+  height: 13px;
+  margin: 9px 0 7px;
+  border: 1px solid var(--line-bright);
+  background: var(--panel);
+  overflow: hidden;
+}
+.dl-bar-fill {
+  display: block;
+  width: 0;
+  height: 100%;
+  background: var(--acid);
+  transition: width 160ms linear;
+}
+.dl-bar.indeterminate .dl-bar-fill {
+  width: 100% !important;
+  background: repeating-linear-gradient(90deg, var(--acid) 0 10px, transparent 10px 20px);
+  animation: dl-scan 0.8s linear infinite;
+}
+@keyframes dl-scan { to { background-position: 20px 0; } }
+.download-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.dl-percent { color: var(--acid); font-weight: 700; }
+.download-sub { margin-top: 4px; }
+.download-hint { color: var(--faint); }
+.download-actions { margin-top: 9px; display: flex; justify-content: flex-end; }
+.dl-cancel {
+  min-height: 44px;
+  min-width: 96px;
+  padding: 0 16px;
+  border: 2px solid var(--paper);
+  border-radius: 0;
+  background: var(--magenta);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: 3px 3px 0 var(--acid);
+}
+.dl-cancel:hover { background: var(--paper); border-color: var(--ink); box-shadow: 3px 3px 0 var(--cyan); }
+.dl-cancel:disabled { opacity: 0.6; cursor: progress; }
+
+/* Surprise Me reveal: fast head spin, then the pick stamps in */
+.surprise-reveal {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 18px;
+  background: rgba(7, 7, 11, 0.84);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+.surprise-reveal .spinner-head { animation-duration: 0.55s; }
+.surprise-copy { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
+.surprise-kicker {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--acid);
+}
+.surprise-pick {
+  font-family: var(--font-display);
+  font-size: clamp(30px, 6vw, 64px);
+  line-height: 0.95;
+  text-transform: uppercase;
+  color: var(--paper);
+  text-shadow: 5px 5px 0 var(--magenta);
+  overflow-wrap: anywhere;
+}
+.surprise-reveal.landed .surprise-pick {
+  animation: stamp-in 420ms cubic-bezier(0.2, 1.4, 0.4, 1) both;
+}
+@keyframes stamp-in {
+  0% { transform: scale(1.5) rotate(-3deg); opacity: 0; text-shadow: 10px 10px 0 var(--cyan); }
+  60% { transform: scale(0.97) rotate(1deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0); opacity: 1; text-shadow: 5px 5px 0 var(--magenta); }
+}
+
+@media (max-width: 620px) {
+  .download-panel { left: 10px; bottom: calc(var(--player) + 10px); width: calc(100vw - 20px); }
+  .spinner-head.medium { --head: 48px; }
+  .spinner-head.large { --head: 78px; }
+  .loading-pill #loading-pill-text { display: none; }
+  .loading-pill { min-height: 28px; padding: 0 6px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner-head {
+    animation: none !important;
+    background-position: 0 0 !important;
+  }
+  .dl-bar-fill { transition: none !important; }
+  .dl-bar.indeterminate .dl-bar-fill { animation: none !important; }
+  .surprise-reveal.landed .surprise-pick { animation: none !important; }
+}
+
+/* 1.6.17 — while the loading pill is up, the READY/ITEMS status is redundant */
+body.loading-active .status { opacity: 0; }

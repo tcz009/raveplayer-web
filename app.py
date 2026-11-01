@@ -1871,6 +1871,22 @@ class DownloadError(Exception):
         self.code = code
 
 
+class DownloadCancelled(Exception):
+    """The user pressed Cancel; the partial file is discarded."""
+
+
+_DOWNLOAD_CANCELS = set()
+_DOWNLOAD_CANCEL_LOCK = threading.Lock()
+_DOWNLOAD_CLIENT_RE = re.compile(r"^[A-Za-z0-9_-]{6,64}$")
+
+
+def _download_cancelled(client_id):
+    if not client_id:
+        return False
+    with _DOWNLOAD_CANCEL_LOCK:
+        return client_id in _DOWNLOAD_CANCELS
+
+
 def _human_size(size):
     try:
         size = max(0, int(size))
@@ -1947,15 +1963,18 @@ def _download_item(entry):
     return item
 
 
-def _download_to_file(url, destination, max_bytes, seconds):
-    """Proxy one direct audio file to ``destination`` with a hard byte/deadline cap.
+def _download_chunks(url, destination, max_bytes, seconds, should_cancel=None):
+    """Proxy one direct audio file, yielding progress dicts.
 
     Reuses ``_open_stream`` so the same SSRF, DNS-pinning and redirect checks as
-    /api/stream apply; every byte counted against the per-file and library caps.
+    /api/stream apply; every byte counts against the per-file and library caps.
+    Yields ``{"started": True, "total": N|None}`` after the headers, then
+    ``{"received": n, "total": ...}`` roughly ten times a second, then
+    ``{"done": True, "size": n}``.  The caller owns cleanup of ``destination``.
     """
     headers = _upstream_headers(url, {}, None, None)
     deadline = time.monotonic() + seconds
-    conn = resp = None
+    conn = resp = handle = None
     try:
         conn, resp, final_url = _open_stream(url, headers, deadline)
         status = resp.status
@@ -1973,6 +1992,7 @@ def _download_to_file(url, destination, max_bytes, seconds):
                                  or content_type == "application/octet-stream"):
             raise DownloadError("upstream did not return an audio file", 502)
         length_raw = resp.getheader("Content-Length")
+        expected = None
         if length_raw:
             try:
                 expected = int(length_raw)
@@ -1980,30 +2000,35 @@ def _download_to_file(url, destination, max_bytes, seconds):
                 expected = None
             if expected is not None and expected > max_bytes:
                 raise DownloadError("that file is larger than the download limit", 413)
+        yield {"started": True, "total": expected}
         total = 0
+        last_emit = 0.0
         handle = open(destination, "wb")
-        try:
-            while True:
-                if time.monotonic() >= deadline:
-                    raise DownloadError("the download timed out", 504)
-                try:
-                    chunk = resp.read(64 * 1024)
-                except (socket.timeout, TimeoutError):
-                    raise DownloadError("the download timed out", 504)
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total > max_bytes:
-                    raise DownloadError("that file is larger than the download limit", 413)
-                handle.write(chunk)
-            handle.flush()
-            os.fsync(handle.fileno())
-        finally:
-            handle.close()
+        while True:
+            if should_cancel is not None and should_cancel():
+                raise DownloadCancelled()
+            if time.monotonic() >= deadline:
+                raise DownloadError("the download timed out", 504)
+            try:
+                chunk = resp.read(64 * 1024)
+            except (socket.timeout, TimeoutError):
+                raise DownloadError("the download timed out", 504)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > max_bytes:
+                raise DownloadError("that file is larger than the download limit", 413)
+            handle.write(chunk)
+            now = time.monotonic()
+            if now - last_emit >= 0.1:
+                last_emit = now
+                yield {"received": total, "total": expected}
+        handle.flush()
+        os.fsync(handle.fileno())
         if total <= 0:
             raise DownloadError("upstream returned an empty file", 502)
-        return total
-    except DownloadError:
+        yield {"done": True, "size": total}
+    except (DownloadError, DownloadCancelled):
         raise
     except BlockedURL:
         raise DownloadError("blocked or invalid media URL", 400)
@@ -2014,12 +2039,99 @@ def _download_to_file(url, destination, max_bytes, seconds):
     except (OSError, http.client.HTTPException, ssl.SSLError):
         raise DownloadError("could not save the download", 502)
     finally:
+        if handle is not None:
+            try:
+                handle.close()
+            except OSError:
+                pass
         for closable in (resp, conn):
             if closable is not None:
                 try:
                     closable.close()
                 except Exception:  # noqa: BLE001 - close is best effort
                     pass
+
+
+def _download_to_file(url, destination, max_bytes, seconds):
+    """Consume ``_download_chunks`` without streaming and return the size."""
+    size = 0
+    for event in _download_chunks(url, destination, max_bytes, seconds):
+        if event.get("done"):
+            size = int(event.get("size") or 0)
+    return size
+
+
+def _download_stream(url, entry, client_id):
+    """NDJSON progress stream for one explicit download (panel wiring).
+
+    Emits ``started`` (with Content-Length when known), ``progress`` ticks,
+    then exactly one of ``saved``/``cancelled``/``error``.  The partial file is
+    discarded on any non-saved exit, including client disconnects.
+    """
+    temp_name = downloads.temp_path(DATA_DIR, entry)
+    saved = [False]
+
+    def generate():
+        try:
+            used = downloads.used(DATA_DIR)
+            max_bytes = min(DOWNLOAD_MAX_BYTES, max(0, DOWNLOAD_MAX_TOTAL - used))
+            if max_bytes <= 0:
+                raise DownloadError("the Downloads library is full", 413)
+            for event in _download_chunks(url, temp_name, max_bytes,
+                                          DOWNLOAD_DEADLINE,
+                                          lambda: _download_cancelled(client_id)):
+                if event.get("done"):
+                    entry["size"] = int(event.get("size") or 0)
+                    downloads.register(DATA_DIR, entry, temp_name,
+                                       DOWNLOAD_MAX_TOTAL, DOWNLOAD_MAX_ITEMS)
+                    saved[0] = True
+                    yield json.dumps({"state": "saved",
+                                      "item": _download_item(entry)}) + "\n"
+                elif event.get("started"):
+                    yield json.dumps({
+                        "state": "started",
+                        "filename": entry["filename"],
+                        "title": entry["title"],
+                        "total": event.get("total"),
+                    }) + "\n"
+                else:
+                    yield json.dumps({
+                        "state": "progress",
+                        "received": int(event.get("received") or 0),
+                        "total": event.get("total"),
+                    }) + "\n"
+        except DownloadCancelled:
+            yield json.dumps({"state": "cancelled"}) + "\n"
+        except DownloadError as exc:
+            yield json.dumps({"state": "error", "code": exc.code,
+                              "error": exc.message}) + "\n"
+        except downloads.StorageError as exc:
+            yield json.dumps({"state": "error", "code": 507,
+                              "error": str(exc)}) + "\n"
+        except Exception as exc:  # noqa: BLE001 - never leak a traceback
+            app.logger.warning("streaming download failed for %s: %s",
+                               _safe_log_url(url), exc)
+            yield json.dumps({"state": "error", "code": 502,
+                              "error": "could not save that download"}) + "\n"
+        finally:
+            if client_id:
+                with _DOWNLOAD_CANCEL_LOCK:
+                    _DOWNLOAD_CANCELS.discard(client_id)
+            if not saved[0]:
+                downloads.discard(DATA_DIR, entry)
+
+    return generate()
+
+
+@app.post("/api/downloads/cancel/<client_id>")
+def api_download_cancel(client_id):
+    """Best-effort cancel for the panel: the streaming loop checks this set."""
+    client_id = _clean_text(client_id, 64)
+    if not _DOWNLOAD_CLIENT_RE.match(client_id or ""):
+        return _json_error("invalid download id", 400)
+    with _DOWNLOAD_CANCEL_LOCK:
+        _DOWNLOAD_CANCELS.add(client_id)
+    return jsonify({"cancelled": True})
 
 
 @app.get("/api/downloads")
@@ -2062,6 +2174,19 @@ def api_download_create():
     if not title:
         title = urllib.parse.unquote(url.rsplit("/", 1)[-1]) or "Download"
     entry = downloads.entry_for(DATA_DIR, title, url, source)
+    if "application/x-ndjson" in (request.headers.get("Accept") or "").lower():
+        client_id = _clean_text(payload.get("client_id"), 64)
+        if not _DOWNLOAD_CLIENT_RE.match(client_id or ""):
+            return _json_error("invalid download id", 400)
+        return Response(
+            _download_stream(url, entry, client_id),
+            mimetype="application/x-ndjson",
+            headers={
+                "Cache-Control": "no-store",
+                "X-Accel-Buffering": "no",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
     temp_name = downloads.temp_path(DATA_DIR, entry)
     try:
         used = downloads.used(DATA_DIR)

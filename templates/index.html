@@ -51,6 +51,11 @@
             title="Surprise me — random tape pack or show">Surprise me</button>
     <button class="help-btn" id="help-btn" type="button" aria-label="Help and controls"
             title="Help and controls (?)">?</button>
+    <div class="loading-pill" id="loading-pill" role="status" aria-live="polite"
+         aria-label="Loading" hidden>
+      <span class="spinner-head small" aria-hidden="true"></span>
+      <span id="loading-pill-text">Loading</span>
+    </div>
     <div class="status" id="status" role="status" aria-live="polite">READY</div>
     <div class="version" id="app-version" title="App version">v{{ version }}</div>
   </header>
@@ -125,6 +130,37 @@
     <audio id="audio" preload="none" playsinline webkit-playsinline
            x-webkit-airplay="allow"></audio>
   </footer>
+
+  <section class="download-panel" id="download-panel" role="status"
+           aria-live="polite" aria-labelledby="dl-title" hidden>
+    <span class="spinner-head medium download-head" aria-hidden="true"></span>
+    <div class="download-copy">
+      <div class="download-title" id="dl-title">Preparing download…</div>
+      <div class="dl-bar" id="dl-bar" role="progressbar" aria-valuemin="0"
+           aria-valuemax="100" aria-valuenow="0" aria-label="Download progress">
+        <span class="dl-bar-fill" id="dl-bar-fill"></span>
+      </div>
+      <div class="download-line">
+        <span class="dl-percent" id="dl-percent">0%</span>
+        <span class="dl-size" id="dl-size">0 B of 0 B</span>
+      </div>
+      <div class="download-line download-sub">
+        <span id="dl-remaining">Starting…</span>
+        <span class="download-hint" id="dl-hint">Downloading…</span>
+      </div>
+      <div class="download-actions">
+        <button id="dl-cancel" type="button" class="dl-cancel">Cancel</button>
+      </div>
+    </div>
+  </section>
+
+  <div class="surprise-reveal" id="surprise-reveal" role="status" aria-live="polite" hidden>
+    <span class="spinner-head large surprise-head" aria-hidden="true"></span>
+    <div class="surprise-copy">
+      <div class="surprise-kicker" id="surprise-status">Rolling…</div>
+      <div class="surprise-pick" id="surprise-pick"></div>
+    </div>
+  </div>
 
   <section id="queue" class="queue-panel" aria-label="Play queue" hidden>
     <header class="queue-head">

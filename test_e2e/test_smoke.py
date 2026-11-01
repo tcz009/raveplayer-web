@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 """Headless-browser smoke tests: the class of bugs the offline suite missed.
 
-Covers page boot + the grouped 8-button rail (1.6.15; derived from
-`/api/menu.rail`), hub navigation and section rows, the pinned back button,
-Surprise Me, the pasted Mixcloud/SoundCloud embed panel (widget src, provider
-label, close and backdrop behaviour, CSP not refusing the iframes), normal text
-search, and a favourites add/remove round trip.  Set ``RAVEWEB_ARTIFACTS_DIR``
-to also write the before/after screenshots.
+Covers page boot + the grouped 9-button rail (derived from `/api/menu.rail`),
+hub navigation and section rows, the pinned back button, Surprise Me (reveal
+spin/stamp and the reduced-motion skip), the global 150 ms loading pill, the
+spinner progress panel (save/cancel), the pasted Mixcloud/SoundCloud embed panel
+(widget src, provider label, close and backdrop behaviour, CSP not refusing the
+iframes), normal text search, and a favourites add/remove round trip.  Set
+``RAVEWEB_ARTIFACTS_DIR`` to also write the review screenshots.
 
 These are deterministic and offline: the Flask app is started locally by the
 shared fixtures and every provider call is stubbed (see conftest.py).  Run
@@ -75,6 +76,24 @@ def _shot(browser_page, name):
         return
     os.makedirs(ARTIFACTS_DIR, exist_ok=True)
     browser_page.page.screenshot(path=os.path.join(ARTIFACTS_DIR, name + ".png"))
+
+
+def _delay_fetches(page, needle, delay_ms=600):
+    """Client-side delay for one API path (never block Playwright's loop)."""
+    page.evaluate("""([needle, delay]) => {
+        if (window.__fetchDelayed) return;
+        window.__fetchDelayed = true;
+        const realFetch = window.fetch.bind(window);
+        window.fetch = (input, init) => {
+            const url = typeof input === "string" ? input : (input && input.url) || "";
+            if (url.includes(needle)) {
+                return new Promise((resolve, reject) => {
+                    setTimeout(() => realFetch(input, init).then(resolve, reject), delay);
+                });
+            }
+            return realFetch(input, init);
+        };
+    }""", [needle, delay_ms])
 
 
 def _rail_labels(page):
@@ -402,15 +421,23 @@ def test_download_for_offline_then_play_and_delete(browser_page):
     download = page.locator("#list .row .download-btn")
     assert download.count() == 1
     download.click()
+    page.wait_for_selector("#download-panel", state="visible")
+    assert "Boot" in _text(page.locator("#dl-title"))
+    assert page.locator("#dl-cancel").is_visible()
+    assert page.locator("#dl-size").is_visible()
+    assert page.locator("#dl-remaining").is_visible()
+    _shot(browser_page, "07-download-panel")
+
     page.wait_for_function(
         "() => document.querySelector('#toast').textContent.includes('Saved to Downloads')")
+    page.wait_for_selector("#download-panel", state="hidden", timeout=5000)
 
     page.get_by_role("button", name="Downloads", exact=True).click()
     page.wait_for_function("() => document.querySelector('#title').textContent === 'Downloads'")
     _wait_for_rows(page, 1)
     assert _texts(page.locator("#list .row .row-label")) == ["Boot Track"]
     sub = _text(page.locator("#list .row .row-sub"))
-    assert "KB" in sub and "Internet Archive" in sub
+    assert ("KB" in sub or "MB" in sub) and "Internet Archive" in sub
     _shot(browser_page, "06-downloads-view")
 
     # Offline playback: the player points at the saved copy, not the source.
@@ -425,3 +452,106 @@ def test_download_for_offline_then_play_and_delete(browser_page):
     page.wait_for_function("() => document.querySelectorAll('#list .row').length === 0")
     assert page.locator("#empty").is_visible()
     assert page.locator("#player").count() == 1
+
+# --------------------------------------------------------------------------- 1.6.17 spinner pass
+
+
+def test_loading_pill_waits_150ms_and_clears(browser_page):
+    page = browser_page.page
+    page.evaluate("""() => {
+        window.__pillShows = 0;
+        const pill = document.querySelector('#loading-pill');
+        new MutationObserver(() => {
+            if (!pill.hidden) window.__pillShows += 1;
+        }).observe(pill, {attributes: true, attributeFilter: ['hidden']});
+    }""")
+    # Fast stubbed section: the pill must never appear (150 ms grace).
+    page.get_by_role("button", name="Tape Packs", exact=True).click()
+    page.wait_for_function("() => document.querySelector('#title').textContent === 'Tape Packs'")
+    assert page.evaluate("window.__pillShows") == 0
+
+    # Slow API: appears after the grace period, then clears on completion.
+    _delay_fetches(page, "/api/rail/live", 700)
+    page.get_by_role("button", name="Live Radio", exact=True).click()
+    page.wait_for_selector("#loading-pill", state="visible", timeout=4000)
+    assert page.locator("#loading-pill").get_attribute("aria-live") == "polite"
+    _shot(browser_page, "08-loading-pill")
+    page.wait_for_function("() => document.querySelector('#title').textContent === 'Live Radio'")
+    page.wait_for_selector("#loading-pill", state="hidden", timeout=4000)
+
+
+def test_download_panel_can_be_cancelled(browser_page):
+    page = browser_page.page
+    page.locator("#list .row", has_text="Boot Pack").click()
+    page.wait_for_function("() => location.hash.includes('/api/item/boot-pack')")
+    _wait_for_rows(page, 1)
+    page.locator("#list .row .download-btn").first.click()
+    page.wait_for_selector("#download-panel", state="visible")
+    page.locator("#dl-cancel").click()
+    page.wait_for_selector("#download-panel", state="hidden", timeout=5000)
+    page.wait_for_function(
+        "() => document.querySelector('#toast').textContent.includes('Download cancelled')")
+
+    page.get_by_role("button", name="Downloads", exact=True).click()
+    page.wait_for_function("() => document.querySelector('#title').textContent === 'Downloads'")
+    page.wait_for_timeout(400)
+    assert page.locator("#list .row").count() == 0
+    assert page.locator("#empty").is_visible()
+    assert browser_page.page_errors == []
+
+
+def test_surprise_reveal_spins_then_stamps(browser_page):
+    page = browser_page.page
+    started = page.evaluate("performance.now()")
+    page.locator("#surprise").click()
+    page.wait_for_selector("#surprise-reveal", state="visible")
+    animation = page.locator("#surprise-reveal .surprise-head").evaluate(
+        "(el) => getComputedStyle(el).animationName")
+    assert animation != "none", "the reveal head should be animating"
+    page.wait_for_function(
+        "() => document.querySelector('#surprise-pick').textContent.trim().length > 0")
+    _shot(browser_page, "09-surprise-reveal")
+    page.wait_for_function(
+        "() => location.hash.startsWith('#/api/item/') || location.hash.startsWith('#/api/podcast/')")
+    elapsed = page.evaluate("performance.now()") - started
+    assert elapsed >= 700, "the reveal must not blink past (%.0f ms)" % elapsed
+    assert page.locator("#surprise-reveal").is_hidden()
+    assert browser_page.page_errors == []
+
+
+def test_reduced_motion_skips_spinner_animation_and_surprise_delay(browser_page):
+    page = browser_page.page
+    page.emulate_media(reduced_motion="reduce")
+    page.reload(wait_until="domcontentloaded")
+    page.wait_for_function(
+        "() => document.querySelectorAll('#list .row:not(.skeleton)').length > 0")
+
+    animation = page.locator("#surprise-reveal .surprise-head").evaluate(
+        "(el) => getComputedStyle(el).animationName")
+    assert animation == "none"
+
+    page.evaluate("""() => {
+        window.__revealShows = 0;
+        const reveal = document.querySelector('#surprise-reveal');
+        new MutationObserver(() => {
+            if (!reveal.hidden) window.__revealShows += 1;
+        }).observe(reveal, {attributes: true, attributeFilter: ['hidden']});
+    }""")
+    started = page.evaluate("performance.now()")
+    page.locator("#surprise").click()
+    page.wait_for_function(
+        "() => location.hash.startsWith('#/api/item/') || location.hash.startsWith('#/api/podcast/')")
+    elapsed = page.evaluate("performance.now()") - started
+    assert page.evaluate("window.__revealShows") == 0, "reduced motion must skip the reveal"
+    assert elapsed < 1400, "reduced motion must not wait for the reveal (%.0f ms)" % elapsed
+    assert page.locator("#surprise-reveal").is_hidden()
+
+    # The loading pill still reports, just without animation.
+    _delay_fetches(page, "/api/rail/gems", 600)
+    page.get_by_role("button", name="Curated Gems", exact=True).click()
+    page.wait_for_selector("#loading-pill", state="visible", timeout=4000)
+    pill_animation = page.locator("#loading-pill .spinner-head").evaluate(
+        "(el) => getComputedStyle(el).animationName")
+    assert pill_animation == "none"
+    page.wait_for_function("() => document.querySelector('#title').textContent === 'Curated Gems'")
+    page.wait_for_selector("#loading-pill", state="hidden", timeout=4000)
