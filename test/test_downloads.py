@@ -164,7 +164,7 @@ def test_download_saves_lists_plays_offline_and_deletes(web, tmp_path, monkeypat
     assert web.get("/api/downloads").get_json()["items"] == []
     assert not any(name.endswith(".mp3") for name in _files(tmp_path))
     assert web.get("/api/downloads/%s/stream" % identifier).status_code == 404
-    assert web.delete("/api/downloads/nope").get_json()["removed"] is False
+    assert web.delete("/api/downloads/nope").status_code == 404
 
 
 def test_download_rejects_ineligible_requests(web, tmp_path, monkeypatch):

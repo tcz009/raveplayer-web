@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Server-side Downloads store (web 1.6.16, phase 1).
+"""Server-side Downloads store (web 1.6.16; per-user scopes in 1.6.26).
 
 Only explicit, direct-file saves are kept here: the app writes one file plus a
 small JSON index under ``<RAVEWEB_DATA>/downloads``.  This module owns the
@@ -7,8 +7,11 @@ filesystem side (safe filenames, atomic index writes, size/space guards); the
 network side (SSRF-validated fetch) lives in ``app.py`` so it can reuse the
 stream proxy's resolver, redirect checks and timeouts.
 
-Everything is best-effort: a read-only data dir means "no downloads", never a
-failed request.
+``identity=None``/``"owner"`` uses the legacy root ``downloads/`` directory
+(that is how the pre-1.6.26 global library is adopted as the owner's library,
+without moving files).  Other identities get an isolated
+``downloads/<identity>/`` directory.  Existing tests and callers that omit
+identity keep the legacy owner behaviour.
 """
 
 import hashlib
@@ -35,14 +38,28 @@ MAX_FILENAME = 110
 
 _LOCK = threading.RLock()
 _SAFE_RE = re.compile(r"[^A-Za-z0-9._ -]+")
+_IDENT_RE = re.compile(r"[^A-Za-z0-9_-]+")
 
 
 class StorageError(Exception):
     """The download cannot be stored (count, size or free-space guard)."""
 
 
-def directory(base_dir):
+def _identity_name(identity):
+    if identity in (None, "", "owner"):
+        return ""
+    safe = _IDENT_RE.sub("", str(identity))[:32]
+    return safe or "friends"
+
+
+def _scope_dir(base_dir, identity=None):
     path = os.path.join(base_dir, DIRNAME)
+    name = _identity_name(identity)
+    return os.path.join(path, name) if name else path
+
+
+def directory(base_dir, identity=None):
+    path = _scope_dir(base_dir, identity)
     try:
         os.makedirs(path, exist_ok=True)
     except OSError:
@@ -50,21 +67,22 @@ def directory(base_dir):
     return path
 
 
-def index_path(base_dir):
-    return os.path.join(directory(base_dir), INDEXNAME)
+def index_path(base_dir, identity=None):
+    return os.path.join(directory(base_dir, identity), INDEXNAME)
 
 
 class _StoreLock(object):
     """Process lock + best-effort advisory file lock (same idea as favourites)."""
 
-    def __init__(self, base_dir):
+    def __init__(self, base_dir, identity=None):
         self._base = base_dir
+        self._identity = identity
         self._handle = None
 
     def __enter__(self):
         _LOCK.acquire()
         try:
-            self._handle = open(os.path.join(directory(self._base), LOCKNAME), "a+")
+            self._handle = open(os.path.join(directory(self._base, self._identity), LOCKNAME), "a+")
         except OSError:
             self._handle = None
         if self._handle is not None and fcntl is not None:
@@ -127,8 +145,8 @@ def _valid_filename(name):
     )
 
 
-def _read_unlocked(base_dir):
-    path = index_path(base_dir)
+def _read_unlocked(base_dir, identity=None):
+    path = index_path(base_dir, identity)
     try:
         with open(path, "r", encoding="utf-8") as handle:
             data = json.load(handle)
@@ -163,8 +181,8 @@ def _read_unlocked(base_dir):
     return entries
 
 
-def _write_unlocked(base_dir, entries):
-    path = index_path(base_dir)
+def _write_unlocked(base_dir, entries, identity=None):
+    path = index_path(base_dir, identity)
     directory_path = os.path.dirname(path)
     try:
         os.makedirs(directory_path, exist_ok=True)
@@ -184,30 +202,30 @@ def _write_unlocked(base_dir, entries):
         return False
 
 
-def used(base_dir):
-    return sum(entry["size"] for entry in _read_unlocked(base_dir))
+def used(base_dir, identity=None):
+    return sum(entry["size"] for entry in _read_unlocked(base_dir, identity))
 
 
-def find(base_dir, download_id):
+def find(base_dir, download_id, identity=None):
     if not isinstance(download_id, str):
         return None
-    return next((entry for entry in _read_unlocked(base_dir)
+    return next((entry for entry in _read_unlocked(base_dir, identity)
                  if entry["id"] == download_id), None)
 
 
-def find_url(base_dir, url):
+def find_url(base_dir, url, identity=None):
     if not isinstance(url, str):
         return None
-    return next((entry for entry in _read_unlocked(base_dir)
+    return next((entry for entry in _read_unlocked(base_dir, identity)
                  if entry["url"] == url), None)
 
 
-def file_path(base_dir, entry):
-    return os.path.join(directory(base_dir), entry["filename"])
+def file_path(base_dir, entry, identity=None):
+    return os.path.join(directory(base_dir, identity), entry["filename"])
 
 
-def temp_path(base_dir, entry):
-    return os.path.join(directory(base_dir), TEMP_PREFIX + entry["filename"])
+def temp_path(base_dir, entry, identity=None):
+    return os.path.join(directory(base_dir, identity), TEMP_PREFIX + entry["filename"])
 
 
 def entry_for(base_dir, title, url, source):
@@ -226,34 +244,35 @@ def entry_for(base_dir, title, url, source):
     }
 
 
-def _free_bytes(base_dir):
+def _free_bytes(base_dir, identity=None):
     try:
-        return shutil.disk_usage(directory(base_dir)).free
+        return shutil.disk_usage(directory(base_dir, identity)).free
     except OSError:
         return 0
 
 
-def reserve(base_dir, max_items):
+def reserve(base_dir, max_items, identity=None):
     """Check the count guard before spending time on a download."""
-    with _StoreLock(base_dir):
-        entries = _read_unlocked(base_dir)
+    with _StoreLock(base_dir, identity):
+        entries = _read_unlocked(base_dir, identity)
         if len(entries) >= max_items:
             raise StorageError("the Downloads library is full (%d items)" % max_items)
 
 
-def register(base_dir, entry, temp_name, max_total, max_items):
+def register(base_dir, entry, temp_name, max_total, max_items, identity=None):
     """Atomically move the finished temp file into place and index it."""
     size = entry.get("size") or 0
-    with _StoreLock(base_dir):
-        entries = [item for item in _read_unlocked(base_dir) if item["id"] != entry["id"]]
+    with _StoreLock(base_dir, identity):
+        entries = [item for item in _read_unlocked(base_dir, identity)
+                   if item["id"] != entry["id"]]
         if len(entries) >= max_items:
             raise StorageError("the Downloads library is full (%d items)" % max_items)
         total = sum(item["size"] for item in entries)
         if total + size > max_total:
             raise StorageError("the Downloads library is full (size cap reached)")
-        if _free_bytes(base_dir) < size + 1024 * 1024:
+        if _free_bytes(base_dir, identity) < size + 1024 * 1024:
             raise StorageError("not enough disk space for this download")
-        destination = os.path.join(directory(base_dir), entry["filename"])
+        destination = os.path.join(directory(base_dir, identity), entry["filename"])
         try:
             os.replace(temp_name, destination)
         except OSError as exc:
@@ -261,7 +280,7 @@ def register(base_dir, entry, temp_name, max_total, max_items):
         entry["created"] = time.time()
         entries.append(entry)
         entries.sort(key=lambda item: item.get("created") or 0, reverse=True)
-        if not _write_unlocked(base_dir, entries):
+        if not _write_unlocked(base_dir, entries, identity):
             try:
                 os.remove(destination)
             except OSError:
@@ -270,34 +289,71 @@ def register(base_dir, entry, temp_name, max_total, max_items):
         return entry
 
 
-def discard(base_dir, entry):
-    name = temp_path(base_dir, entry)
+def discard(base_dir, entry, identity=None):
+    name = temp_path(base_dir, entry, identity)
     try:
         os.remove(name)
     except OSError:
         pass
 
 
-def remove(base_dir, download_id):
+def remove(base_dir, download_id, identity=None):
     """Delete one stored download; returns True when something was removed."""
-    with _StoreLock(base_dir):
-        entries = _read_unlocked(base_dir)
+    with _StoreLock(base_dir, identity):
+        entries = _read_unlocked(base_dir, identity)
         match = next((item for item in entries if item["id"] == download_id), None)
         if match is None:
             return False
         try:
-            os.remove(os.path.join(directory(base_dir), match["filename"]))
+            os.remove(os.path.join(directory(base_dir, identity), match["filename"]))
         except OSError:
             pass
         entries = [item for item in entries if item["id"] != download_id]
-        _write_unlocked(base_dir, entries)
+        _write_unlocked(base_dir, entries, identity)
         return True
 
 
-def list_entries(base_dir):
+def list_entries(base_dir, identity=None):
     """Index entries whose file still exists, newest first."""
-    folder = directory(base_dir)
-    entries = [entry for entry in _read_unlocked(base_dir)
+    folder = directory(base_dir, identity)
+    entries = [entry for entry in _read_unlocked(base_dir, identity)
                if os.path.isfile(os.path.join(folder, entry["filename"]))]
     entries.sort(key=lambda item: item.get("created") or 0, reverse=True)
     return entries
+
+
+def all_entries(base_dir):
+    """Owner view: owner legacy scope plus every isolated identity scope."""
+    entries = []
+    for entry in list_entries(base_dir, None):
+        entry = dict(entry, identity="owner")
+        entries.append(entry)
+    root = _scope_dir(base_dir)
+    try:
+        names = sorted(os.listdir(root))
+    except OSError:
+        names = []
+    for name in names:
+        if not name or name.startswith(".") or name == DIRNAME:
+            continue
+        folder = os.path.join(root, name)
+        if not os.path.isdir(folder):
+            continue
+        for entry in list_entries(base_dir, name):
+            entries.append(dict(entry, identity=name))
+    entries.sort(key=lambda item: item.get("created") or 0, reverse=True)
+    return entries
+
+
+def migrate_legacy(base_dir):
+    """Adopt the pre-1.6.26 global library as the owner's library.
+
+    The legacy files already live in the owner scope (the root ``downloads/``
+    directory), so this is deliberately a no-op for files: it validates the
+    owner index/files and returns counts.  It is idempotent; friends scopes are
+    untouched/empty.
+    """
+    return {
+        "owner": len(list_entries(base_dir, None)),
+        "friends": len(list_entries(base_dir, "friends")),
+    }

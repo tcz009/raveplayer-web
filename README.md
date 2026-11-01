@@ -55,6 +55,8 @@ The sections behind the groups:
 - **Legacy Sites** — RaveTapePacks.com, JungleTapes.com, Toronto archive.
 - **Favourites** — stored server-side in `RAVEWEB_DATA`.
 - **Downloads** — explicit, direct-file saves kept under `RAVEWEB_DATA/downloads`
+  and scoped per owner/friends identity (legacy global library becomes the
+  owner's; see [`docs/PER-USER.md`](docs/PER-USER.md))
   (Archive tracks, Moxser MP3s, Hardscore MP3/M4A, Pirate Radio Archives direct
   files). Each row shows size/date, plays from the local copy offline, can be
   saved to another device (Content-Disposition + Range) and deleted.
@@ -336,9 +338,9 @@ typography, hero and texture language — is documented in
 
 ## Tests
 
-### Offline suite (354 cases)
+### Offline suite (360 cases)
 
-The offline suite is 354 cases (all providers mocked) and uses the Flask test
+The offline suite is 360 cases (all providers mocked) and uses the Flask test
 client. `pytest` is a test-only dependency:
 
 ```sh

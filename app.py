@@ -1872,8 +1872,11 @@ def _fav_target(entry):
 @app.get("/api/favourites")
 def api_fav_list():
     items = []
+    identity = _download_identity()
     try:
-        entries = favourites.load()
+        entries = (favourites.all_entries()
+                   if request.args.get("all") == "1" and session.get("role") == "admin"
+                   else favourites.load(identity))
     except Exception as exc:  # best effort: a broken store is an empty list
         app.logger.warning("favourites load failed: %s", exc)
         entries = []
@@ -1895,6 +1898,8 @@ def api_fav_list():
         else:
             item = _track(title, "Show", target, ART + "radio.png")
         item["fav_key"] = key
+        if entry.get("identity"):
+            item["identity"] = entry["identity"]
         items.append(item)
     return jsonify({"title": "Favourites", "items": items})
 
@@ -1930,7 +1935,7 @@ def api_fav_add():
     if error:
         return jsonify({"saved": False, "error": error}), 400
     try:
-        saved = favourites.add(entry)
+        saved = favourites.add(entry, _download_identity())
     except Exception as exc:  # read-only or full data dir
         app.logger.warning("favourites add failed: %s", exc)
         saved = False
@@ -1940,14 +1945,18 @@ def api_fav_add():
 @app.delete("/api/favourites/<path:key>")
 def api_fav_remove(key):
     key = _clean_text(key, MAX_URL)
+    identity = _download_identity()
     try:
-        existed = any(favourites.key(entry) == key for entry in favourites.load()
+        existed = any(favourites.key(entry) == key
+                      for entry in favourites.load(identity)
                       if isinstance(entry, dict))
-        removed = favourites.remove(key) if existed else False
+        removed = favourites.remove(key, identity) if existed else False
     except Exception as exc:
         app.logger.warning("favourites remove failed: %s", exc)
         existed, removed = False, False
-    return jsonify({"removed": bool(existed and removed)})
+    if not existed:
+        return _json_error("favourite not found", 404)
+    return jsonify({"removed": bool(removed)})
 
 
 # --------------------------------------------------------------------------- streaming
@@ -2642,6 +2651,10 @@ def _mark_download(item, source, url=None):
     return item
 
 
+def _download_identity():
+    return session.get("identity") or "owner"
+
+
 def _download_item(entry):
     identifier = entry["id"]
     when = ""
@@ -2828,12 +2841,13 @@ def _job_worker(job_id):
                 _job_cleanup_partial(job)
             return
         entry = job["entry"]
+        identity = job.get("identity") or "owner"
         temp_name = download_jobs.temp_path(DATA_DIR, job)
         _job_update(job_id, state="downloading", started=time.time(), progress=0,
                     bytes_done=0, bytes_total=None, error="")
         completed = False
         try:
-            used = downloads.used(DATA_DIR)
+            used = downloads.used(DATA_DIR, identity)
             max_bytes = min(DOWNLOAD_MAX_BYTES, max(0, DOWNLOAD_MAX_TOTAL - used))
             if max_bytes <= 0:
                 raise DownloadError("the Downloads library is full", 413)
@@ -2859,7 +2873,8 @@ def _job_worker(job_id):
                 elif event.get("done"):
                     entry["size"] = int(event.get("size") or 0)
                     downloads.register(DATA_DIR, entry, temp_name,
-                                       DOWNLOAD_MAX_TOTAL, DOWNLOAD_MAX_ITEMS)
+                                       DOWNLOAD_MAX_TOTAL, DOWNLOAD_MAX_ITEMS,
+                                       identity)
                     _job_update(job_id, state="completed",
                                 bytes_done=entry["size"],
                                 bytes_total=entry["size"], progress=100,
@@ -2900,7 +2915,8 @@ def api_download_job_create():
         return _json_error(error, 400)
     identity = session.get("identity") or ""
     role = session.get("role") or ""
-    existing = downloads.find_url(DATA_DIR, url)
+    identity = _download_identity()
+    existing = downloads.find_url(DATA_DIR, url, identity)
     if existing:
         return jsonify({"id": existing["id"], "already": True,
                         "state": "completed", "job": None})
@@ -2916,7 +2932,7 @@ def api_download_job_create():
         if len(active) >= DOWNLOAD_JOB_MAX:
             return _json_error("too many background downloads", 429)
     try:
-        downloads.reserve(DATA_DIR, DOWNLOAD_MAX_ITEMS)
+        downloads.reserve(DATA_DIR, DOWNLOAD_MAX_ITEMS, identity)
     except downloads.StorageError as exc:
         return _json_error(str(exc), 507)
     if not title:
@@ -2967,19 +2983,19 @@ def api_download_job_cancel(job_id):
                     "job": download_jobs.public(_job_get(identifier))})
 
 
-def _download_stream(url, entry, client_id):
+def _download_stream(url, entry, client_id, identity="owner"):
     """NDJSON progress stream for one explicit download (panel wiring).
 
     Emits ``started`` (with Content-Length when known), ``progress`` ticks,
     then exactly one of ``saved``/``cancelled``/``error``.  The partial file is
     discarded on any non-saved exit, including client disconnects.
     """
-    temp_name = downloads.temp_path(DATA_DIR, entry)
+    temp_name = downloads.temp_path(DATA_DIR, entry, identity)
     saved = [False]
 
     def generate():
         try:
-            used = downloads.used(DATA_DIR)
+            used = downloads.used(DATA_DIR, identity)
             max_bytes = min(DOWNLOAD_MAX_BYTES, max(0, DOWNLOAD_MAX_TOTAL - used))
             if max_bytes <= 0:
                 raise DownloadError("the Downloads library is full", 413)
@@ -2989,7 +3005,8 @@ def _download_stream(url, entry, client_id):
                 if event.get("done"):
                     entry["size"] = int(event.get("size") or 0)
                     downloads.register(DATA_DIR, entry, temp_name,
-                                       DOWNLOAD_MAX_TOTAL, DOWNLOAD_MAX_ITEMS)
+                                       DOWNLOAD_MAX_TOTAL, DOWNLOAD_MAX_ITEMS,
+                                       identity)
                     saved[0] = True
                     yield json.dumps({"state": "saved",
                                       "item": _download_item(entry)}) + "\n"
@@ -3024,7 +3041,7 @@ def _download_stream(url, entry, client_id):
                 with _DOWNLOAD_CANCEL_LOCK:
                     _DOWNLOAD_CANCELS.discard(client_id)
             if not saved[0]:
-                downloads.discard(DATA_DIR, entry)
+                downloads.discard(DATA_DIR, entry, identity)
 
     return generate()
 
@@ -3043,8 +3060,15 @@ def api_download_cancel(client_id):
 @app.get("/api/downloads")
 def api_downloads():
     """Local Downloads library (server-side copy under RAVEWEB_DATA)."""
-    entries = downloads.list_entries(DATA_DIR)
+    identity = _download_identity()
+    if request.args.get("all") == "1" and session.get("role") == "admin":
+        entries = downloads.all_entries(DATA_DIR)
+    else:
+        entries = downloads.list_entries(DATA_DIR, identity)
     items = [_download_item(entry) for entry in entries]
+    if request.args.get("all") == "1" and session.get("role") == "admin":
+        for item, entry in zip(items, entries):
+            item["identity"] = entry.get("identity") or "owner"
     used = sum(entry["size"] for entry in entries)
     return jsonify({
         "title": "Downloads",
@@ -3070,12 +3094,13 @@ def api_download_create():
     allowed, error = _download_allowed(source, url)
     if not allowed:
         return _json_error(error, 400)
-    existing = downloads.find_url(DATA_DIR, url)
+    identity = _download_identity()
+    existing = downloads.find_url(DATA_DIR, url, identity)
     if existing:
         return jsonify({"saved": True, "already": True,
                         "item": _download_item(existing)})
     try:
-        downloads.reserve(DATA_DIR, DOWNLOAD_MAX_ITEMS)
+        downloads.reserve(DATA_DIR, DOWNLOAD_MAX_ITEMS, identity)
     except downloads.StorageError as exc:
         return _json_error(str(exc), 507)
     if not title:
@@ -3086,7 +3111,7 @@ def api_download_create():
         if not _DOWNLOAD_CLIENT_RE.match(client_id or ""):
             return _json_error("invalid download id", 400)
         return Response(
-            _download_stream(url, entry, client_id),
+            _download_stream(url, entry, client_id, identity),
             mimetype="application/x-ndjson",
             headers={
                 "Cache-Control": "no-store",
@@ -3094,24 +3119,24 @@ def api_download_create():
                 "X-Content-Type-Options": "nosniff",
             },
         )
-    temp_name = downloads.temp_path(DATA_DIR, entry)
+    temp_name = downloads.temp_path(DATA_DIR, entry, identity)
     try:
-        used = downloads.used(DATA_DIR)
+        used = downloads.used(DATA_DIR, identity)
         max_bytes = min(DOWNLOAD_MAX_BYTES, max(0, DOWNLOAD_MAX_TOTAL - used))
         if max_bytes <= 0:
             raise DownloadError("the Downloads library is full", 413)
         size = _download_to_file(url, temp_name, max_bytes, DOWNLOAD_DEADLINE)
         entry["size"] = size
         downloads.register(DATA_DIR, entry, temp_name,
-                           DOWNLOAD_MAX_TOTAL, DOWNLOAD_MAX_ITEMS)
+                           DOWNLOAD_MAX_TOTAL, DOWNLOAD_MAX_ITEMS, identity)
     except DownloadError as exc:
-        downloads.discard(DATA_DIR, entry)
+        downloads.discard(DATA_DIR, entry, identity)
         return _json_error(exc.message, exc.code)
     except downloads.StorageError as exc:
-        downloads.discard(DATA_DIR, entry)
+        downloads.discard(DATA_DIR, entry, identity)
         return _json_error(str(exc), 507)
     except Exception as exc:  # noqa: BLE001 - never leak a traceback
-        downloads.discard(DATA_DIR, entry)
+        downloads.discard(DATA_DIR, entry, identity)
         app.logger.warning("download failed for %s: %s", _safe_log_url(url), exc)
         return _json_error("could not save that download", 502)
     return jsonify({"saved": True, "item": _download_item(entry)})
@@ -3120,8 +3145,12 @@ def api_download_create():
 @app.delete("/api/downloads/<download_id>")
 def api_download_delete(download_id):
     identifier = _clean_text(download_id, 64)
+    identity = _download_identity()
+    entry = downloads.find(DATA_DIR, identifier, identity)
+    if not entry:
+        return _json_error("unknown download", 404)
     try:
-        removed = downloads.remove(DATA_DIR, identifier)
+        removed = downloads.remove(DATA_DIR, identifier, identity)
     except Exception as exc:  # noqa: BLE001 - a broken store is not a 500
         app.logger.warning("download delete failed: %s", exc)
         removed = False
@@ -3132,10 +3161,11 @@ def _saved_download(download_id):
     identifier = _clean_text(download_id, 64)
     if not identifier:
         return None, None
-    entry = downloads.find(DATA_DIR, identifier)
+    identity = _download_identity()
+    entry = downloads.find(DATA_DIR, identifier, identity)
     if not entry:
         return None, None
-    path = downloads.file_path(DATA_DIR, entry)
+    path = downloads.file_path(DATA_DIR, entry, identity)
     if not os.path.isfile(path):
         return None, None
     return entry, path

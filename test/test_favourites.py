@@ -60,7 +60,7 @@ def test_delete_lifecycle(web):
     assert web.get("/api/favourites").get_json()["items"] == []
 
     again = web.delete("/api/favourites/stream:https://cdn.example/ep1.mp3")
-    assert again.get_json() == {"removed": False}
+    assert again.status_code == 404
 
 
 def test_delete_does_not_touch_other_entries(web):
@@ -148,7 +148,7 @@ def test_read_only_data_dir_still_works(web, tmp_path, monkeypatch):
         listed = web.get("/api/favourites")
         assert listed.status_code == 200
         assert listed.get_json()["items"] == []
-        assert web.delete("/api/favourites/stream:x").get_json() == {"removed": False}
+        assert web.delete("/api/favourites/stream:x").status_code == 404
     finally:
         os.chmod(fav_dir, stat.S_IRWXU)
 
@@ -159,7 +159,7 @@ def test_data_dir_path_is_a_file(web, tmp_path, monkeypatch):
     monkeypatch.setenv("RAVEPLAYER_FAV_DIR", str(blocker))
     assert web.get("/api/favourites").status_code == 200
     assert web.post("/api/favourites", json=STREAM_FAV).get_json() == {"saved": False}
-    assert web.delete("/api/favourites/x").status_code == 200
+    assert web.delete("/api/favourites/x").status_code == 404
 
 
 def test_broken_provider_does_not_500(web, monkeypatch):
@@ -171,7 +171,7 @@ def test_broken_provider_does_not_500(web, monkeypatch):
     monkeypatch.setattr("app.favourites.add", boom)
     assert web.post("/api/favourites", json=STREAM_FAV).get_json() == {"saved": False}
     monkeypatch.setattr("app.favourites.remove", boom)
-    assert web.delete("/api/favourites/x").get_json() == {"removed": False}
+    assert web.delete("/api/favourites/x").status_code == 404
 
 
 def test_legacy_referer_target_is_accepted(web):

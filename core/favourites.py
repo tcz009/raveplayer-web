@@ -1,12 +1,18 @@
 # -*- coding: utf-8 -*-
-"""Favourites: a small JSON list in the add-on profile directory.
+"""Favourites: a small JSON list, scoped per signed-in identity (1.6.26).
 
-Best-effort like the cache — a read-only profile must never break the add-on,
-it just means favourites are not saved.
+The pre-1.6.26 global file remains the **owner's** store (so existing
+favourites are adopted without a file move); other identities get
+``<favourites-root>/<identity>/favourites.json``.  ``identity=None`` keeps the
+legacy behaviour for module tests/tools.
+
+Best-effort like the cache — a read-only profile must never break the app, it
+just means favourites are not saved.
 """
 
 import json
 import os
+import re
 import tempfile
 import threading
 
@@ -22,11 +28,8 @@ LOCKNAME = ".favourites.lock"
 MAX_ENTRIES = 300
 FAV_DIR_ENV = "RAVEPLAYER_FAV_DIR"
 
-# A process-wide lock serialises read-modify-write cycles inside one worker;
-# the advisory file lock does the same across gunicorn workers.  Without this,
-# concurrent POST/DELETE requests can each read the same list and the last save
-# silently discards the other change.
 _LOCK = threading.RLock()
+_IDENT_RE = re.compile(r"[^A-Za-z0-9_-]+")
 
 
 def _translate(path):
@@ -40,7 +43,7 @@ def _translate(path):
         return path
 
 
-def _path():
+def _root():
     override = os.environ.get(FAV_DIR_ENV)
     if override:
         directory = override
@@ -50,6 +53,20 @@ def _path():
         except Exception:
             profile = ""
         directory = _translate(profile) if profile else os.path.join(tempfile.gettempdir(), "raveplayer-favs")
+    return directory
+
+
+def _identity_name(identity):
+    if identity in (None, "", "owner"):
+        return ""
+    safe = _IDENT_RE.sub("", str(identity))[:32]
+    return safe or "friends"
+
+
+def _path(identity=None):
+    root = _root()
+    name = _identity_name(identity)
+    directory = os.path.join(root, name) if name else root
     try:
         os.makedirs(directory, exist_ok=True)
     except OSError:
@@ -58,19 +75,15 @@ def _path():
 
 
 class _StoreLock(object):
-    """Re-entrant thread lock plus a best-effort exclusive file lock.
+    """Re-entrant thread lock plus a best-effort exclusive file lock."""
 
-    Locking must never turn a read-only data dir into an error: if the lock
-    file cannot be created or locked, the caller still runs (same best-effort
-    policy as the rest of this module) under the process lock only.
-    """
-
-    def __init__(self):
+    def __init__(self, identity=None):
+        self._identity = identity
         self._handle = None
 
     def __enter__(self):
         _LOCK.acquire()
-        directory = os.path.dirname(_path())
+        directory = os.path.dirname(_path(self._identity))
         try:
             os.makedirs(directory, exist_ok=True)
             self._handle = open(os.path.join(directory, LOCKNAME), "a+")
@@ -99,9 +112,9 @@ class _StoreLock(object):
         return False
 
 
-def load():
+def _load_from(path):
     try:
-        with open(_path(), encoding="utf-8") as handle:
+        with open(path, encoding="utf-8") as handle:
             data = json.load(handle)
     except (OSError, ValueError):
         return []
@@ -110,16 +123,13 @@ def load():
     return [entry for entry in data if isinstance(entry, dict) and entry.get("title")]
 
 
-def save(entries):
-    """Write the list atomically: same-dir temp file, fsync, then replace.
+def load(identity=None):
+    return _load_from(_path(identity))
 
-    A crash or full disk in the middle of a plain ``open(..., "w")`` could
-    truncate the store and lose every favourite (audit risk 7).  The temp
-    file lives next to the real one so ``os.replace`` stays on one
-    filesystem, and the previous file is only swapped out once the new JSON
-    is safely on disk.  The stored shape (a plain JSON list) is unchanged.
-    """
-    path = _path()
+
+def save(entries, identity=None):
+    """Write the list atomically in the identity's directory."""
+    path = _path(identity)
     directory = os.path.dirname(path)
     temporary = None
     try:
@@ -147,26 +157,50 @@ def key(entry):
     return "%s:%s" % (entry.get("kind", ""), entry.get("target", ""))
 
 
-def add(entry):
+def add(entry, identity=None):
     """Add or refresh an entry; returns True when the list changed."""
     if not entry.get("title") or not entry.get("target"):
         return False
-    with _StoreLock():
-        entries = [item for item in load() if key(item) != key(entry)]
+    with _StoreLock(identity):
+        entries = [item for item in load(identity) if key(item) != key(entry)]
         entries.insert(0, {
             "kind": entry["kind"],
             "target": entry["target"],
             "title": entry["title"][:200],
             "source": entry.get("source", ""),
         })
-        return save(entries)
+        return save(entries) if identity is None else save(entries, identity)
 
 
-def remove(entry_key):
-    with _StoreLock():
-        entries = [item for item in load() if key(item) != entry_key]
-        return save(entries)
+def remove(entry_key, identity=None):
+    with _StoreLock(identity):
+        entries = [item for item in load(identity) if key(item) != entry_key]
+        return save(entries) if identity is None else save(entries, identity)
 
 
-def has(entry):
-    return any(key(item) == key(entry) for item in load())
+def has(entry, identity=None):
+    return any(key(item) == key(entry) for item in load(identity))
+
+
+def all_entries():
+    """Owner view: owner legacy store plus isolated identity stores."""
+    root = _root()
+    entries = [dict(entry, identity="owner") for entry in _load_from(_path(None))]
+    try:
+        names = sorted(os.listdir(root))
+    except OSError:
+        names = []
+    for name in names:
+        if not name or name.startswith(".") or name in ("owner",):
+            continue
+        folder = os.path.join(root, name)
+        if not os.path.isdir(folder):
+            continue
+        for entry in _load_from(os.path.join(folder, FILENAME)):
+            entries.append(dict(entry, identity=name))
+    return entries
+
+
+def migrate_legacy():
+    """Adopt the pre-1.6.26 global file as the owner's store (no file move)."""
+    return {"owner": len(_load_from(_path(None))), "friends": len(_load_from(_path("friends")))}

@@ -114,8 +114,8 @@ credential.
   after the failure window.
 - Only the two fixed identities; no arbitrary accounts/OAuth, no password
   reset flow, no email, no 2FA, no server-side session store/revocation list
-  (signed cookies only, revoked by rotating `SECRET_KEY`). Favourites and
-  Downloads remain globally shared between owner and friends.
+  (signed cookies only, revoked by rotating `SECRET_KEY`). Favourites and Downloads are scoped per identity since 1.6.26 (the legacy global
+  store becomes the owner's); see [`PER-USER.md`](PER-USER.md).
 
 ## Tests
 

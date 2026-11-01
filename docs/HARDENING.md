@@ -1,10 +1,10 @@
-# Hardening pass — Rave Player web (`raveplayer-web` 1.6.25)
+# Hardening pass — Rave Player web (`raveplayer-web` 1.6.26)
 
-**Branch:** `feature/1.6.25-admin-write` (not pushed) · **Base:** `feature/1.6.24-quickwins` @ `81c4881` (1.6.24)
+**Branch:** `feature/1.6.26-per-user` (not pushed) · **Base:** `main` @ `b58e010` (1.6.25)
 **Scope:** `app.py`, `core/`, `static/app.js`, `scripts/deploy.sh`, `docs/`, `test/`,
 `test_e2e/`, `VERSION`. No UX or content changes. No `data/` or advert files touched.
 
-**Result:** `205 → 354 passed` (`.venv/bin/python -m pytest -q test`), all
+**Result:** `205 → 360 passed` (`.venv/bin/python -m pytest -q test`), all
 offline; browser suite `test_e2e` **21 passed** (system Chrome, Playwright 1.60);
 `node --check static/app.js` and `sh -n scripts/deploy.sh` clean.
 
@@ -12,6 +12,19 @@ Inputs folded in: the internal task-22 brief and the adversarial pre-review
 (`docs/ADVERSARIAL-REVIEW.md`, web findings W1–W8). The review's "what is solid" list
 (stream SSRF guard, SPA escaping, CSP, content-type gate, atomic writes) was kept intact.
 
+
+## 1.6.26 — per-identity favourites/Downloads
+
+- Favourites and Downloads files/indexes are scoped to the signed-in
+  `owner`/`friends` identity. The pre-1.6.26 global store is adopted in place as
+  the owner's (no moves/deletes; idempotent migration helpers); friends start
+  empty.
+- Owner `all=1` widens list reads only; UI defaults own. Cross-user
+  stream/file/delete and favourite removal are 404 (no existence leak).
+- Background jobs register completed files into the job owner's library only;
+  job temp paths include identity; caps/free-space unchanged (per identity).
+- Tests: 360 offline (+6 identity scope); e2e unchanged at 21 (no UI change).
+  Docs PER-USER/DOWNLOADS/AUTH/README.
 
 ## 1.6.25 — owner write API (sessions, blocks, friends)
 
@@ -519,10 +532,10 @@ that the module layout matches.
 
 ```sh
 cd "Rave Player"
-.venv/bin/python -m pytest -q test        # 354 passed
+.venv/bin/python -m pytest -q test        # 360 passed
 node --check static/app.js
 sh -n scripts/deploy.sh
-git diff --stat feature/1.6.24-quickwins..feature/1.6.25-admin-write
+git diff --stat main..feature/1.6.26-per-user
 ```
 
 ## Post-merge fix — deploy.sh heredoc escaping (found on first real deploy)

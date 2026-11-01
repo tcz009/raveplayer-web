@@ -121,7 +121,7 @@ def save(base_dir, jobs):
 def temp_path(base_dir, job):
     """Unique partial path; foreground and background jobs can share a URL."""
     entry = job.get("entry") or {}
-    return os.path.join(downloads.directory(base_dir),
+    return os.path.join(downloads.directory(base_dir, job.get("identity")),
                         TEMP_PREFIX + str(job.get("id") or "job") + "-"
                         + str(entry.get("filename") or "download"))
 

@@ -1,6 +1,6 @@
 # Downloads / offline + background jobs (web, 1.6.23)
 
-Explicit, direct-file saves for the web player. Nothing is fetched until the
+Explicit, direct-file saves for the web player, scoped per signed-in identity since 1.6.26. Nothing is fetched until the
 user presses **Download** on an eligible row, and only the four curated direct
 sources can ever be saved. The same rule is shared with the Kodi add-on so both
 platforms offer the same rows.
@@ -58,7 +58,7 @@ completed `download_id`; the URL and internal entry are never returned.
   wait as `queued`. Job metadata is capped at 20 live/history entries.
 - **Ownership**: a job belongs to the signed-in `owner` or `friends` identity.
   Friends see only their own jobs; the owner/admin sees everyone's and may
-  inspect or cancel them. The Downloads library itself remains shared.
+  inspect or cancel them. Each user has their own Downloads library; jobs and files are scoped by identity (1.6.26).
 - **Restart/failure cleanup**: on the first jobs request after a process
   restart, any `queued`/`downloading` row is marked `failed`
   (“interrupted by server restart”) and its unique `.part` file is removed.
@@ -74,7 +74,11 @@ completion toast when you are elsewhere.
 
 ## Storage and guards
 
-- Files and `index.json` live under `RAVEWEB_DATA/downloads` (Docker `/data/downloads`).
+- Files and `index.json` live under `RAVEWEB_DATA/downloads` for the owner
+  (the pre-1.6.26 global library is adopted in place) and
+  `RAVEWEB_DATA/downloads/<identity>/` for other identities; see
+  [`PER-USER.md`](PER-USER.md). Owner default reads are own-only; `?all=1`
+  widens lists only, and cross-user stream/file/delete is 404.
 - Per file `RAVEWEB_DOWNLOAD_BYTES` (default 500 MiB), library total
   `RAVEWEB_DOWNLOAD_TOTAL` (default 2 GiB), 200 items, plus a free-space reserve.
 - Background concurrency `RAVEWEB_DOWNLOAD_JOBS` (default 2, clamped 1–2).

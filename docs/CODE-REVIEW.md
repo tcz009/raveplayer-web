@@ -1,7 +1,7 @@
 # Independent code review — brief
 
 **Project:** Rave Player — web app (`raveplayer-web`)
-**Version under review:** 1.6.25 (`feature/1.6.25-admin-write`, based on the 1.6.24 quick wins)
+**Version under review:** 1.6.26 (`feature/1.6.26-per-user`, based on 1.6.25 admin writes)
 **Reviewer target:** `app.py`, `core/`, `static/`, `templates/`, `test/`; ignore `data/`, `__pycache__/`, `.venv/`.
 
 ## What it is
@@ -132,7 +132,12 @@ A prepared `.venv` exists in this checkout.
   list/revoke, IP/identity blocks with TTL and session revocation, persisted
   friends disable/enable, CSRF on all mutations, 30/min admin rate limit, audit
   rows, stats `blocked_now`/`recent_actions`; friends 403, widget token 401.
-- Tests: `205 → 354` offline (`pytest -q test`) and **21 browser e2e**
+- **1.6.26 per-identity data**: favourites and Downloads indexes/files are
+  scoped to the session identity (legacy global store adopted as owner, friends
+  start empty); owner `all=1` read-only visibility; cross-user stream/file/
+  delete/remove 404; background jobs register into their owner's library only.
+  No UI/Control Centre change.
+- Tests: `205 → 360` offline (`pytest -q test`) and **21 browser e2e**
   (`pytest test_e2e`, see `docs/E2E.md`).
 
 ## Areas worth scrutiny
