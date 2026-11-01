@@ -35,6 +35,7 @@
     faved: new Set(),
     seq: 0,
     depth: 0,
+    rail: [],
   };
 
   const MEDIA_SESSION = "mediaSession" in navigator && typeof MediaMetadata !== "undefined";
@@ -709,9 +710,21 @@
     return button ? button.textContent.trim() : "";
   }
 
+  function railGroup(path) {
+    if (!Array.isArray(state.rail)) return null;
+    return state.rail.find((group) => group.path === path) || null;
+  }
+
+  function railGroupActive(group, path) {
+    if (group.path === path) return true;
+    return (group.children || []).some((child) =>
+      path === child || path.startsWith(child + "?") || path.startsWith(child + "/"));
+  }
+
   function highlightNav(path) {
     navEl.querySelectorAll("button").forEach((button) => {
-      const active = button.dataset.path === path;
+      const group = state.rail.find((entry) => entry.path === button.dataset.path) || null;
+      const active = group ? railGroupActive(group, path) : button.dataset.path === path;
       button.classList.toggle("active", active);
       if (active) button.setAttribute("aria-current", "page");
       else button.removeAttribute("aria-current");
@@ -1438,6 +1451,32 @@
     else navigate(sectionPath("latest"), { push: false });
   });
 
+  async function surpriseMe() {
+    const button = $("surprise");
+    if (!button || button.disabled) return;
+    const original = button.textContent;
+    button.disabled = true;
+    button.textContent = "Rolling…";
+    try {
+      const data = await api("/api/surprise", { timeout: 20000 });
+      if (data && data.open) {
+        toast(data.label ? `Surprise: ${data.label}` : "Surprise!");
+        navigate(data.open);
+      } else if (data && data.play) {
+        playItem(data, data.play);
+      } else {
+        toast("No surprise available right now");
+      }
+    } catch (error) {
+      toast(`Could not roll a surprise: ${messageFor(error)}`, 4000);
+    } finally {
+      button.disabled = false;
+      button.textContent = original;
+    }
+  }
+
+  $("surprise").addEventListener("click", surpriseMe);
+
   moreEl.addEventListener("click", loadMore);
 
   $("p-play").addEventListener("click", togglePlay);
@@ -1671,22 +1710,50 @@
     }
     try {
       const menu = await api("/api/menu", { timeout: 15000 });
+      // 1.6.15: eight grouped rail buttons instead of 21 flat ones (which
+      // overflowed a 1440x900 window).  Older servers without `rail` still
+      // render the flat section list.
+      const railSource = Array.isArray(menu.rail) && menu.rail.length
+        ? menu.rail.map((group) => ({
+          id: group.id,
+          label: group.label,
+          icon: group.icon,
+          sub: group.sub,
+          path: group.path || sectionPath(group.id),
+          children: (group.children || []).map((child) =>
+            typeof child === "string" ? sectionPath(child) : child.path).filter(Boolean),
+        }))
+        : (menu.sections || []).map((section) => ({
+          id: section.id,
+          label: section.label,
+          icon: section.icon,
+          sub: section.sub,
+          path: section.path || sectionPath(section.id),
+          children: [section.path || sectionPath(section.id)],
+        }));
+      state.rail = railSource.filter((group) => group.path);
       navEl.textContent = "";
-      (menu.sections || []).forEach((section) => {
-        if (!section || !section.id) return;
+      state.rail.forEach((group, index) => {
         const button = document.createElement("button");
         button.type = "button";
         const icon = document.createElement("img");
-        icon.src = section.icon || "/static/art/tapepacks.png";
+        icon.src = group.icon || "/static/art/tapepacks.png";
         icon.alt = "";
         icon.width = 22;
         icon.height = 22;
         const label = document.createElement("span");
-        label.textContent = section.label || section.id;
-        button.append(icon, label);
-        button.dataset.path = sectionPath(section.id);
-        if (section.sub) button.title = section.sub;
-        button.addEventListener("click", () => navigate(sectionPath(section.id)));
+        label.className = "rail-label";
+        label.textContent = group.label || group.id;
+        // Catalogue code is decoration: aria-hidden so it never becomes part
+        // of the button's accessible name.
+        const code = document.createElement("span");
+        code.className = "rail-code";
+        code.setAttribute("aria-hidden", "true");
+        code.textContent = "RP-" + String(index + 1).padStart(2, "0");
+        button.append(icon, label, code);
+        button.dataset.path = group.path;
+        if (group.sub) button.title = group.sub;
+        button.addEventListener("click", () => navigate(group.path));
         navEl.appendChild(button);
       });
     } catch (error) {

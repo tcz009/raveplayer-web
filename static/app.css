@@ -88,11 +88,12 @@ button, a, .row, input {
   inset: 0;
   pointer-events: none;
   background-image:
+    repeating-linear-gradient(0deg, rgba(7, 7, 11, 0.22) 0 1px, transparent 1px 3px),
     radial-gradient(rgba(232, 255, 0, 0.052) 1px, transparent 1.2px),
     radial-gradient(rgba(255, 45, 143, 0.032) 1px, transparent 1.2px),
     repeating-linear-gradient(135deg, transparent 0 8px, rgba(242, 238, 227, 0.013) 8px 9px);
-  background-size: 9px 9px, 13px 13px, auto;
-  background-position: 0 0, 4px 5px, 0 0;
+  background-size: auto, 9px 9px, 13px 13px, auto;
+  background-position: 0 0, 0 0, 4px 5px, 0 0;
   z-index: 0;
 }
 
@@ -158,14 +159,41 @@ a { color: inherit; text-decoration: none; }
   position: absolute;
   left: 0;
   right: 0;
-  bottom: -1px;
-  height: 3px;
+  bottom: -2px;
+  height: 4px;
   pointer-events: none;
   background: repeating-linear-gradient(90deg,
     var(--acid) 0 18px,
     transparent 18px 36px);
-  opacity: 0.24;
+  opacity: 0.38;
 }
+
+/* Surprise Me: the magenta die/roll sticker from the 2026 theme pack */
+.surprise-btn {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--paper);
+  border-radius: 0;
+  background: var(--magenta);
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 15px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 3px 3px 0 var(--acid);
+  transition: transform 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+}
+.surprise-btn:hover {
+  background: var(--paper);
+  border-color: var(--ink);
+  box-shadow: 3px 3px 0 var(--cyan);
+  transform: translate(-1px, -1px);
+}
+.surprise-btn:active { transform: translate(1px, 1px); box-shadow: 1px 1px 0 var(--cyan); }
+.surprise-btn:disabled { opacity: 0.72; cursor: progress; }
 
 .brand { display: flex; align-items: center; gap: 12px; border-radius: 8px; }
 
@@ -401,20 +429,41 @@ body.has-player .stage { padding-bottom: calc(var(--player) + 26px); }
   background: linear-gradient(var(--acid), var(--acid)) left top / 56px 4px no-repeat;
 }
 
+/* Back: 48 px sticker button, pinned under the masthead so it survives scroll
+   (it is the first child of .stage, i.e. a sticky element in a tall parent). */
 .back {
-  border: 1px solid var(--line);
-  background: var(--panel);
-  color: var(--muted);
-  border-radius: 6px;
-  padding: 7px 12px;
+  position: sticky;
+  top: calc(var(--topbar-h) + 10px);
+  z-index: 16;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: max-content;
+  min-height: 48px;
+  min-width: 112px;
+  margin: 0 0 10px;
+  padding: 0 18px;
+  border: 2px solid var(--paper);
+  border-radius: 0;
+  background: var(--paper);
+  color: var(--ink);
   font-family: var(--font-mono);
-  font-size: 10px;
-  letter-spacing: 0.08em;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  cursor: pointer;
   white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 4px 4px 0 var(--magenta);
+  transition: background-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
 }
-.back:hover { color: var(--ink); background: var(--acid); border-color: var(--acid); }
+.back:hover {
+  background: var(--acid);
+  border-color: var(--acid);
+  box-shadow: 4px 4px 0 var(--cyan);
+  transform: translate(-1px, -1px);
+}
+.back:active { transform: translate(1px, 1px); box-shadow: 2px 2px 0 var(--cyan); }
 
 .banner {
   margin-bottom: 14px;
@@ -956,6 +1005,64 @@ kbd {
 
 .noscript { position: relative; z-index: 5; padding: 20px; color: var(--muted); }
 
+/* ------------------------------------------------- 1.6.15 — brutalist pass
+   Tokens mirror the Kodi 2026 pack (docs/THEME-2026.md): ink/paper/acid/
+   magenta/cyan, Impact display, halftone + scanline print texture.  The
+   logo/wordmark/mark and the mascot are untouched. */
+
+.rail { padding-top: 16px; }
+
+.rail button {
+  position: relative;
+  min-height: 48px;
+  padding: 7px 26px 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: linear-gradient(180deg, var(--panel-2), var(--panel));
+  color: var(--paper);
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: 0.03em;
+  line-height: 1.05;
+  text-transform: uppercase;
+}
+.rail button .rail-label { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.rail-code {
+  position: absolute;
+  right: 8px;
+  bottom: 4px;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 400;
+  letter-spacing: 0.1em;
+  color: var(--faint);
+}
+.rail button img { width: 26px; height: 26px; border-radius: 0; box-shadow: 0 0 0 1px var(--ink); }
+.rail button:hover {
+  transform: translate(-1px, -1px);
+  border-color: var(--paper);
+  background: linear-gradient(180deg, var(--panel-3), var(--panel-2));
+  color: var(--paper);
+  box-shadow: 3px 3px 0 var(--magenta);
+}
+.rail button:hover .rail-code { color: var(--paper); }
+.rail button.active {
+  background: var(--ink-2);
+  color: var(--acid);
+  border-color: var(--acid);
+  box-shadow: inset 0 0 0 1px var(--acid), 4px 4px 0 var(--magenta);
+}
+.rail button.active img { box-shadow: 0 0 0 1px var(--acid); }
+.rail button.active .rail-code { color: var(--acid); }
+
+.stage-head h1 { letter-spacing: 0.01em; }
+
+.row:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0 rgba(232, 255, 0, 0.30), inset 0 1px 0 rgba(242, 238, 227, 0.06);
+}
+
 /* ---------------------------------------------------------------- responsive */
 
 @media (pointer: coarse) {
@@ -1209,4 +1316,26 @@ body.has-embed { overflow: hidden; }
 @media (max-width: 620px) {
   .version { display: none; }
   .rail .version { display: inline-block; }
+}
+
+/* 1.6.15 — rail/back/surprise responsive corrections */
+@media (max-width: 1120px) {
+  .tag { display: none; }
+  .search { width: min(360px, 34vw); }
+}
+@media (max-width: 1024px) {
+  .version { display: none; }
+  .search { width: min(300px, 30vw); }
+}
+@media (max-width: 860px) {
+  .back { top: calc(var(--topbar-h) + 58px + 10px); }
+  .rail button { min-height: 44px; padding: 6px 10px; }
+  .rail button .rail-code { display: none; }
+  .rail button .rail-label { font-size: 13px; }
+}
+@media (max-width: 620px) {
+  .surprise-btn { order: 4; min-height: 44px; padding: 0 10px; font-size: 13px; }
+  .help-btn { order: 5; }
+  .search { order: 6; }
+  .back { min-width: 104px; padding: 0 14px; }
 }

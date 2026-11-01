@@ -1,7 +1,7 @@
 # Independent code review — brief
 
 **Project:** Rave Player — web app (`raveplayer-web`)
-**Version under review:** 1.6.14 (`feature/1.6.14`, based on `main` @ `db3e8fd` / 1.6.13)
+**Version under review:** 1.6.15 (`feature/1.6.15`, based on `main` @ `3811d1a` / 1.6.14)
 **Reviewer target:** `app.py`, `core/`, `static/`, `templates/`, `test/`; ignore `data/`, `__pycache__/`, `.venv/`.
 
 ## What it is
@@ -62,7 +62,15 @@ A prepared `.venv` exists in this checkout.
   `/api/moxser[/<slug>]`, `/api/hardscore`, `/api/ravearchive[/<slug>]`,
   `/api/getdarker`, `/api/pirate[/<station>]`; SPA sections wired in `app.js`
   with a safe http(s)-only external-link fallback (no innerHTML, CSP unchanged).
-- Tests: `205 → 274` offline (`pytest -q test`) and **8 browser e2e**
+- **1.6.15 rail / chrome / theme** (`docs/THEME-WEB-2026.md`): the 21 flat rail
+  buttons became **8 grouped buttons** with server-rendered hubs
+  (`/api/rail/<id>`), fixing the overflow that hid Favourites/Search at
+  1440×900; larger pinned back button (48 px, sticky); `GET /api/surprise` for
+  Surprise Me; and a brutalist/blung CSS pass mirroring the Kodi 2026 tokens
+  (ink/paper/acid/magenta/cyan, Impact display, halftone + scanlines). Logo,
+  wordmark and character unchanged; no innerHTML, CSP unchanged; section/rail
+  paths are cross-checked between Python and `app.js` in tests.
+- Tests: `205 → 285` offline (`pytest -q test`) and **12 browser e2e**
   (`pytest test_e2e`, see `docs/E2E.md`).
 
 ## Areas worth scrutiny

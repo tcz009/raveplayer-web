@@ -76,6 +76,22 @@ def _no_mixcloud_search(*args, **kwargs):
     return []
 
 
+def _fake_audio_files(identifier):
+    """Archive item tracks for /api/item/<id> (Surprise Me opening a pack)."""
+    return [{
+        "name": "boot-track.mp3", "title": "Boot Track",
+        "url": "https://cdn.example/boot-track.mp3", "length": 187,
+    }]
+
+
+def _fake_feed_episodes(feed_id):
+    """Feed episodes for /api/podcast/<id> (Surprise Me opening a show)."""
+    return [{
+        "title": "Boot Episode", "url": "https://cdn.example/boot-episode.mp3",
+        "published": "2026-01-02", "duration": 187,
+    }]
+
+
 def _no_outbound_request(*args, **kwargs):
     """Any unmocked provider fetch during a browser test is a test bug."""
     raise AssertionError("browser smoke tests must not hit the network")
@@ -100,6 +116,8 @@ def live_server():
     patcher.setattr(app_module, "_DATA_PROBE", {"at": 0.0, "ok": True})
     patcher.setattr(app_module.latest, "merge", _fake_latest_merge)
     patcher.setattr(app_module.archive, "search", _fake_archive_search)
+    patcher.setattr(app_module.archive, "audio_files", _fake_audio_files)
+    patcher.setattr(app_module.feeds, "episodes", _fake_feed_episodes)
     patcher.setattr(app_module.mixcloud, "search", _no_mixcloud_search)
     # Belt and braces: every provider HTTP call goes through core.fetch, so a
     # stub we missed fails loudly instead of quietly going online.

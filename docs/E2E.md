@@ -1,4 +1,4 @@
-# Browser e2e run — `test_e2e` (Playwright), 1.6.14 tree
+# Browser e2e run — `test_e2e` (Playwright), 1.6.15 tree
 
 Owner: motion-1x1 · Task: close the last deferred web item ("actually run the
 browser suite"). Branch `hardening/1.6.13` (this e2e change was test+docs only;
@@ -8,13 +8,13 @@ browser suite"). Branch `hardening/1.6.13` (this e2e change was test+docs only;
 
 | Run | Command | Result |
 |---|---|---|
-| Offline suite (baseline) | `.venv/bin/python -m pytest -q test` | **274 passed** |
+| Offline suite (baseline) | `.venv/bin/python -m pytest -q test` | **285 passed** |
 | Browser suite, no local browser | `.venv/bin/python -m pytest test_e2e -q` | 7 skipped (clean skip, as designed) |
-| Browser suite, system Chrome | see command below | **8 passed** |
+| Browser suite, system Chrome | see command below | **12 passed** |
 
 ```
 $ .venv/bin/python -m pytest -q test
-274 passed
+285 passed
 
 $ RAVEWEB_REQUIRE_BROWSER=1 RAVEWEB_PLAYWRIGHT_NO_SANDBOX=1 \
   RAVEWEB_CHROMIUM_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
@@ -24,11 +24,14 @@ $ RAVEWEB_REQUIRE_BROWSER=1 RAVEWEB_PLAYWRIGHT_NO_SANDBOX=1 \
 
 `RAVEWEB_REQUIRE_BROWSER=1` turns the "no browser" skip into a failure, so a
 broken install cannot pass silently (the CI browser job already sets it). The
-test module covers 8 cases: boot + full section menu, section navigation from
-`/api/menu`, Mixcloud paste → embed panel (src/provider/href/title, close),
-SoundCloud paste → panel + backdrop close, plain text search, CSP
-`frame-src` allows the two widget hosts and refuses anything else, and a
-favourites add/remove round trip. The suite is offline: the Flask app runs on a
+test module covers 12 cases: boot + the grouped 8-button rail, hub and section
+navigation, the rail fitting 1440×900 with Favourites visible, the pinned 48 px
+back button under scroll, Surprise Me opening a random pack/show, the phone
+rail/back layout, Mixcloud paste → embed panel (src/provider/href/title, close),
+SoundCloud paste → panel + backdrop close, plain text search, CSP `frame-src`
+allowing the widget hosts and refusing anything else, and a favourites
+add/remove round trip.
+The suite is offline: the Flask app runs on a
 random localhost port with a temporary `RAVEWEB_DATA`, providers are stubbed and
 external requests are intercepted.
 
@@ -92,8 +95,8 @@ each case.
    label with the API labels (stronger than the old count-only assertion).
 
 Result: 2 failed / 5 passed → **7 passed**. No `app.py`, `static/app.js`,
-template or UX change was needed; the 1.6.14 tree keeps 274 offline tests green, and
-the Pirate Radio Archives tile has its own browser case (8 total).
+template or UX change was needed; the 1.6.15 tree keeps 285 offline tests green, and
+the rail/back/Surprise/theme work has its own browser cases (12 total).
 
 ## Branch / version
 
@@ -112,12 +115,25 @@ traces; the server's temporary data directories are created under the system
 temp dir and removed by the fixtures. Failure diagnostics come from the
 Playwright assertion messages (as shown above).
 
+## Screenshots (1.6.15)
+
+Set `RAVEWEB_ARTIFACTS_DIR` when running the browser suite to write the review
+screenshots (not committed; kept with the working notes):
+
+```
+RAVEWEB_ARTIFACTS_DIR="$PWD/rave-player-space/reports/web-1.6.15" \
+  .venv/bin/python -m pytest test_e2e -q
+```
+
+`01-latest-desktop-1280`, `02-rail-1440x900`, `03-back-pinned-scrolled`,
+`04-surprise-result`, `05-phone-back-and-rail`.
+
 ## Reproduce
 
 ```sh
 cd "Rave Player"
 # offline suite (what ships with the image):
-.venv/bin/python -m pytest -q test                       # 274 passed
+.venv/bin/python -m pytest -q test                       # 285 passed
 
 # browser suite here (system Chrome; CI uses `playwright install chromium`):
 RAVEWEB_REQUIRE_BROWSER=1 RAVEWEB_PLAYWRIGHT_NO_SANDBOX=1 \

@@ -41,8 +41,9 @@ def test_menu_shape(web):
     assert "ukg" in ids
     assert payload["site"]["title"] == "Rave Player"
     for section in payload["sections"]:
-        assert set(section) == {"id", "label", "icon", "sub"}
+        assert set(section) == {"id", "label", "icon", "sub", "path"}
         assert section["icon"].startswith("/static/art/")
+        assert section["path"].startswith("/api/")
 
 
 def test_manifest(web):

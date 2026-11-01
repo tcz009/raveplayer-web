@@ -9,7 +9,14 @@ Repo: <https://github.com/tcz009/raveplayer-web> · Kodi add-on: <https://github
 
 ## What it does
 
-Twenty-one sections in the live `/api/menu`:
+The rail is **eight grouped buttons** — Latest · Tape Packs · Mixes & Shows ·
+Club & Rave Sets · SoundCloud Picks · Live Radio · Curated Gems · Favourites —
+and each group opens a hub. That keeps all 21 sections reachable without the old
+21-button rail overflowing a 1440×900 window. **Search** stays in the topbar,
+**Surprise Me** opens a random tape pack or show (`/api/surprise`), and Back is a
+48 px pinned sticker that stays visible while scrolling.
+
+The 21 sections behind the groups:
 
 - **Latest** — newest podcasts, tape packs and DNB Radio shows, merged.
 - **Kool FM** — the station live now plus every Kool FM set in the archive.
@@ -287,18 +294,20 @@ search-submit paste wiring, the deploy script's version pinning/labels
 (parsed with `sh -n`), and static checks that every element id used by
 `app.js` exists in the template and that the JavaScript parses.
 
-### Browser smoke tests (8 cases)
+### Browser smoke tests (12 cases)
 
 `test_e2e/` drives the real app in headless Chromium through Playwright. It
-covers what the offline suite cannot: boot with every section from
-`/api/menu` (21 today), section navigation rendering every row, the curated Pirate
-Radio Archives tile, pasting a
-Mixcloud or SoundCloud URL into search
-(embed panel provider label, widget `src`, close and backdrop behaviour,
-CSP `frame-src` not refusing the iframe), normal text search, and a
-favourites add/remove round trip. The Flask app runs on a random localhost
-port with a temporary `RAVEWEB_DATA`; providers are stubbed and the browser's
-external requests are intercepted, so the tests need no internet.
+covers what the offline suite cannot: boot with the grouped 8-button rail and
+every hub reachable, the rail fitting a 1440×900 window with Favourites visible
+(the 21-button overflow regression), the pinned back button staying put while
+scrolling, Surprise Me opening a random pack/show, the phone rail/back layout,
+section navigation rendering every row, the Mixcloud/SoundCloud embed panel
+(widget `src`, provider label, close/backdrop, CSP `frame-src`), normal text
+search, and a favourites add/remove round trip. The Flask app runs on a random
+localhost port with a temporary `RAVEWEB_DATA`; providers are stubbed and the
+browser's external requests are intercepted, so the tests need no internet.
+Screenshots for the 1.6.15 review are generated with `RAVEWEB_ARTIFACTS_DIR`
+(see `docs/E2E.md`).
 
 ```sh
 ./.venv/bin/python -m pip install -r requirements-browser.txt

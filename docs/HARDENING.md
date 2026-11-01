@@ -1,17 +1,42 @@
-# Hardening pass — Rave Player web (`raveplayer-web` 1.6.13)
+# Hardening pass — Rave Player web (`raveplayer-web` 1.6.15)
 
-**Branch:** `feature/1.6.14` (not pushed) · **Base:** `main` @ `db3e8fd` (1.6.13)
+**Branch:** `feature/1.6.15` (not pushed) · **Base:** `main` @ `3811d1a` (1.6.14)
 **Scope:** `app.py`, `core/`, `static/app.js`, `scripts/deploy.sh`, `docs/`, `test/`,
 `test_e2e/`, `VERSION`. No UX or content changes. No `data/` or advert files touched.
 
-**Result:** `205 → 257 passed` in `5.8 s` (`.venv/bin/python -m pytest -q test`), all
-offline; browser suite `test_e2e` **7 passed** (system Chrome, Playwright 1.60);
+**Result:** `205 → 285 passed` (`.venv/bin/python -m pytest -q test`), all
+offline; browser suite `test_e2e` **12 passed** (system Chrome, Playwright 1.60);
 `node --check static/app.js` and `sh -n scripts/deploy.sh` clean.
 
 Inputs folded in: the internal task-22 brief and the adversarial pre-review
 (`docs/ADVERSARIAL-REVIEW.md`, web findings W1–W8). The review's "what is solid" list
 (stream SSRF guard, SPA escaping, CSP, content-type gate, atomic writes) was kept intact.
 
+
+## 1.6.15 — rail, pinned back button, Surprise Me, brutalist theme pass
+
+UI/chrome release. The security surface is unchanged:
+
+- **8-button grouped rail** (`RAIL` + `SECTION_PATHS` in `app.py`,
+  `/api/rail/<id>` hubs). All 21 sections stay reachable; the flat 21-button
+  rail no longer overflows and hides the last buttons at 1440×900. The rail is
+  still built with DOM `textContent` only — the catalogue code is an
+  `aria-hidden` span so it never pollutes the accessible name.
+- **Back button** is a 48 px sticker, `position: sticky` under the masthead
+  (so it survives scrolling), with a 2 px paper border and magenta hard shadow;
+  on phones it clears the sticky 58 px rail.
+- **`/api/surprise`** chooses one random candidate from the existing Archive
+  pack search + feed registry and returns only an internal `open` path; no new
+  fetch path, no user-supplied input.
+- **Theme pass** (`docs/THEME-WEB-2026.md`): CSS tokens now mirror the Kodi
+  `docs/THEME-2026.md` pack (ink/paper/acid/magenta/cyan/orange, Impact display,
+  halftone + scanline print texture, hard sticker shadows). The logo/mark,
+  wordmark and mascot are untouched; no inline scripts, no `innerHTML`, and the
+  CSP is unchanged (widget hosts stay as-is; SoundCloud remains on web).
+- Tests: 285 offline (+11 `test/test_nav.py`) and 12 e2e (rail fits 1440×900,
+  Favourites visible, pinned back under scroll, Surprise Me opens a pack/show,
+  phone rail/back). Screenshots: `rave-player-space/reports/web-1.6.15/`
+  (generated with `RAVEWEB_ARTIFACTS_DIR`).
 
 ## 1.6.14 — new mirror sources (Moxser, Hardscore, Rave Archive UK, GetDarker, pirate archive)
 
@@ -282,10 +307,10 @@ that the module layout matches.
 
 ```sh
 cd "Rave Player"
-.venv/bin/python -m pytest -q test        # 274 passed
+.venv/bin/python -m pytest -q test        # 285 passed
 node --check static/app.js
 sh -n scripts/deploy.sh
-git diff --stat main..feature/1.6.14
+git diff --stat main..feature/1.6.15
 ```
 
 ## Post-merge fix — deploy.sh heredoc escaping (found on first real deploy)

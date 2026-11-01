@@ -24,6 +24,7 @@ import ipaddress
 import json
 import math
 import os
+import random
 import re
 import socket
 import ssl
@@ -173,6 +174,55 @@ SECTIONS = [
     ("legacy", "Legacy Sites", "pirate.png", "The 2014 survivors"),
     ("favourites", "Favourites", "about.png", "What you saved"),
     ("search", "Search", "search.png", "Search the Archive"),
+]
+
+# One source of truth for section -> API path; mirrored (and tested) in
+# static/app.js so the grouped 8-button rail and the legacy flat list agree.
+SECTION_PATHS = {
+    "latest": "/api/latest",
+    "kool": "/api/filter/kool",
+    "rinse": "/api/filter/rinse",
+    "filters": "/api/filters",
+    "live": "/api/live",
+    "packs": "/api/packs",
+    "podcasts": "/api/podcasts",
+    "dnb": "/api/dnb",
+    "ukg": "/api/ukg",
+    "mixcloud": "/api/mixcloud_hub",
+    "soundcloud": "/api/soundcloud",
+    "moxser": "/api/moxser",
+    "hardscore": "/api/hardscore",
+    "ravearchive": "/api/ravearchive",
+    "getdarker": "/api/getdarker",
+    "pirates": "/api/pirate",
+    "raves": "/api/raves",
+    "years": "/api/years",
+    "legacy": "/api/legacy",
+    "favourites": "/api/favourites",
+    "search": "/api/search",
+}
+
+# The 8-button rail (1.6.15): it replaces 21 flat buttons, which overflowed a
+# 1440x900 viewport and hid Favourites/Search.  Multi-section groups open a
+# server-rendered hub (/api/rail/<id>); single sections link straight through.
+RAIL = [
+    {"id": "latest", "label": "Latest", "icon": "rave.png", "path": "/api/latest",
+     "children": ["latest"], "sub": "Newest of everything"},
+    {"id": "packs", "label": "Tape Packs", "icon": "tapepacks.png",
+     "children": ["packs", "years", "filters"], "sub": "Archive packs, years, classic series"},
+    {"id": "shows", "label": "Mixes & Shows", "icon": "radio.png",
+     "children": ["podcasts", "dnb", "moxser", "hardscore"], "sub": "Shows, mixes and radio archives"},
+    {"id": "sets", "label": "Club & Rave Sets", "icon": "djez.png",
+     "children": ["mixcloud", "getdarker", "ravearchive", "ukg", "raves"],
+     "sub": "Embedded sets and rave nights"},
+    {"id": "soundcloud", "label": "SoundCloud Picks", "icon": "pirate.png",
+     "path": "/api/soundcloud", "children": ["soundcloud"], "sub": "Curated live sets"},
+    {"id": "live", "label": "Live Radio", "icon": "radio.png",
+     "children": ["live", "kool", "rinse"], "sub": "Stations on air now"},
+    {"id": "gems", "label": "Curated Gems", "icon": "rave.png",
+     "children": ["pirates", "legacy"], "sub": "Pirate archives and surviving sites"},
+    {"id": "favourites", "label": "Favourites", "icon": "about.png",
+     "path": "/api/favourites", "children": ["favourites"], "sub": "What you saved"},
 ]
 
 
@@ -363,12 +413,92 @@ def _json_error(message, code, headers=None):
 # --------------------------------------------------------------------------- api: structure
 
 
+def _rail_payload():
+    """Rail groups with their resolved paths (and child paths for highlighting)."""
+    rail = []
+    for group in RAIL:
+        path = group.get("path") or "/api/rail/%s" % group["id"]
+        rail.append({
+            "id": group["id"],
+            "label": group["label"],
+            "icon": ART + group["icon"],
+            "sub": group.get("sub", ""),
+            "path": path,
+            "children": [{"id": sid, "path": SECTION_PATHS[sid]}
+                         for sid in group.get("children", []) if sid in SECTION_PATHS],
+        })
+    return rail
+
+
 @app.get("/api/menu")
 def api_menu():
     return jsonify({"sections": [
-        {"id": sid, "label": label, "icon": ART + icon, "sub": sub}
+        {"id": sid, "label": label, "icon": ART + icon, "sub": sub,
+         "path": SECTION_PATHS.get(sid, "")}
         for sid, label, icon, sub in SECTIONS
-    ], "site": {"title": "Rave Player", "version": APP_VERSION}})
+    ], "rail": _rail_payload(),
+       "site": {"title": "Rave Player", "version": APP_VERSION}})
+
+
+@app.get("/api/rail/<key>")
+def api_rail(key):
+    """Hub screen for a grouped rail button: one folder per child section."""
+    group = next((entry for entry in RAIL if entry["id"] == key), None)
+    if not group:
+        return _json_error("unknown rail group", 404)
+    items = []
+    for sid in group.get("children", []):
+        section = next((entry for entry in SECTIONS if entry[0] == sid), None)
+        if not section:
+            continue
+        items.append(_folder(section[1], section[3], SECTION_PATHS.get(sid, ""),
+                             ART + section[2]))
+    if not items:
+        return _json_error("empty rail group", 404)
+    return jsonify({"title": group["label"], "items": items})
+
+
+def _surprise_candidates():
+    """One random pack or show; the endpoint picks one of these."""
+    candidates = []
+    try:
+        docs, _ = archive.search("collection:ravetapes AND mediatype:audio", rows=12)
+        for doc in docs:
+            if not isinstance(doc, dict):
+                continue
+            identifier = doc.get("identifier")
+            if not identifier:
+                continue
+            title = _clean_text(doc.get("title"), MAX_TITLE) or identifier
+            candidates.append({
+                "label": title,
+                "sub": "Random tape pack",
+                "open": "/api/item/%s" % urllib.parse.quote(str(identifier)),
+            })
+    except Exception:  # noqa: BLE001 - one source down must not break surprise
+        pass
+    try:
+        for entry in feeds.registry():
+            feed_id = entry.get("id") if isinstance(entry, dict) else None
+            if not feed_id:
+                continue
+            candidates.append({
+                "label": _clean_text(entry.get("name"), MAX_TITLE) or str(feed_id),
+                "sub": "Random show",
+                "open": "/api/podcast/%s" % urllib.parse.quote(str(feed_id)),
+            })
+    except Exception:  # noqa: BLE001
+        pass
+    return candidates
+
+
+@app.get("/api/surprise")
+def api_surprise():
+    """Surprise Me: one random tape pack or show to open."""
+    candidates = _surprise_candidates()
+    if not candidates:
+        return _json_error("could not find a surprise right now", 503)
+    return jsonify(random.choice(candidates))
 
 
 @app.get("/api/latest")
