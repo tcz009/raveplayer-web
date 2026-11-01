@@ -146,6 +146,7 @@ check without guesswork.
 |---|---|---|
 | `RAVEWEB_DATA` | `/tmp/raveweb` (`/data` in Docker) | Favourites + HTTP cache |
 | `RAVEWEB_ALLOW_PRIVATE` | `0` | Set to `1` to allow LAN/Tailscale stream hosts |
+| `RAVEWEB_STREAM_HOSTS` | empty (any public host) | Comma-separated host suffixes `/api/stream` may fetch, e.g. `archive.org,rinse.fm,media.rss.com`. Empty keeps live radio working; set it to pin the proxy to known media hosts. |
 | `RAVEWEB_MAX_STREAMS` | `6` | Concurrent proxied streams per worker |
 | `RAVEWEB_STREAM_SECONDS` | `14400` | Absolute cap on one proxied stream |
 | `RAVEWEB_STREAM_BYTES` | `8 GiB` | Byte cap on one proxied stream |

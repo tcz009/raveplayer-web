@@ -8,7 +8,9 @@
 
 A small Flask app that mirrors the Kodi add-on: browse/stream oldskool rave tape packs, podcasts and live pirate radio from archive.org, radio-browser.info, RSS, Mixcloud and SoundCloud. Streams are proxied to the browser; no content is hosted.
 
-- Python 3.11 in the container (`python:3.11-slim`), Flask 3.0.3, gunicorn 22.0.
+- Python 3.12 in the container (`python:3.12-slim`), Flask 3.0.3, gunicorn 22.0.
+  (The local `.venv` used by the test command below is older; the container is the
+  deployment target. CI runs the suite on 3.12.)
 - Docker image runs as uid 10001, `no-new-privileges`, bound to a single port (8097).
 - Deployed via `scripts/deploy.sh` (build on host, restart container, health check at `/healthz`).
 - Tests: `pytest` — `test/` (API, archive, cache, deploy, favourites, speedups, stream, ukg).
@@ -27,7 +29,7 @@ A prepared `.venv` exists in this checkout.
 | Path | Purpose |
 |---|---|
 | `app.py` | all HTTP routes (menu, latest, filters, item, live, search, mixcloud/soundcloud, favourites, stream, health) |
-| `core/http.py`, `core/cache.py` | bounded fetch + on-disk cache |
+| `core/fetch.py`, `core/cache.py` | bounded fetch + on-disk cache |
 | `core/archive.py` | archive.org search/item/audio resolution (same logic as add-on) |
 | `core/radio.py` | live stations (radio-browser + curated Kool/Rinse) |
 | `core/feeds.py`, `core/dnbradio.py`, `core/mixcloud.py`, `core/soundcloud.py`, `core/legacy.py` | sources |
