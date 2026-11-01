@@ -1,7 +1,7 @@
 # Independent code review — brief
 
 **Project:** Rave Player — web app (`raveplayer-web`)
-**Version under review:** 1.6.19 (`fix/1.6.19-pwa`, based on `feature/1.6.18` / 1.6.18)
+**Version under review:** 1.6.20 (`feature/1.6.20-auth`, based on `main` / 1.6.19)
 **Reviewer target:** `app.py`, `core/`, `static/`, `templates/`, `test/`; ignore `data/`, `__pycache__/`, `.venv/`.
 
 ## What it is
@@ -98,7 +98,15 @@ A prepared `.venv` exists in this checkout.
   with cached-shell fallback, never caches `/api/*`/cross-origin, and static
   assets by versioned URL; registration only in secure contexts. Fixes iOS
   "Add to Home Screen" saving a stale/redirected Safari tab as a bookmark.
-- Tests: `205 → 311` offline (`pytest -q test`) and **18 browser e2e**
+- **1.6.20 web login** (`docs/AUTH.md`): single operator password from
+  `RAVEWEB_PASSWORD_HASH` (Argon2/bcrypt/Werkzeug) or first-run
+  `RAVEWEB_PASSWORD`; `SECRET_KEY` required in production; signed
+  `HttpOnly`/`SameSite=Lax` session cookie, `Secure` over HTTPS; CSRF login,
+  per-IP failure lockout, generic errors + audit lines; `/login` + `/logout`;
+  all pages/APIs/downloads gated (401 JSON for APIs, `/login?next=` for pages);
+  narrow public static/PWA surface; HSTS/X-Frame-Options/nosniff; designed
+  responsive login page with reduced-motion support. Accounts/OAuth deferred.
+- Tests: `205 → 326` offline (`pytest -q test`) and **19 browser e2e**
   (`pytest test_e2e`, see `docs/E2E.md`).
 
 ## Areas worth scrutiny

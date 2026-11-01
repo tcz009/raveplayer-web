@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Fail the build early if the app cannot import (syntax error, missing dep).
-RUN RAVEWEB_DATA=/tmp/build-check python -c "import app"
+RUN RAVEWEB_DATA=/tmp/build-check RAVEWEB_PASSWORD=build-check python -c "import app"
 
 RUN mkdir -p /data && useradd -m -u 10001 rave && chown -R rave:rave /data /app
 USER rave

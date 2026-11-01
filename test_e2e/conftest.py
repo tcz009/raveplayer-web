@@ -37,6 +37,11 @@ os.environ.setdefault("RAVEPLAYER_CACHE_DIR", os.path.join(_BOOT_DATA, "cache"))
 os.environ.setdefault("RAVEPLAYER_FAV_DIR", os.path.join(_BOOT_DATA, "favs"))
 os.environ.pop("SOUNDCLOUD_CLIENT_ID", None)  # keep the optional API search off
 os.environ.pop("RAVEWEB_VERSION", None)  # /healthz reports the VERSION file
+# Authentication is mandatory in 1.6.20; the fixture logs each browser page in.
+os.environ.pop("RAVEWEB_PASSWORD_HASH", None)  # deterministic test credential
+os.environ["SECRET_KEY"] = "e2e-secret-key"
+os.environ["RAVEWEB_PASSWORD"] = "test-password"
+os.environ["RAVEWEB_ENV"] = "test"
 
 import app as app_module  # noqa: E402  (import intentionally after the env setup)
 
@@ -248,6 +253,9 @@ def browser_page(chromium, live_server):
 
     page.route("**/*", handle_route)
     page.goto(live_server.url + "/", wait_until="domcontentloaded")
+    if page.locator("#login-form").count():
+        page.fill("#password", "test-password")
+        page.click("#login-submit")
     page.wait_for_selector("#nav button")
     page.wait_for_function(
         "() => document.querySelectorAll('#list .row:not(.skeleton)').length > 0"

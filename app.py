@@ -35,13 +35,16 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import urllib.parse
 
 import gzip
+import secrets
 
-from flask import Flask, Response, jsonify, render_template, request, send_file, stream_with_context
+from flask import (Flask, Response, jsonify, redirect, render_template, request,
+                   send_file, session, stream_with_context, url_for)
 from werkzeug.exceptions import HTTPException
+from flask.sessions import SecureCookieSessionInterface
 
-from core import (archive, cache, dnbradio, downloads, favourites, feeds, getdarker,
-                  hardscore, latest, legacy, mixcloud, moxser, pirate, radio, raves,
-                  ravearchive, soundcloud)
+from core import (archive, auth, cache, dnbradio, downloads, favourites, feeds,
+                  getdarker, hardscore, latest, legacy, mixcloud, moxser, pirate,
+                  radio, raves, ravearchive, soundcloud)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.config["JSON_SORT_KEYS"] = False
@@ -91,6 +94,49 @@ def _read_version():
 
 APP_VERSION = _read_version()
 app.json.sort_keys = False
+
+# Single-operator login (1.6.20).  Fails closed: without a configured password
+# (or SECRET_KEY in production) the app refuses to start.
+try:
+    AUTH = auth.load_config()
+except auth.AuthConfigError as exc:
+    raise RuntimeError("authentication configuration error: %s" % exc)
+app.secret_key = AUTH.secret_key
+class _HttpsAwareSessionInterface(SecureCookieSessionInterface):
+    """Mark the session cookie Secure when the request arrived over HTTPS.
+
+    Flask saves the session *after* ``after_request`` handlers run, so the flag
+    cannot be added by rewriting the response; override the cookie policy instead.
+    """
+
+    def get_cookie_secure(self, app):
+        try:
+            if request.is_secure:
+                return True
+            forwarded = (request.headers.get("X-Forwarded-Proto") or "").split(",", 1)[0]
+            return forwarded.strip().lower() == "https"
+        except RuntimeError:  # outside a request (e.g. CLI)
+            return False
+
+
+app.session_interface = _HttpsAwareSessionInterface()
+app.config.update(
+    SESSION_COOKIE_NAME="raveplayer_session",
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=False,  # upgraded per-request when the request is HTTPS
+    PERMANENT_SESSION_LIFETIME=datetime.timedelta(days=AUTH.remember_days),
+    SESSION_REFRESH_EACH_REQUEST=True,
+)
+LOGIN_LIMITER = auth.LoginLimiter(max_failures=AUTH.max_failures,
+                                  failure_window=AUTH.failure_window,
+                                  lockout_seconds=AUTH.lockout_seconds)
+if AUTH.generated_hash:
+    app.logger.warning(
+        "auth: RAVEWEB_PASSWORD was hashed for this run; persist it with "
+        "RAVEWEB_PASSWORD_HASH=%s", AUTH.generated_hash)
+if AUTH.production and AUTH.secret_key:
+    app.logger.info("auth: login enabled (production mode)")
 app.config["MAX_CONTENT_LENGTH"] = 64 * 1024
 
 DATA_DIR = os.environ.get("RAVEWEB_DATA") or "/tmp/raveweb"
@@ -479,6 +525,162 @@ def _json_error(message, code, headers=None):
     response.status_code = code
     for name, value in (headers or {}).items():
         response.headers[name] = value
+    return response
+
+
+# --------------------------------------------------------------------------- auth guard + login
+
+
+def _request_is_https():
+    if request.is_secure:
+        return True
+    forwarded = (request.headers.get("X-Forwarded-Proto") or "").split(",", 1)[0]
+    return forwarded.strip().lower() == "https"
+
+
+def _client_ip():
+    return (request.remote_addr or "unknown")[:64]
+
+
+def _safe_next(value):
+    """Only same-site absolute paths are allowed as post-login targets."""
+    if not isinstance(value, str):
+        return ""
+    value = value.strip()
+    if not value.startswith("/") or value.startswith("//"):
+        return ""
+    if "\\" in value or "\r" in value or "\n" in value:
+        return ""
+    try:
+        parts = urllib.parse.urlsplit(value)
+    except ValueError:
+        return ""
+    if parts.scheme or parts.netloc:
+        return ""
+    return value
+
+
+def _session_valid():
+    if not session.get("auth"):
+        return False
+    started = session.get("login_at")
+    try:
+        started = float(started)
+    except (TypeError, ValueError):
+        session.clear()
+        return False
+    max_age = ((AUTH.remember_days if session.get("remember") else AUTH.session_hours)
+               * 3600.0)
+    if max_age <= 0 or time.time() - started > max_age:
+        session.clear()
+        return False
+    return True
+
+
+def _csrf_token():
+    token = session.get("csrf")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["csrf"] = token
+    return token
+
+
+PUBLIC_PATHS = frozenset((
+    "/login", "/logout", "/healthz", "/manifest.webmanifest", "/sw.js",
+    "/static/auth.css", "/static/login.js", "/static/sw-register.js",
+    "/static/art/icon.png", "/static/art/icon-180.png",
+))
+
+
+def _public_static(path):
+    return (path in PUBLIC_PATHS
+            or path.startswith("/static/art/icon") and path.endswith(".png"))
+
+
+@app.before_request
+def _auth_guard():
+    """Protect the shell, every API route and non-login static assets."""
+    path = request.path
+    if path.startswith("/api/"):
+        if not _session_valid():
+            return _json_error("authentication required", 401)
+        return None
+    if path.startswith("/static/"):
+        if _session_valid() or _public_static(path) or path in PUBLIC_PATHS:
+            return None
+        return Response("Unauthorized", status=401, mimetype="text/plain")
+    if path in PUBLIC_PATHS:
+        return None
+    if _session_valid():
+        return None
+    target = request.full_path[:-1] if request.full_path.endswith("?") else request.full_path
+    return redirect(url_for("login_page", next=_safe_next(target) or "/"))
+
+
+def _render_login(next_url="", error="", status=200, retry_after=None):
+    headers = {"Cache-Control": "no-store"}
+    if retry_after:
+        headers["Retry-After"] = str(int(retry_after))
+    return render_template(
+        "login.html",
+        next_url=_safe_next(next_url) or "",
+        csrf=_csrf_token(),
+        error=error,
+        username_required=bool(AUTH.username),
+        version=APP_VERSION,
+    ), status, headers
+
+
+@app.get("/login")
+def login_page():
+    if _session_valid():
+        return redirect(_safe_next(request.args.get("next")) or "/")
+    return _render_login(request.args.get("next", ""))
+
+
+@app.post("/login")
+def login_submit():
+    next_url = _safe_next(request.form.get("next"))
+    ip = _client_ip()
+    submitted = request.form.get("csrf", "")
+    expected = session.get("csrf", "")
+    if not submitted or not expected or not auth.same_text(submitted, expected):
+        app.logger.warning("auth: login csrf rejected ip=%s", ip)
+        return _render_login(next_url, "Your sign-in session expired — try again.", 400)
+    retry = LOGIN_LIMITER.retry_after(ip)
+    if retry:
+        app.logger.warning("auth: login locked ip=%s retry=%ss", ip, retry)
+        return _render_login(
+            next_url, "Too many attempts. Try again in %d seconds." % retry,
+            429, retry_after=retry)
+    username = (request.form.get("username") or "").strip()
+    password = request.form.get("password") or ""
+    user_ok = not AUTH.username or auth.same_text(username, AUTH.username)
+    password_ok = auth.verify_password(AUTH.password_hash, password)
+    if user_ok and password_ok:
+        LOGIN_LIMITER.reset(ip)
+        session.clear()
+        session["auth"] = True
+        session["user"] = AUTH.username or username[:128] or "operator"
+        session["login_at"] = time.time()
+        remember = bool(request.form.get("remember"))
+        session["remember"] = remember
+        session.permanent = remember
+        session["csrf"] = secrets.token_urlsafe(32)
+        app.logger.info("auth: login success ip=%s user=%s", ip, session["user"])
+        return redirect(next_url or "/")
+    LOGIN_LIMITER.fail(ip)
+    app.logger.warning("auth: login failure ip=%s user=%s", ip, username[:64] or "-")
+    return _render_login(next_url, "Invalid username or password.", 401)
+
+
+@app.post("/logout")
+def logout():
+    user = session.get("user") or ""
+    session.clear()
+    app.logger.info("auth: logout ip=%s user=%s", _client_ip(), user)
+    response = redirect(url_for("login_page"))
+    response.delete_cookie(app.config["SESSION_COOKIE_NAME"], path="/")
     return response
 
 
@@ -1887,11 +2089,24 @@ def service_worker():
 def _response_headers(response):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
-    if request.path == "/" or request.path.startswith("/static/"):
-        response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    if (request.path in ("/", "/login", "/logout")
+            or request.path.startswith("/static/")):
         response.headers.setdefault("Content-Security-Policy", CSP)
     if request.path.startswith("/api/"):
         response.headers.setdefault("Cache-Control", "no-store")
+    if _request_is_https():
+        # Flask's session cookie is configured non-Secure so plain-HTTP LAN
+        # installs keep working; upgrade the flag per-request behind TLS.
+        cookies = response.headers.getlist("Set-Cookie")
+        if cookies:
+            response.headers.pop("Set-Cookie", None)
+            for cookie in cookies:
+                if "secure" not in cookie.lower():
+                    cookie = cookie + "; Secure"
+                response.headers.add("Set-Cookie", cookie)
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     return response
 
 

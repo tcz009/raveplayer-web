@@ -1,17 +1,40 @@
-# Hardening pass — Rave Player web (`raveplayer-web` 1.6.19)
+# Hardening pass — Rave Player web (`raveplayer-web` 1.6.20)
 
-**Branch:** `fix/1.6.19-pwa` (not pushed) · **Base:** `feature/1.6.18` @ `f32b84a` (1.6.18)
+**Branch:** `feature/1.6.20-auth` (not pushed) · **Base:** `main` @ `9bcbc5e` (1.6.19)
 **Scope:** `app.py`, `core/`, `static/app.js`, `scripts/deploy.sh`, `docs/`, `test/`,
 `test_e2e/`, `VERSION`. No UX or content changes. No `data/` or advert files touched.
 
-**Result:** `205 → 311 passed` (`.venv/bin/python -m pytest -q test`), all
-offline; browser suite `test_e2e` **17 passed** (system Chrome, Playwright 1.60);
+**Result:** `205 → 326 passed` (`.venv/bin/python -m pytest -q test`), all
+offline; browser suite `test_e2e` **19 passed** (system Chrome, Playwright 1.60);
 `node --check static/app.js` and `sh -n scripts/deploy.sh` clean.
 
 Inputs folded in: the internal task-22 brief and the adversarial pre-review
 (`docs/ADVERSARIAL-REVIEW.md`, web findings W1–W8). The review's "what is solid" list
 (stream SSRF guard, SPA escaping, CSP, content-type gate, atomic writes) was kept intact.
 
+
+## 1.6.20 — single-operator web login
+
+The app is closed by default; details/env in `docs/AUTH.md`.
+
+- `core/auth.py`: Argon2/bcrypt/Werkzeug hashes, fail-closed config loading,
+  strict production `SECRET_KEY` check, per-IP login limiter.
+- `/login` GET/POST + `/logout` POST; CSRF in a signed session; generic failure
+  text; `Retry-After` lockout; audit lines for success/failure/locked/logout.
+- Signed session cookie (`HttpOnly`, `SameSite=Lax`, per-request `Secure` over
+  HTTPS; 12 h / 30 d remember lifetimes). Every page redirects to
+  `/login?next=`, every `/api/*` and download endpoint returns 401 JSON, and
+  non-login static assets are gated. Only login/PWA/health assets are public.
+- HSTS on HTTPS, `X-Frame-Options: SAMEORIGIN` on all responses,
+  `X-Content-Type-Options: nosniff` retained; CSP unchanged.
+- Designed login page to the app's art direction (ink/paper/acid/magenta/cyan,
+  Impact + mono, halftone/scanlines, sticker shadows), responsive 390 px
+  single column, 44 px targets, visible focus, password reveal,
+  reduced-motion fallback; external `auth.css`/`login.js`, no new fonts.
+- Docker build check now sets a throwaway credential for `import app`;
+  requirements add `argon2-cffi`/`bcrypt`; Kodi add-on untouched.
+- Tests: 326 offline (+15 `test/test_auth.py`) and 19 e2e (login → logout →
+  designed door → generic failure → remember-me login → app).
 
 ## 1.6.19 — PWA / home-screen install fix
 
@@ -392,10 +415,10 @@ that the module layout matches.
 
 ```sh
 cd "Rave Player"
-.venv/bin/python -m pytest -q test        # 311 passed
+.venv/bin/python -m pytest -q test        # 326 passed
 node --check static/app.js
 sh -n scripts/deploy.sh
-git diff --stat feature/1.6.18..fix/1.6.19-pwa
+git diff --stat main..feature/1.6.20-auth
 ```
 
 ## Post-merge fix — deploy.sh heredoc escaping (found on first real deploy)

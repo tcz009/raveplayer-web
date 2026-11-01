@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#07070b">
+  <meta name="color-scheme" content="dark">
+  <meta name="robots" content="noindex">
+  <title>Sign in — Rave Player</title>
+  <link rel="icon" type="image/png" sizes="512x512" href="/static/art/icon.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="/static/art/icon-180.png">
+  <link rel="stylesheet" href="/static/auth.css?v={{ version }}">
+</head>
+<body class="login-page">
+  <div class="halftone" aria-hidden="true"></div>
+  <main class="door" aria-labelledby="login-title">
+    <div class="door-brand">
+      <img class="door-mark" src="/static/art/icon.png" alt="" width="56" height="56">
+      <div>
+        <span class="door-kicker">ARCHIVE · 88 → NOW</span>
+        <span class="door-name">RAVE<em>PLAYER</em></span>
+      </div>
+    </div>
+
+    <h1 id="login-title">THE DOOR</h1>
+    <p class="door-sub">One password between you and the archive.</p>
+
+    {% if error %}
+    <div class="door-error" role="alert">{{ error }}</div>
+    {% endif %}
+
+    <form id="login-form" method="post" action="/login" autocomplete="on">
+      <input type="hidden" name="next" value="{{ next_url }}">
+      <input type="hidden" name="csrf" value="{{ csrf }}">
+      <label class="field">
+        <span class="field-label">Username{% if not username_required %} <span class="field-optional">(optional)</span>{% endif %}</span>
+        <input id="username" name="username" type="text" inputmode="text"
+               autocomplete="username" autocapitalize="none" autocorrect="off"
+               spellcheck="false" {% if username_required %}required{% endif %}>
+      </label>
+      <label class="field">
+        <span class="field-label">Password</span>
+        <span class="password-wrap">
+          <input id="password" name="password" type="password" required
+                 autocomplete="current-password">
+          <button id="password-toggle" class="reveal" type="button"
+                  aria-label="Show password" aria-pressed="false">Show</button>
+        </span>
+      </label>
+      <label class="remember">
+        <input id="remember" name="remember" type="checkbox" value="1">
+        <span>Remember this device</span>
+      </label>
+      <button id="login-submit" class="enter" type="submit">Enter ↗</button>
+    </form>
+
+    <p class="door-note">Single-operator LAN app. No accounts, no cloud.</p>
+    <p class="door-footer">THE LAST TRANSMISSION · RP-ENTRY</p>
+  </main>
+  <script src="/static/login.js?v={{ version }}" defer></script>
+</body>
+</html>

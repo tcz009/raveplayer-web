@@ -1,2 +1,7 @@
 Flask==3.0.3
 gunicorn==22.0.0
+
+# Optional-but-recommended login password hash formats (1.6.20):
+# Argon2 and bcrypt hashes are accepted; Werkzeug scrypt/pbkdf2 is the fallback.
+argon2-cffi==23.1.0
+bcrypt==4.2.0

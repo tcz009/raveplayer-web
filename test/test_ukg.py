@@ -3,6 +3,7 @@
 
 import os
 import sys
+import time
 
 import pytest
 
@@ -17,7 +18,14 @@ from core import mixcloud  # noqa: E402
 def web(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "DATA_DIR", str(tmp_path))
     app.app.config.update(TESTING=True)
-    return app.app.test_client()
+    client = app.app.test_client()
+    with client.session_transaction() as sess:
+        sess["auth"] = True
+        sess["user"] = "operator"
+        sess["login_at"] = time.time()
+        sess["remember"] = False
+        sess["csrf"] = "test-csrf"
+    return client
 
 
 def test_embed_url_encodes_the_page():

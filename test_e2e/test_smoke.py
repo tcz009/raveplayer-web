@@ -70,12 +70,16 @@ def _wait_for_widget_stub(page):
     page.frame_locator("#embed-frame").get_by_text("stub widget").wait_for()
 
 
-def _shot(browser_page, name):
+def _save_shot(page, name):
     """Save a screenshot when RAVEWEB_ARTIFACTS_DIR is set (report artifacts)."""
     if not ARTIFACTS_DIR:
         return
     os.makedirs(ARTIFACTS_DIR, exist_ok=True)
-    browser_page.page.screenshot(path=os.path.join(ARTIFACTS_DIR, name + ".png"))
+    page.screenshot(path=os.path.join(ARTIFACTS_DIR, name + ".png"))
+
+
+def _shot(browser_page, name):
+    _save_shot(browser_page.page, name)
 
 
 def _delay_fetches(page, needle, delay_ms=600):
@@ -590,4 +594,55 @@ def test_pwa_installs_and_any_same_origin_link_opens_the_app(browser_page, live_
 
     # Live data is never served from the worker cache.
     assert page.evaluate("fetch('/api/menu').then((response) => response.status)") == 200
+    assert browser_page.page_errors == []
+
+
+def test_login_logout_flow_and_login_page_design(browser_page, live_server):
+    """1.6.20: the door, failed login, reveal, successful login, logout."""
+    page = browser_page.page
+    assert page.locator("#logout").is_visible()
+
+    page.locator("#logout").click()
+    page.wait_for_selector("#login-form")
+    assert page.locator("#login-title").text_content().strip() == "THE DOOR"
+    assert page.locator("#login-form").is_visible()
+    _shot(browser_page, "login-desktop")
+
+    # Password reveal is a real toggle and keeps its accessible state.
+    page.fill("#password", "not-the-password")
+    page.click("#password-toggle")
+    assert page.get_attribute("#password", "type") == "text"
+    assert page.get_attribute("#password-toggle", "aria-pressed") == "true"
+    page.click("#password-toggle")
+    assert page.get_attribute("#password", "type") == "password"
+
+    # Generic failure, no username/password echo.
+    page.click("#login-submit")
+    page.wait_for_selector(".door-error")
+    assert "invalid username or password." in page.locator(".door-error").inner_text().lower()
+    assert "not-the-password" not in page.content()
+
+    # Phone layout (single column, 44px targets) in a fresh context, so the
+    # screenshot is not affected by Chromium's viewport-resize compositor.
+    phone_context = page.context.browser.new_context(
+        viewport={"width": 390, "height": 844})
+    try:
+        phone = phone_context.new_page()
+        phone.goto(live_server.url + "/login", wait_until="domcontentloaded")
+        phone.wait_for_selector("#login-form")
+        assert phone.locator(".door").count() == 1
+        assert phone.locator("#login-submit").bounding_box()["height"] >= 44
+        assert phone.locator("#password-toggle").bounding_box()["height"] >= 44
+        _save_shot(phone, "login-phone")
+    finally:
+        phone_context.close()
+
+    # Remember-me + correct password open the app.
+    page.fill("#password", "test-password")
+    page.check("#remember")
+    page.click("#login-submit")
+    page.wait_for_selector("#nav button")
+    page.wait_for_function(
+        "() => document.querySelectorAll('#list .row:not(.skeleton)').length > 0")
+    assert page.locator("#logout").is_visible()
     assert browser_page.page_errors == []

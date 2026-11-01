@@ -11,6 +11,7 @@ import socket
 import sys
 import tempfile
 import threading
+import time
 
 import pytest
 
@@ -23,6 +24,12 @@ _BOOT = tempfile.mkdtemp(prefix="raveweb-test-boot-")
 os.environ.setdefault("RAVEWEB_DATA", _BOOT)
 os.environ.setdefault("RAVEPLAYER_CACHE_DIR", os.path.join(_BOOT, "cache"))
 os.environ.setdefault("RAVEPLAYER_FAV_DIR", os.path.join(_BOOT, "favs"))
+# Authentication is mandatory in 1.6.20; set a throwaway operator credential
+# before app import, then log the shared `web` client in below.
+os.environ.pop("RAVEWEB_PASSWORD_HASH", None)  # deterministic test credential
+os.environ["SECRET_KEY"] = "test-secret-key"
+os.environ["RAVEWEB_PASSWORD"] = "test-password"
+os.environ["RAVEWEB_ENV"] = "test"
 
 import app as app_module  # noqa: E402
 
@@ -37,6 +44,13 @@ def clear_process_caches():
     yield
     cache.clear_memory()
     moxser.clear_memory()
+
+
+@pytest.fixture(autouse=True)
+def clear_login_limiter():
+    app_module.LOGIN_LIMITER.clear()
+    yield
+    app_module.LOGIN_LIMITER.clear()
 
 
 @pytest.fixture(autouse=True)
@@ -57,6 +71,25 @@ def web(tmp_path, monkeypatch):
     monkeypatch.setattr(app_module, "DATA_DIR", str(tmp_path))
     app_module._DATA_PROBE.update({"at": 0.0, "ok": True})
     app_module.app.config.update(TESTING=True, PROPAGATE_EXCEPTIONS=False)
+    with app_module.app.test_client() as client:
+        with client.session_transaction() as sess:
+            sess["auth"] = True
+            sess["user"] = "operator"
+            sess["login_at"] = time.time()
+            sess["remember"] = False
+            sess["csrf"] = "test-csrf"
+        yield client
+
+
+@pytest.fixture()
+def anon(tmp_path, monkeypatch):
+    """An unauthenticated client (login/protected-route tests)."""
+    monkeypatch.setenv("RAVEPLAYER_FAV_DIR", str(tmp_path / "favs"))
+    monkeypatch.setenv("RAVEPLAYER_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setattr(app_module, "ALLOW_PRIVATE", False)
+    monkeypatch.setattr(app_module, "DATA_DIR", str(tmp_path))
+    app_module.app.config.update(TESTING=True, PROPAGATE_EXCEPTIONS=False)
+    app_module.LOGIN_LIMITER.clear()
     with app_module.app.test_client() as client:
         yield client
 

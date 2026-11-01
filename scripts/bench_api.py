@@ -25,6 +25,8 @@ BASE = tempfile.mkdtemp(prefix="raveweb-bench-")
 os.environ["RAVEWEB_DATA"] = BASE
 os.environ["RAVEPLAYER_CACHE_DIR"] = os.path.join(BASE, "cache")
 os.environ["RAVEPLAYER_FAV_DIR"] = os.path.join(BASE, "favs")
+os.environ.setdefault("SECRET_KEY", "bench-secret-key")
+os.environ.setdefault("RAVEWEB_PASSWORD", "bench-password")
 
 import app as app_module  # noqa: E402
 from core import cache, downloads, fetch, moxser  # noqa: E402

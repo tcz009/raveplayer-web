@@ -1492,3 +1492,26 @@ body.has-embed { overflow: hidden; }
 
 /* 1.6.17 — while the loading pill is up, the READY/ITEMS status is redundant */
 body.loading-active .status { opacity: 0; }
+
+/* 1.6.20 — operator sign-out control (topbar, next to the version) */
+.logout { display: inline-flex; flex: 0 0 auto; margin: 0; }
+.logout-btn {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line-bright);
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.logout-btn:hover { background: var(--paper); border-color: var(--paper); color: var(--ink); }
+.logout-btn:focus-visible { outline: 2px solid var(--acid); outline-offset: 2px; }
+@media (max-width: 620px) {
+  .logout { order: 3; }
+  .logout-btn { min-height: 40px; padding: 0 9px; font-size: 8px; }
+}

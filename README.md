@@ -109,8 +109,8 @@ provider marks hotlink-protected MP3s.
 
 ### Proxy security
 
-`/api/stream` is deliberately a **LAN-only, unauthenticated open proxy**: it can
-fetch any *public* http(s) URL so hotlink-protected files, live-radio hosts and
+`/api/stream` is a **LAN-only open proxy behind the 1.6.20 login**: a logged-in
+operator can make it fetch any *public* http(s) URL so hotlink-protected files, live-radio hosts and
 podcast CDNs keep playing. Keep port 8097 on the LAN (never publish or forward
 it), or pin the destinations with `RAVEWEB_STREAM_HOSTS` (see the env table) to
 turn it into a scoped proxy. Cross-origin reads are blocked: the route sends no
@@ -202,11 +202,30 @@ check without guesswork.
 | `RAVEWEB_STREAM_SECONDS` | `14400` | Absolute cap on one proxied stream |
 | `RAVEWEB_STREAM_BYTES` | `8 GiB` | Byte cap on one proxied stream |
 | `RAVEWEB_VERSION` | `VERSION` file | Overrides the version reported by `/healthz` and `/api/menu`, and the `?v=` cache-buster on the page |
+| `SECRET_KEY` | **required in production** | Signs the login session/CSRF cookies; a random ephemeral key is used in dev. Production refuses placeholder/empty values. |
+| `RAVEWEB_PASSWORD_HASH` | **required** (or `RAVEWEB_PASSWORD`) | Argon2/bcrypt/Werkzeug password hash for the single operator. |
+| `RAVEWEB_PASSWORD` | first-run only | Plaintext hashed in memory at startup and logged once as a hash; move it to `RAVEWEB_PASSWORD_HASH`. |
+| `RAVEWEB_USERNAME` | optional | If set, the login username must match (otherwise password-only). |
+| `RAVEWEB_ENV` | recommended `production` | Enables strict secret-key checks (`RAVEWEB_PROD=1` also works). |
+| `RAVEWEB_SESSION_HOURS` / `RAVEWEB_REMEMBER_DAYS` | `12` / `30` | Absolute session lifetimes with/without “remember me”. |
+| `RAVEWEB_LOGIN_MAX_FAILURES` / `_FAILURE_WINDOW` / `_LOCKOUT` | `5` / `600` / `900` | Login throttle and lockout. |
 | `SOUNDCLOUD_CLIENT_ID` | empty | Enables `/api/soundcloud?q=` API text search; without it only the curated `soundcloud.json` sets are listed |
 
 The data directory is best effort: if it is read-only, favourites still list
 and the app keeps working, it just cannot save new ones. Stale cache entries
 are pruned at startup (14 days), so a long-lived volume does not fill up.
+
+## Sign in
+
+The app is closed by default: one operator password unlocks the page, every
+`/api/*` route (including `/api/stream` and the Downloads endpoints) and the
+app's static assets. Set `SECRET_KEY` and `RAVEWEB_PASSWORD_HASH` (or a
+first-run `RAVEWEB_PASSWORD`) in the host environment before starting; the app
+refuses to boot without a credential. The login door is designed to the same
+art direction as the app. Session cookies are `HttpOnly`, `SameSite=Lax` and
+`Secure` over HTTPS, with a 12 h session / 30 d remember-me lifetime and
+per-IP failed-login lockout. Full env vars, hash generation, proxy notes,
+threat model and deferrals: [`docs/AUTH.md`](docs/AUTH.md).
 
 ## API
 
@@ -300,9 +319,9 @@ typography, hero and texture language — is documented in
 
 ## Tests
 
-### Offline suite (203 cases)
+### Offline suite (326 cases)
 
-The offline suite is 203 cases (all providers mocked) and uses the Flask test
+The offline suite is 326 cases (all providers mocked) and uses the Flask test
 client. `pytest` is a test-only dependency:
 
 ```sh
@@ -329,7 +348,7 @@ the cached app shell for any same-origin navigation, never caching
 bookmarks — remove and re-add once, as described in [`docs/PWA.md`](docs/PWA.md)
 (which also covers the plain-HTTP LAN limitation and what Cockney Player needs).
 
-### Browser smoke tests (18 cases)
+### Browser smoke tests (19 cases)
 
 `test_e2e/` drives the real app in headless Chromium through Playwright. It
 covers what the offline suite cannot: boot with the grouped 9-button rail and
@@ -340,7 +359,7 @@ rail/back layout, the Download action → progress panel (save and cancel) → D
 offline playback → delete round trip (and no Download action on podcast-like
 rows), the 150 ms loading pill (fast and slow requests), the Surprise spin/
 stamp reveal plus its reduced-motion skip, section navigation rendering every
-row, the Mixcloud/SoundCloud embed panel (widget
+row, the login/logout flow + designed door page, the Mixcloud/SoundCloud embed panel (widget
 `src`, provider label, close/backdrop, CSP `frame-src`), normal text search, and
 a favourites add/remove round trip. The Flask app runs on a random localhost
 port with a temporary `RAVEWEB_DATA`; providers are stubbed and the browser's
