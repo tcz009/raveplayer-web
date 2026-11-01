@@ -82,19 +82,20 @@ def _rail_labels(page):
 
 
 RAIL = ["Latest", "Tape Packs", "Mixes & Shows", "Club & Rave Sets",
-        "SoundCloud Picks", "Live Radio", "Curated Gems", "Favourites"]
+        "SoundCloud Picks", "Live Radio", "Curated Gems", "Favourites",
+        "Downloads"]
 
 
 # --------------------------------------------------------------------------- tests
 
 
-def test_boot_renders_the_shell_and_the_eight_button_rail(browser_page):
+def test_boot_renders_the_shell_and_the_grouped_rail(browser_page):
     page = browser_page.page
     rail = page.evaluate(
         "async () => (await (await fetch('/api/menu')).json()).rail"
     )
     assert [group["label"] for group in rail] == RAIL
-    assert page.locator("#nav button").count() == 8
+    assert page.locator("#nav button").count() == 9
     assert _rail_labels(page) == RAIL
     # Topbar keeps the search; the rail no longer carries a Search button.
     assert page.locator("#search-input").is_visible()
@@ -293,22 +294,28 @@ def test_rail_fits_1440x900_and_favourites_stays_visible(browser_page):
     page.reload(wait_until="domcontentloaded")
     page.wait_for_selector("#nav button")
     page.wait_for_function(
-        "() => document.querySelectorAll('#nav button').length === 8")
+        "() => document.querySelectorAll('#nav button').length === 9")
     assert _rail_labels(page) == RAIL
 
     nav = page.evaluate("""() => {
         const rail = document.querySelector('#nav');
-        const fav = [...rail.querySelectorAll('button')].at(-1);
-        const box = fav.getBoundingClientRect();
+        const buttons = [...rail.querySelectorAll('button')];
+        const favButton = buttons.find((button) => button.textContent.includes('Favourites'));
+        const lastButton = buttons[buttons.length - 1];
+        const box = favButton.getBoundingClientRect();
+        const lastBox = lastButton.getBoundingClientRect();
         return {
             scrollHeight: rail.scrollHeight, clientHeight: rail.clientHeight,
             top: box.top, bottom: box.bottom, width: box.width, height: box.height,
+            lastBottom: lastBox.bottom, lastLabel: lastButton.textContent.trim(),
             innerWidth: window.innerWidth, innerHeight: window.innerHeight,
             docWidth: document.documentElement.scrollWidth,
         };
     }""")
     assert nav["scrollHeight"] <= nav["clientHeight"] + 1, "the rail itself overflows"
     assert nav["bottom"] <= nav["innerHeight"], "Favourites is below the fold"
+    assert nav["lastBottom"] <= nav["innerHeight"], "Downloads is below the fold"
+    assert nav["lastLabel"].startswith("Downloads")
     assert nav["top"] >= 0 and nav["height"] >= 44
     assert nav["docWidth"] <= nav["innerWidth"] + 1, "page has horizontal overflow"
     _shot(browser_page, "02-rail-1440x900")
@@ -363,7 +370,7 @@ def test_phone_rail_and_back_button_are_usable(browser_page):
     page.set_viewport_size({"width": 390, "height": 844})
     page.reload(wait_until="domcontentloaded")
     page.wait_for_selector("#nav button")
-    assert page.locator("#nav button").count() == 8
+    assert page.locator("#nav button").count() == 9
     # The rail is a horizontal strip on a phone: it scrolls sideways, not down.
     overflow = page.evaluate("""() => {
         const rail = document.querySelector('#nav');
@@ -382,3 +389,39 @@ def test_phone_rail_and_back_button_are_usable(browser_page):
     assert box["height"] >= 44
     assert box["y"] >= 0
     _shot(browser_page, "05-phone-back-and-rail")
+
+def test_download_for_offline_then_play_and_delete(browser_page):
+    """1.6.16: eligible rows can be saved, played from the local copy, deleted."""
+    page = browser_page.page
+    # Latest: neither row is a direct-file source, so no Download action exists.
+    assert page.locator("#list .row .download-btn").count() == 0
+
+    page.locator("#list .row", has_text="Boot Pack").click()
+    page.wait_for_function("() => location.hash.includes('/api/item/boot-pack')")
+    _wait_for_rows(page, 1)
+    download = page.locator("#list .row .download-btn")
+    assert download.count() == 1
+    download.click()
+    page.wait_for_function(
+        "() => document.querySelector('#toast').textContent.includes('Saved to Downloads')")
+
+    page.get_by_role("button", name="Downloads", exact=True).click()
+    page.wait_for_function("() => document.querySelector('#title').textContent === 'Downloads'")
+    _wait_for_rows(page, 1)
+    assert _texts(page.locator("#list .row .row-label")) == ["Boot Track"]
+    sub = _text(page.locator("#list .row .row-sub"))
+    assert "KB" in sub and "Internet Archive" in sub
+    _shot(browser_page, "06-downloads-view")
+
+    # Offline playback: the player points at the saved copy, not the source.
+    page.locator("#list .row").first.click()
+    page.wait_for_selector("#player", state="visible")
+    source = page.evaluate("() => document.querySelector('#audio').getAttribute('src')")
+    assert source.startswith("/api/downloads/") and source.endswith("/stream"), source
+    assert browser_page.page_errors == []
+
+    # Delete removes it from the library and the list.
+    page.locator("#list .row button[title='Remove download']").click()
+    page.wait_for_function("() => document.querySelectorAll('#list .row').length === 0")
+    assert page.locator("#empty").is_visible()
+    assert page.locator("#player").count() == 1

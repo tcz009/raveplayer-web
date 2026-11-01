@@ -34,12 +34,12 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import urllib.parse
 
-from flask import Flask, Response, jsonify, render_template, request, stream_with_context
+from flask import Flask, Response, jsonify, render_template, request, send_file, stream_with_context
 from werkzeug.exceptions import HTTPException
 
-from core import (archive, cache, dnbradio, favourites, feeds, getdarker, hardscore,
-                  latest, legacy, mixcloud, moxser, pirate, radio, raves, ravearchive,
-                  soundcloud)
+from core import (archive, cache, dnbradio, downloads, favourites, feeds, getdarker,
+                  hardscore, latest, legacy, mixcloud, moxser, pirate, radio, raves,
+                  ravearchive, soundcloud)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.config["JSON_SORT_KEYS"] = False
@@ -108,6 +108,44 @@ MAX_CHUNK = 64 * 1024
 STREAM_DEADLINE = 4 * 3600
 MAX_STREAM_BYTES = 8 * 1024 * 1024 * 1024
 
+# Downloads (1.6.16).  Phase 1 is explicit, direct-file only: the four source
+# markers below are the only things the UI offers, and the server re-checks the
+# URL against the source's hosts so a caller cannot label a Mixcloud page as an
+# Archive MP3.  Count/size/free-space guards are enforced before and after the
+# proxy download; the fetch reuses _open_stream (SSRF + redirect checks).
+def _env_bytes(name, default, minimum, maximum):
+    try:
+        value = int(os.environ.get(name, ""))
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(value, maximum))
+
+
+DOWNLOAD_MAX_BYTES = _env_bytes("RAVEWEB_DOWNLOAD_BYTES", 500 * 1024 * 1024,
+                                1024 * 1024, 4 * 1024 * 1024 * 1024)
+DOWNLOAD_MAX_TOTAL = _env_bytes("RAVEWEB_DOWNLOAD_TOTAL", 2 * 1024 * 1024 * 1024,
+                                1024 * 1024, 16 * 1024 * 1024 * 1024)
+DOWNLOAD_MAX_ITEMS = 200
+DOWNLOAD_DEADLINE = 1800  # seconds for one proxy download
+DOWNLOAD_SOURCES = ("archive", "moxser", "hardscore", "pirate")
+DOWNLOAD_EXTENSIONS = (".mp3", ".m4a")
+DOWNLOAD_BLOCKED_HOSTS = (
+    "mixcloud.com", "player-widget.mixcloud.com", "soundcloud.com",
+    "w.soundcloud.com", "youtube.com", "youtu.be", "vimeo.com",
+)
+DOWNLOAD_SOURCE_LABELS = {
+    "archive": "Internet Archive",
+    "moxser": "Moxser",
+    "hardscore": "Hardscore",
+    "pirate": "Pirate Radio Archives",
+}
+DOWNLOAD_SOURCE_ART = {
+    "archive": ART + "tapepacks.png",
+    "moxser": ART + "radio.png",
+    "hardscore": ART + "hardcore.png",
+    "pirate": ART + "pirate.png",
+}
+
 _REDIRECT_CODES = frozenset((301, 302, 303, 307, 308))
 # Ports that are never plausible audio sources.  Privileged ports other than
 # 80/443 are refused too: radio streams live on 8000+ and the Archive on 443.
@@ -173,6 +211,7 @@ SECTIONS = [
     ("years", "By Year", "house.png", "Tape packs 1987 onwards"),
     ("legacy", "Legacy Sites", "pirate.png", "The 2014 survivors"),
     ("favourites", "Favourites", "about.png", "What you saved"),
+    ("downloads", "Downloads", "tapepacks.png", "Saved for offline"),
     ("search", "Search", "search.png", "Search the Archive"),
 ]
 
@@ -199,6 +238,7 @@ SECTION_PATHS = {
     "years": "/api/years",
     "legacy": "/api/legacy",
     "favourites": "/api/favourites",
+    "downloads": "/api/downloads",
     "search": "/api/search",
 }
 
@@ -223,6 +263,8 @@ RAIL = [
      "children": ["pirates", "legacy"], "sub": "Pirate archives and surviving sites"},
     {"id": "favourites", "label": "Favourites", "icon": "about.png",
      "path": "/api/favourites", "children": ["favourites"], "sub": "What you saved"},
+    {"id": "downloads", "label": "Downloads", "icon": "tapepacks.png",
+     "path": "/api/downloads", "children": ["downloads"], "sub": "Saved for offline"},
 ]
 
 
@@ -767,6 +809,7 @@ def api_moxser():
         item = _track(title, _source_sub("Moxser", entry.get("date")), None,
                       _http_url(entry.get("flyer")) or ART + "radio.png")
         item["play_via"] = "/api/moxser/%s" % urllib.parse.quote(slug, safe="")
+        item["download"] = {"source": "moxser"}
         items.append(item)
     return jsonify({"title": "Moxser Mixes", "items": items})
 
@@ -798,7 +841,9 @@ def api_hardscore():
         sub = _source_sub("Hardscore", entry.get("date"))
         media = _http_url(entry.get("media"))
         if media:
-            items.append(_track(title, sub, media, ART + "hardcore.png"))
+            item = _track(title, sub, media, ART + "hardcore.png")
+            _mark_download(item, "hardscore", media)
+            items.append(item)
         else:
             link = _http_url(entry.get("link"))
             if link:
@@ -907,6 +952,7 @@ def api_pirate_station(slug):
         source = _http_url(entry.get("source_url"))
         if stream:
             item = _track(title, sub, stream, ART + "pirate.png")
+            _mark_download(item, "pirate", stream)
             if source:
                 item["external"] = source
         elif source:
@@ -950,12 +996,13 @@ def api_item(identifier):
     tracks = archive.audio_files(identifier)
     if not tracks:
         return _json_error("no playable audio for that item", 404)
-    items = [
-        _track(track["title"], _human_duration(track.get("length")), track["url"],
-               archive.thumb(identifier),
-               {"kind": "stream", "target": track["url"], "title": track["title"]})
-        for track in tracks
-    ]
+    items = []
+    for track in tracks:
+        item = _track(track["title"], _human_duration(track.get("length")), track["url"],
+                      archive.thumb(identifier),
+                      {"kind": "stream", "target": track["url"], "title": track["title"]})
+        _mark_download(item, "archive", track["url"])
+        items.append(item)
     return jsonify({"title": identifier.replace("-", " ").replace("_", " "), "items": items,
                     "art": archive.thumb(identifier)})
 
@@ -1810,6 +1857,288 @@ def _http_error(exc):
                          exc_info=getattr(exc, "original_exception", None))
         return "Internal Server Error", 500
     return exc
+
+
+# --------------------------------------------------------------------------- downloads
+
+
+class DownloadError(Exception):
+    """A proxy download failed; the view maps ``code``/``message`` to JSON."""
+
+    def __init__(self, message, code=502):
+        super(DownloadError, self).__init__(message)
+        self.message = message
+        self.code = code
+
+
+def _human_size(size):
+    try:
+        size = max(0, int(size))
+    except (TypeError, ValueError):
+        return "0 B"
+    for unit in ("B", "KB", "MB", "GB"):
+        if size < 1024 or unit == "GB":
+            return ("%d %s" % (size, unit)) if unit == "B" else ("%.1f %s" % (size, unit))
+        size /= 1024.0
+    return "0 B"
+
+
+def _download_allowed(source, url):
+    """The single direct-file eligibility rule (shared with the Kodi add-on)."""
+    if source not in DOWNLOAD_SOURCES:
+        return False, "that source cannot be downloaded"
+    if not isinstance(url, str) or len(url) > MAX_URL:
+        return False, "blocked or missing url"
+    try:
+        parts = urllib.parse.urlsplit(url)
+    except ValueError:
+        return False, "blocked or missing url"
+    if parts.scheme not in ("http", "https"):
+        return False, "only http(s) media can be downloaded"
+    if parts.username or parts.password:
+        return False, "urls with credentials cannot be downloaded"
+    host = (parts.hostname or "").lower().rstrip(".")
+    if not host:
+        return False, "blocked or missing url"
+    if any(host == blocked or host.endswith("." + blocked)
+           for blocked in DOWNLOAD_BLOCKED_HOSTS):
+        return False, "provider pages cannot be downloaded"
+    if not parts.path.lower().endswith(DOWNLOAD_EXTENSIONS):
+        return False, "only direct MP3/M4A files can be downloaded"
+    if source == "archive":
+        if not (host == "archive.org" or host.endswith(".archive.org")):
+            return False, "not an Internet Archive file"
+    elif source == "moxser":
+        if not (host == "enceladus.feralhosting.com" or host.endswith(".feralhosting.com")):
+            return False, "not a Moxser file"
+    elif source == "hardscore":
+        if not (host == "hardscore.com" or host.endswith(".hardscore.com")):
+            return False, "not a Hardscore file"
+    elif source == "pirate":
+        known = {_http_url(entry.get("stream_url")) for entry in pirate.entries()}
+        if url not in known:
+            return False, "not a curated pirate archive file"
+    return True, ""
+
+
+def _mark_download(item, source, url=None):
+    """Expose the Download action only for eligible rows from the four sources."""
+    if url is not None and not _download_allowed(source, url)[0]:
+        return item
+    item["download"] = {"source": source}
+    return item
+
+
+def _download_item(entry):
+    identifier = entry["id"]
+    when = ""
+    try:
+        when = time.strftime("%d %b %Y", time.localtime(float(entry.get("created") or 0)))
+    except (TypeError, ValueError, OverflowError, OSError):
+        when = ""
+    sub = _source_sub(_human_size(entry.get("size")),
+                      when,
+                      DOWNLOAD_SOURCE_LABELS.get(entry.get("source"), "Saved"))
+    item = _track(entry.get("title") or "Untitled", sub,
+                  "/api/downloads/%s/stream" % urllib.parse.quote(identifier, safe=""),
+                  DOWNLOAD_SOURCE_ART.get(entry.get("source"), ART + "tapepacks.png"))
+    item["download_key"] = identifier
+    item["file"] = "/api/downloads/%s/file" % urllib.parse.quote(identifier, safe="")
+    return item
+
+
+def _download_to_file(url, destination, max_bytes, seconds):
+    """Proxy one direct audio file to ``destination`` with a hard byte/deadline cap.
+
+    Reuses ``_open_stream`` so the same SSRF, DNS-pinning and redirect checks as
+    /api/stream apply; every byte counted against the per-file and library caps.
+    """
+    headers = _upstream_headers(url, {}, None, None)
+    deadline = time.monotonic() + seconds
+    conn = resp = None
+    try:
+        conn, resp, final_url = _open_stream(url, headers, deadline)
+        status = resp.status
+        if status in (401, 403):
+            raise DownloadError("upstream refused access", 403)
+        if status in (404, 410):
+            raise DownloadError("upstream media not found", 404)
+        if status != 200:
+            raise DownloadError("unexpected upstream status", 502)
+        encoding = (resp.getheader("Content-Encoding") or "").strip().lower()
+        if encoding not in ("", "identity"):
+            raise DownloadError("upstream sent an encoded file", 502)
+        content_type = (resp.getheader("Content-Type") or "").split(";")[0].strip().lower()
+        if content_type and not (content_type.startswith("audio/")
+                                 or content_type == "application/octet-stream"):
+            raise DownloadError("upstream did not return an audio file", 502)
+        length_raw = resp.getheader("Content-Length")
+        if length_raw:
+            try:
+                expected = int(length_raw)
+            except (TypeError, ValueError):
+                expected = None
+            if expected is not None and expected > max_bytes:
+                raise DownloadError("that file is larger than the download limit", 413)
+        total = 0
+        handle = open(destination, "wb")
+        try:
+            while True:
+                if time.monotonic() >= deadline:
+                    raise DownloadError("the download timed out", 504)
+                try:
+                    chunk = resp.read(64 * 1024)
+                except (socket.timeout, TimeoutError):
+                    raise DownloadError("the download timed out", 504)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > max_bytes:
+                    raise DownloadError("that file is larger than the download limit", 413)
+                handle.write(chunk)
+            handle.flush()
+            os.fsync(handle.fileno())
+        finally:
+            handle.close()
+        if total <= 0:
+            raise DownloadError("upstream returned an empty file", 502)
+        return total
+    except DownloadError:
+        raise
+    except BlockedURL:
+        raise DownloadError("blocked or invalid media URL", 400)
+    except UpstreamTimeout:
+        raise DownloadError("the download timed out", 504)
+    except UpstreamError:
+        raise DownloadError("upstream connection failed", 502)
+    except (OSError, http.client.HTTPException, ssl.SSLError):
+        raise DownloadError("could not save the download", 502)
+    finally:
+        for closable in (resp, conn):
+            if closable is not None:
+                try:
+                    closable.close()
+                except Exception:  # noqa: BLE001 - close is best effort
+                    pass
+
+
+@app.get("/api/downloads")
+def api_downloads():
+    """Local Downloads library (server-side copy under RAVEWEB_DATA)."""
+    entries = downloads.list_entries(DATA_DIR)
+    items = [_download_item(entry) for entry in entries]
+    return jsonify({
+        "title": "Downloads",
+        "items": items,
+        "storage": {
+            "used": downloads.used(DATA_DIR),
+            "limit": DOWNLOAD_MAX_TOTAL,
+            "items": len(items),
+            "max_items": DOWNLOAD_MAX_ITEMS,
+        },
+    })
+
+
+@app.post("/api/downloads")
+def api_download_create():
+    """Explicitly save one direct audio file for offline playback."""
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return _json_error("expected a JSON object", 400)
+    source = _clean_text(payload.get("source"), 32).lower()
+    url = _clean_text(payload.get("url"), MAX_URL)
+    title = _clean_text(payload.get("title"), MAX_TITLE)
+    allowed, error = _download_allowed(source, url)
+    if not allowed:
+        return _json_error(error, 400)
+    existing = downloads.find_url(DATA_DIR, url)
+    if existing:
+        return jsonify({"saved": True, "already": True,
+                        "item": _download_item(existing)})
+    try:
+        downloads.reserve(DATA_DIR, DOWNLOAD_MAX_ITEMS)
+    except downloads.StorageError as exc:
+        return _json_error(str(exc), 507)
+    if not title:
+        title = urllib.parse.unquote(url.rsplit("/", 1)[-1]) or "Download"
+    entry = downloads.entry_for(DATA_DIR, title, url, source)
+    temp_name = downloads.temp_path(DATA_DIR, entry)
+    try:
+        used = downloads.used(DATA_DIR)
+        max_bytes = min(DOWNLOAD_MAX_BYTES, max(0, DOWNLOAD_MAX_TOTAL - used))
+        if max_bytes <= 0:
+            raise DownloadError("the Downloads library is full", 413)
+        size = _download_to_file(url, temp_name, max_bytes, DOWNLOAD_DEADLINE)
+        entry["size"] = size
+        downloads.register(DATA_DIR, entry, temp_name,
+                           DOWNLOAD_MAX_TOTAL, DOWNLOAD_MAX_ITEMS)
+    except DownloadError as exc:
+        downloads.discard(DATA_DIR, entry)
+        return _json_error(exc.message, exc.code)
+    except downloads.StorageError as exc:
+        downloads.discard(DATA_DIR, entry)
+        return _json_error(str(exc), 507)
+    except Exception as exc:  # noqa: BLE001 - never leak a traceback
+        downloads.discard(DATA_DIR, entry)
+        app.logger.warning("download failed for %s: %s", _safe_log_url(url), exc)
+        return _json_error("could not save that download", 502)
+    return jsonify({"saved": True, "item": _download_item(entry)})
+
+
+@app.delete("/api/downloads/<download_id>")
+def api_download_delete(download_id):
+    identifier = _clean_text(download_id, 64)
+    try:
+        removed = downloads.remove(DATA_DIR, identifier)
+    except Exception as exc:  # noqa: BLE001 - a broken store is not a 500
+        app.logger.warning("download delete failed: %s", exc)
+        removed = False
+    return jsonify({"removed": bool(removed)})
+
+
+def _saved_download(download_id):
+    identifier = _clean_text(download_id, 64)
+    if not identifier:
+        return None, None
+    entry = downloads.find(DATA_DIR, identifier)
+    if not entry:
+        return None, None
+    path = downloads.file_path(DATA_DIR, entry)
+    if not os.path.isfile(path):
+        return None, None
+    return entry, path
+
+
+def _send_download(entry, path, as_attachment):
+    extension = os.path.splitext(entry["filename"])[1].lower()
+    mimetype = "audio/mp4" if extension == ".m4a" else "audio/mpeg"
+    response = send_file(
+        path, mimetype=mimetype, conditional=True, etag=entry["id"],
+        max_age=0, as_attachment=as_attachment,
+        download_name=entry["filename"] if as_attachment else None,
+    )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Cross-Origin-Resource-Policy"] = "same-origin"
+    response.headers["Cache-Control"] = "private, max-age=0, must-revalidate"
+    return response
+
+
+@app.get("/api/downloads/<download_id>/stream")
+def api_download_stream(download_id):
+    """Offline playback: the saved copy, Range-capable, same-origin."""
+    entry, path = _saved_download(download_id)
+    if not entry:
+        return _json_error("unknown download", 404)
+    return _send_download(entry, path, as_attachment=False)
+
+
+@app.get("/api/downloads/<download_id>/file")
+def api_download_file(download_id):
+    """Save the local copy to this device, with a safe Content-Disposition name."""
+    entry, path = _saved_download(download_id)
+    if not entry:
+        return _json_error("unknown download", 404)
+    return _send_download(entry, path, as_attachment=True)
 
 
 PRUNE_INTERVAL = 3600

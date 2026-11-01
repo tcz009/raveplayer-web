@@ -10,7 +10,7 @@ untouched.
 
 | Surface | Change |
 |---|---|
-| Rail | 8 grouped sticker buttons instead of 21 flat rows (fixes the 1440×900 overflow that hid Favourites/Search). Each button: icon, Impact label, `RP-0x` catalogue code (`aria-hidden`), acid active border + magenta hard shadow. Multi-section groups open a server hub (`/api/rail/<id>`). |
+| Rail | 9 grouped sticker buttons (Downloads joined in 1.6.16) instead of 21 flat rows (fixes the 1440×900 overflow that hid Favourites/Search). Each button: icon, Impact label, `RP-0x` catalogue code (`aria-hidden`), acid active border + magenta hard shadow. Multi-section groups open a server hub (`/api/rail/<id>`). |
 | Back button | 48 px paper sticker, 2 px border, magenta hard shadow, mono label; `position: sticky` under the masthead so it stays visible while scrolling (phone: clears the 58 px rail). |
 | Surprise Me | Magenta sticker in the topbar (`#surprise`), backed by `GET /api/surprise` (random tape pack or show, opens the item). |
 | Typography | Display = `Impact, Haettenschweiler, "Arial Narrow Bold", …` (already the token; now used for rail labels and the wordmark remains as-is). UI = system sans; catalogue/mono = system mono. |

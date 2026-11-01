@@ -1,7 +1,7 @@
 # Independent code review — brief
 
 **Project:** Rave Player — web app (`raveplayer-web`)
-**Version under review:** 1.6.15 (`feature/1.6.15`, based on `main` @ `3811d1a` / 1.6.14)
+**Version under review:** 1.6.16 (`feature/1.6.16`, based on the signed-off `feature/1.6.15` tree)
 **Reviewer target:** `app.py`, `core/`, `static/`, `templates/`, `test/`; ignore `data/`, `__pycache__/`, `.venv/`.
 
 ## What it is
@@ -70,7 +70,14 @@ A prepared `.venv` exists in this checkout.
   (ink/paper/acid/magenta/cyan, Impact display, halftone + scanlines). Logo,
   wordmark and character unchanged; no innerHTML, CSP unchanged; section/rail
   paths are cross-checked between Python and `app.js` in tests.
-- Tests: `205 → 285` offline (`pytest -q test`) and **12 browser e2e**
+- **1.6.16 Downloads/offline (web side, phase 1)** (`docs/DOWNLOADS.md`): explicit
+  direct-file saves for the four eligible sources (Archive, Moxser, Hardscore,
+  Pirate) through a proxy that reuses `_open_stream` (SSRF/DNS pinning/redirect
+  checks), per-file/total/free-space guards, atomic writes and safe filenames;
+  offline library with size/delete/play (Range) and a Content-Disposition save
+  endpoint. No provider pages/live/HLS/podcasts/legacy/GetDarker; no
+  auto-download; no CSP or innerHTML change.
+- Tests: `205 → 293` offline (`pytest -q test`) and **13 browser e2e**
   (`pytest test_e2e`, see `docs/E2E.md`).
 
 ## Areas worth scrutiny

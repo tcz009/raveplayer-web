@@ -9,14 +9,14 @@ Repo: <https://github.com/tcz009/raveplayer-web> · Kodi add-on: <https://github
 
 ## What it does
 
-The rail is **eight grouped buttons** — Latest · Tape Packs · Mixes & Shows ·
-Club & Rave Sets · SoundCloud Picks · Live Radio · Curated Gems · Favourites —
-and each group opens a hub. That keeps all 21 sections reachable without the old
+The rail is **nine grouped buttons** — Latest · Tape Packs · Mixes & Shows ·
+Club & Rave Sets · SoundCloud Picks · Live Radio · Curated Gems · Favourites ·
+Downloads — and each group opens a hub. That keeps all 22 sections reachable without the old
 21-button rail overflowing a 1440×900 window. **Search** stays in the topbar,
 **Surprise Me** opens a random tape pack or show (`/api/surprise`), and Back is a
 48 px pinned sticker that stays visible while scrolling.
 
-The 21 sections behind the groups:
+The sections behind the groups:
 
 - **Latest** — newest podcasts, tape packs and DNB Radio shows, merged.
 - **Kool FM** — the station live now plus every Kool FM set in the archive.
@@ -54,6 +54,13 @@ The 21 sections behind the groups:
   each.
 - **Legacy Sites** — RaveTapePacks.com, JungleTapes.com, Toronto archive.
 - **Favourites** — stored server-side in `RAVEWEB_DATA`.
+- **Downloads** — explicit, direct-file saves kept under `RAVEWEB_DATA/downloads`
+  (Archive tracks, Moxser MP3s, Hardscore MP3/M4A, Pirate Radio Archives direct
+  files). Each row shows size/date, plays from the local copy offline, can be
+  saved to another device (Content-Disposition + Range) and deleted. Provider
+  pages (Mixcloud/SoundCloud/YouTube), live streams, HLS, podcasts, legacy
+  scrapers and GetDarker are never downloadable in phase 1; nothing downloads
+  automatically. See [`docs/DOWNLOADS.md`](docs/DOWNLOADS.md).
 - **Search** — Archive text search. Paste a Mixcloud or SoundCloud set URL into
   the search box instead and the embed panel opens that set.
 
@@ -177,6 +184,8 @@ check without guesswork.
 | `RAVEWEB_DATA` | `/tmp/raveweb` (`/data` in Docker) | Favourites + HTTP cache |
 | `RAVEWEB_ALLOW_PRIVATE` | `0` | Set to `1` to allow LAN/Tailscale stream hosts |
 | `RAVEWEB_STREAM_HOSTS` | empty (any public host) | Comma-separated host suffixes `/api/stream` may fetch, e.g. `archive.org,rinse.fm,media.rss.com`. Empty keeps live radio working; set it to pin the proxy to known media hosts. |
+| `RAVEWEB_DOWNLOAD_BYTES` | `524288000` (500 MiB) | Per-file cap for the Downloads proxy save. |
+| `RAVEWEB_DOWNLOAD_TOTAL` | `2147483648` (2 GiB) | Total cap for the Downloads library under `RAVEWEB_DATA/downloads`. |
 | `RAVEWEB_MAX_STREAMS` | `6` | Concurrent proxied streams per worker |
 | `RAVEWEB_STREAM_SECONDS` | `14400` | Absolute cap on one proxied stream |
 | `RAVEWEB_STREAM_BYTES` | `8 GiB` | Byte cap on one proxied stream |
@@ -217,6 +226,10 @@ are pruned at startup (14 days), so a long-lived volume does not fill up.
 | `/api/favourites` (GET/POST) | list / add |
 | `/api/favourites/<key>` (DELETE) | remove (key is `kind:target`) |
 | `/api/stream?u=&ref=` | Range-capable audio proxy |
+| `/api/downloads` (GET/POST) | offline library / explicitly save one direct audio file `{url,title,source}` |
+| `/api/downloads/<id>/stream` | play the saved copy offline (Range) |
+| `/api/downloads/<id>/file` | save the saved copy to a device (`Content-Disposition`, Range) |
+| `/api/downloads/<id>` (DELETE) | delete a saved download |
 | `/healthz` | container health + `data_writable` |
 | `/manifest.webmanifest` | installable app metadata |
 
@@ -294,20 +307,21 @@ search-submit paste wiring, the deploy script's version pinning/labels
 (parsed with `sh -n`), and static checks that every element id used by
 `app.js` exists in the template and that the JavaScript parses.
 
-### Browser smoke tests (12 cases)
+### Browser smoke tests (13 cases)
 
 `test_e2e/` drives the real app in headless Chromium through Playwright. It
-covers what the offline suite cannot: boot with the grouped 8-button rail and
-every hub reachable, the rail fitting a 1440×900 window with Favourites visible
-(the 21-button overflow regression), the pinned back button staying put while
-scrolling, Surprise Me opening a random pack/show, the phone rail/back layout,
-section navigation rendering every row, the Mixcloud/SoundCloud embed panel
-(widget `src`, provider label, close/backdrop, CSP `frame-src`), normal text
-search, and a favourites add/remove round trip. The Flask app runs on a random
-localhost port with a temporary `RAVEWEB_DATA`; providers are stubbed and the
-browser's external requests are intercepted, so the tests need no internet.
-Screenshots for the 1.6.15 review are generated with `RAVEWEB_ARTIFACTS_DIR`
-(see `docs/E2E.md`).
+covers what the offline suite cannot: boot with the grouped 9-button rail and
+every hub reachable, the rail fitting a 1440×900 window with Favourites and
+Downloads visible (the 21-button overflow regression), the pinned back button
+staying put while scrolling, Surprise Me opening a random pack/show, the phone
+rail/back layout, the Download action → Downloads library → offline playback →
+delete round trip (and no Download action on podcast-like rows), section
+navigation rendering every row, the Mixcloud/SoundCloud embed panel (widget
+`src`, provider label, close/backdrop, CSP `frame-src`), normal text search, and
+a favourites add/remove round trip. The Flask app runs on a random localhost
+port with a temporary `RAVEWEB_DATA`; providers are stubbed and the browser's
+external requests are intercepted, so the tests need no internet. Screenshots
+are generated with `RAVEWEB_ARTIFACTS_DIR` (see `docs/E2E.md`).
 
 ```sh
 ./.venv/bin/python -m pip install -r requirements-browser.txt

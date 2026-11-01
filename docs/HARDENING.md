@@ -1,17 +1,48 @@
-# Hardening pass — Rave Player web (`raveplayer-web` 1.6.15)
+# Hardening pass — Rave Player web (`raveplayer-web` 1.6.16)
 
-**Branch:** `feature/1.6.15` (not pushed) · **Base:** `main` @ `3811d1a` (1.6.14)
+**Branch:** `feature/1.6.16` (not pushed) · **Base:** `feature/1.6.15` @ `c83f891` (web 1.6.15)
 **Scope:** `app.py`, `core/`, `static/app.js`, `scripts/deploy.sh`, `docs/`, `test/`,
 `test_e2e/`, `VERSION`. No UX or content changes. No `data/` or advert files touched.
 
-**Result:** `205 → 285 passed` (`.venv/bin/python -m pytest -q test`), all
-offline; browser suite `test_e2e` **12 passed** (system Chrome, Playwright 1.60);
+**Result:** `205 → 293 passed` (`.venv/bin/python -m pytest -q test`), all
+offline; browser suite `test_e2e` **13 passed** (system Chrome, Playwright 1.60);
 `node --check static/app.js` and `sh -n scripts/deploy.sh` clean.
 
 Inputs folded in: the internal task-22 brief and the adversarial pre-review
 (`docs/ADVERSARIAL-REVIEW.md`, web findings W1–W8). The review's "what is solid" list
 (stream SSRF guard, SPA escaping, CSP, content-type gate, atomic writes) was kept intact.
 
+
+## 1.6.16 — Downloads/offline, phase 1 (web side)
+
+New feature; the only new network path is a server-side proxy save that
+deliberately reuses the stream proxy's guards:
+
+- **Eligibility is a server-side allow-list** (`DOWNLOAD_SOURCES`,
+  `_download_allowed`): only direct `.mp3`/`.m4a` http(s) URLs from Archive
+  tracks, Moxser resolved MP3s, Hardscore MP3/M4A and curated Pirate direct
+  files. Platform hosts (Mixcloud/SoundCloud/YouTube/Vimeo), non-media pages,
+  credentials, non-http(s) and non-file paths are refused; each source also has
+  its own host check. The client cannot label a provider page as an MP3.
+- **Proxy save reuses `_open_stream`**, so the SSRF blocklist, all-DNS-answer
+  validation, DNS pinning, hand-rolled redirect re-validation and
+  connect/read deadlines apply unchanged. Byte counts are capped per file
+  (`RAVEWEB_DOWNLOAD_BYTES`, default 500 MiB), in total
+  (`RAVEWEB_DOWNLOAD_TOTAL`, default 2 GiB), by item count (200) and by free
+  space, before and while writing; `Content-Length` is checked up-front; the
+  file is written atomically (temp + rename) under `RAVEWEB_DATA/downloads`.
+- **Safe output:** filenames are sanitised title stems + URL hash + `.mp3`/`.m4a`;
+  `/api/downloads/<id>/file` serves the local copy with `Content-Disposition:
+  attachment` and Range support; `/stream` is the same-origin offline player
+  (Range, CORP same-origin, nosniff). Delete removes file + index atomically.
+- **No auto-download** and no client-side storage: the user must press the
+  Download action; the Downloads view is read from the server library.
+- **Out of scope phase 1** (also shared with the Kodi add-on): podcast/RSS
+  enclosures, Legacy-scraper tracks, GetDarker rows, live radio, HLS.
+- Tests: 293 offline (+8 `test/test_downloads.py`) and 13 e2e (download →
+  Downloads view → offline play from `/api/downloads/<id>/stream` → delete, and
+  no Download action on podcast-like rows). Screenshot:
+  `rave-player-space/reports/web-1.6.16/06-downloads-view.png`.
 
 ## 1.6.15 — rail, pinned back button, Surprise Me, brutalist theme pass
 
@@ -307,10 +338,10 @@ that the module layout matches.
 
 ```sh
 cd "Rave Player"
-.venv/bin/python -m pytest -q test        # 285 passed
+.venv/bin/python -m pytest -q test        # 293 passed
 node --check static/app.js
 sh -n scripts/deploy.sh
-git diff --stat main..feature/1.6.15
+git diff --stat main..feature/1.6.16
 ```
 
 ## Post-merge fix — deploy.sh heredoc escaping (found on first real deploy)

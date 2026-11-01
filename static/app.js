@@ -64,6 +64,12 @@
                                     "stroke-width": "2.2", "stroke-linecap": "round" } }],
     heart: [{ tag: "path", attrs: { class: "heart-path", fill: "none", stroke: "currentColor", "stroke-width": "1.9",
                                     d: "M12 20s-7-4.6-7-9.4C5 7.5 6.9 6 9 6c1.5 0 2.6.8 3 1.7.4-.9 1.5-1.7 3-1.7 2.1 0 4 1.5 4 4.6C19 15.4 12 20 12 20Z" } }],
+    download: [
+      { tag: "path", attrs: { d: "M12 4v10M7.5 9.5 12 14l4.5-4.5", fill: "none", stroke: "currentColor",
+                              "stroke-width": "2", "stroke-linecap": "round", "stroke-linejoin": "round" } },
+      { tag: "path", attrs: { d: "M5 18.5h14", fill: "none", stroke: "currentColor",
+                              "stroke-width": "2", "stroke-linecap": "round" } },
+    ],
   };
 
   function icon(name) {
@@ -322,6 +328,12 @@
     return !!(item && (item.play || item.play_via));
   }
 
+  // Phase 1: only rows the server marked from the four direct-file sources are
+  // downloadable; embed/external provider rows never are.
+  function downloadable(item) {
+    return !!(item && item.download && item.download.source && (item.play || item.play_via));
+  }
+
   function openEmbed(item) {
     const panel = $("embed-panel");
     const frame = $("embed-frame");
@@ -560,6 +572,50 @@
       actions.appendChild(heart);
     }
 
+    if (downloadable(item)) {
+      const download = document.createElement("button");
+      download.type = "button";
+      download.className = "icon-btn download-btn";
+      setIcon(download, "download");
+      download.title = "Download for offline";
+      download.setAttribute("aria-label", `Download ${item.label || "item"} for offline`);
+      download.addEventListener("click", (event) => {
+        event.stopPropagation();
+        downloadItem(item, download);
+      });
+      actions.appendChild(download);
+    }
+
+    if (item.download_key) {
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "icon-btn";
+      setIcon(remove, "close");
+      remove.title = "Remove download";
+      remove.setAttribute("aria-label", `Remove ${item.label || "item"} from Downloads`);
+      remove.addEventListener("click", (event) => {
+        event.stopPropagation();
+        removeDownload(item, remove, el);
+      });
+      actions.appendChild(remove);
+    }
+
+    if (item.file && !downloadable(item)) {
+      // Saved in the library: hand the local copy to the browser as an
+      // attachment (the server sets Content-Disposition with the safe name).
+      const save = document.createElement("button");
+      save.type = "button";
+      save.className = "icon-btn";
+      setIcon(save, "download");
+      save.title = "Save a copy to this device";
+      save.setAttribute("aria-label", `Save a copy of ${item.label || "this download"} to this device`);
+      save.addEventListener("click", (event) => {
+        event.stopPropagation();
+        window.location.assign(item.file);
+      });
+      actions.appendChild(save);
+    }
+
     if (item.fav_key) {
       const remove = document.createElement("button");
       remove.type = "button";
@@ -681,6 +737,7 @@
       raves: "/api/raves",
       legacy: "/api/legacy",
       favourites: "/api/favourites",
+      downloads: "/api/downloads",
       search: "/api/search",
     };
     return map[id] || "";
@@ -917,6 +974,13 @@
     }
   }
 
+  // Local Downloads already live on this server and are Range-served by
+  // /api/downloads/<id>/stream — do not wrap those in the remote stream proxy.
+  function audioSource(url) {
+    if (typeof url === "string" && url.startsWith("/api/downloads/")) return url;
+    return `/api/stream?u=${encodeURIComponent(url)}`;
+  }
+
   function playItem(item, url, index) {
     if (index == null || index < 0) {
       if (!state.queue.length || state.queueSource !== state.path) {
@@ -954,7 +1018,7 @@
     paintNowPlaying();
     document.title = `${item.label || "Rave Player"} — Rave Player`;
 
-    audio.src = `/api/stream?u=${encodeURIComponent(url)}`;
+    audio.src = audioSource(url);
     updatePositionState.last = 0;
     setMediaSession(item);
     refreshAirPlayButton();
@@ -1017,7 +1081,7 @@
   function retryPlayback() {
     if (!state.current) return;
     setPlayerStatus("Retrying…");
-    audio.src = `/api/stream?u=${encodeURIComponent(state.current.url)}`;
+    audio.src = audioSource(state.current.url);
     const started = audio.play();
     if (started && typeof started.catch === "function") {
       started.catch((error) => {
@@ -1251,6 +1315,63 @@
       toast(`Favourite failed: ${messageFor(error)}`, 4000);
     } finally {
       if (button) button.disabled = false;
+    }
+  }
+
+  async function downloadItem(item, button) {
+    if (!downloadable(item) || button.dataset.busy === "1") return;
+    button.dataset.busy = "1";
+    button.disabled = true;
+    try {
+      let url = "";
+      if (item.play_via) {
+        const resolved = await api(item.play_via, { timeout: 25000 });
+        url = typeof resolved.url === "string" ? resolved.url : "";
+      } else if (typeof item.play === "string") {
+        url = item.play;
+      }
+      if (!url) throw new Error("no downloadable file");
+      toast("Downloading…", 6000);
+      await api("/api/downloads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url,
+          title: item.label || "Download",
+          source: item.download.source,
+        }),
+        timeout: 900000,
+      });
+      toast("Saved to Downloads");
+      if (state.path === "/api/downloads") navigate("/api/downloads", { push: false });
+    } catch (error) {
+      toast(`Could not download: ${messageFor(error)}`, 4000);
+    } finally {
+      button.dataset.busy = "";
+      button.disabled = false;
+    }
+  }
+
+  async function removeDownload(item, button, rowEl) {
+    if (!item || !item.download_key || button.dataset.busy === "1") return;
+    button.dataset.busy = "1";
+    button.disabled = true;
+    try {
+      const data = await api(`/api/downloads/${encodeURIComponent(item.download_key)}`,
+                             { method: "DELETE" });
+      if (data.removed) {
+        if (rowEl) rowEl.remove();
+        if (!listEl.querySelector(".row")) emptyEl.hidden = false;
+        toast("Download removed");
+      } else {
+        button.disabled = false;
+        toast("Could not remove that download");
+      }
+    } catch (error) {
+      button.disabled = false;
+      toast(`Could not remove the download: ${messageFor(error)}`, 4000);
+    } finally {
+      button.dataset.busy = "";
     }
   }
 

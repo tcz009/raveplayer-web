@@ -26,16 +26,17 @@ RAIL_LABELS = [
     "Live Radio",
     "Curated Gems",
     "Favourites",
+    "Downloads",
 ]
 
 
-def test_menu_rail_is_eight_groups_covering_every_section(web):
+def test_menu_rail_is_nine_groups_covering_every_section(web):
     import app as app_module
 
     payload = web.get("/api/menu").get_json()
     rail = payload["rail"]
     assert [group["label"] for group in rail] == RAIL_LABELS
-    assert len(rail) == 8
+    assert len(rail) == 9
     covered = []
     for group in rail:
         assert set(group) == {"id", "label", "icon", "sub", "path", "children"}

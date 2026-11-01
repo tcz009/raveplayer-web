@@ -80,7 +80,7 @@ def _fake_audio_files(identifier):
     """Archive item tracks for /api/item/<id> (Surprise Me opening a pack)."""
     return [{
         "name": "boot-track.mp3", "title": "Boot Track",
-        "url": "https://cdn.example/boot-track.mp3", "length": 187,
+        "url": "https://archive.org/download/boot-pack/boot-track.mp3", "length": 187,
     }]
 
 
@@ -95,6 +95,42 @@ def _fake_feed_episodes(feed_id):
 def _no_outbound_request(*args, **kwargs):
     """Any unmocked provider fetch during a browser test is a test bug."""
     raise AssertionError("browser smoke tests must not hit the network")
+
+
+class _FakeDownloadResponse(object):
+    """A tiny audio body for the downloads endpoint (no network)."""
+
+    status = 200
+
+    def __init__(self, body):
+        self._body = body
+        self._offset = 0
+
+    def getheader(self, name):
+        lowered = (name or "").lower()
+        if lowered == "content-type":
+            return "audio/mpeg"
+        if lowered == "content-length":
+            return str(len(self._body))
+        return None
+
+    def read(self, size=-1):
+        chunk = self._body[self._offset:self._offset + size]
+        self._offset += len(chunk)
+        return chunk
+
+    def close(self):
+        pass
+
+
+class _FakeDownloadConnection(object):
+    def close(self):
+        pass
+
+
+def _fake_open_stream(url, headers, deadline):
+    return (_FakeDownloadConnection(),
+            _FakeDownloadResponse(b"ID3" + b"\xff" * 2048), url)
 
 
 # --------------------------------------------------------------------------- server
@@ -119,6 +155,9 @@ def live_server():
     patcher.setattr(app_module.archive, "audio_files", _fake_audio_files)
     patcher.setattr(app_module.feeds, "episodes", _fake_feed_episodes)
     patcher.setattr(app_module.mixcloud, "search", _no_mixcloud_search)
+    # Downloads reuses the stream proxy's opener; give it a local audio body so
+    # the e2e suite never leaves the box.
+    patcher.setattr(app_module, "_open_stream", _fake_open_stream)
     # Belt and braces: every provider HTTP call goes through core.fetch, so a
     # stub we missed fails loudly instead of quietly going online.
     patcher.setattr(core_fetch, "_request", _no_outbound_request)
