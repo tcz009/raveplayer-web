@@ -213,6 +213,8 @@ def test_filter_last_page_has_no_next(web, archive_search):
 
 
 def test_filter_live(web, monkeypatch):
+    # curated stations take priority; force the radio-browser fallback here
+    monkeypatch.setattr("app.radio.curated", lambda name: [])
     monkeypatch.setattr("app.radio.stations_by_name", lambda name, limit=20: [
         {"name": "Kool FM", "countrycode": "GB", "codec": "MP3", "bitrate": 128,
          "url_resolved": "http://stream.example/kool", "favicon": ""},
@@ -221,6 +223,13 @@ def test_filter_live(web, monkeypatch):
     assert payload["title"] == "Kool FM — live"
     assert payload["items"][0]["play"] == "http://stream.example/kool"
     assert payload["items"][0]["sub"] == "GB · MP3 · 128 kbps"
+
+
+def test_filter_live_curated(web):
+    payload = web.get("/api/filter/kool/live").get_json()
+    assert payload["items"][0]["play"].endswith("/proxy/kool/stream")
+    payload = web.get("/api/filter/rinse/live").get_json()
+    assert payload["items"][0]["play"].endswith("/proxy/rinse_uk/stream")
 
 
 def test_filter_live_unknown(web):
