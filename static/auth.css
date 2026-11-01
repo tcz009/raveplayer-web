@@ -263,3 +263,29 @@ body.login-page {
     transition-duration: 0.001ms !important;
   }
 }
+
+/* Themed 404/500 — same door, wrong room. */
+.error-page { align-items: center; }
+.error-door { max-width: 560px; }
+.error-code {
+  margin: 2px 0 -4px;
+  color: var(--cyan);
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.22em;
+}
+.error-door h1 {
+  margin: 0;
+  padding-top: 12px;
+  font-size: clamp(38px, 10vw, 54px);
+  line-height: 0.9;
+  text-shadow: 5px 5px 0 rgba(255, 45, 143, 0.5);
+}
+.error-home {
+  display: block;
+  margin-top: 20px;
+  text-align: center;
+  text-decoration: none;
+}
+.error-door .door-sub { max-width: 42ch; }

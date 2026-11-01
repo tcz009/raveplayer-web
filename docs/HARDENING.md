@@ -1,17 +1,34 @@
-# Hardening pass — Rave Player web (`raveplayer-web` 1.6.23)
+# Hardening pass — Rave Player web (`raveplayer-web` 1.6.24)
 
-**Branch:** `feature/1.6.23-background-downloads` (not pushed) · **Base:** `fix/1.6.23-session-mask` @ `f4c7334`
+**Branch:** `feature/1.6.24-quickwins` (not pushed) · **Base:** `main` @ `e4a514f` (1.6.23)
 **Scope:** `app.py`, `core/`, `static/app.js`, `scripts/deploy.sh`, `docs/`, `test/`,
 `test_e2e/`, `VERSION`. No UX or content changes. No `data/` or advert files touched.
 
-**Result:** `205 → 342 passed` (`.venv/bin/python -m pytest -q test`), all
-offline; browser suite `test_e2e` **20 passed** (system Chrome, Playwright 1.60);
+**Result:** `205 → 347 passed` (`.venv/bin/python -m pytest -q test`), all
+offline; browser suite `test_e2e` **21 passed** (system Chrome, Playwright 1.60);
 `node --check static/app.js` and `sh -n scripts/deploy.sh` clean.
 
 Inputs folded in: the internal task-22 brief and the adversarial pre-review
 (`docs/ADVERSARIAL-REVIEW.md`, web findings W1–W8). The review's "what is solid" list
 (stream SSRF guard, SPA escaping, CSP, content-type gate, atomic writes) was kept intact.
 
+
+## 1.6.24 — shared lockout, themed errors, CSP reporting
+
+- Failed-login/lockout counters moved into the auth SQLite store
+  (`login_failures` table), so both gunicorn workers enforce one identity+IP
+  policy; tested across a separate OS process and a second limiter instance.
+- Themed 404/500 pages using the existing ink/paper/acid/magenta/cyan tokens,
+  mark, halftone and sticker shadows (“LOST THE TAPE” / “THE SIGNAL DROPPED”),
+  home link; `/api/*` errors remain JSON.
+- CSP report-only addition: enforcing CSP unchanged; HTML responses also send
+  `Content-Security-Policy-Report-Only` with `report-uri` + `Report-To`, and a
+  public bounded `/api/csp-report` endpoint logs sanitized violations. Default
+  on (`RAVEWEB_CSP_REPORT_ONLY=1`); promotion path in `docs/CSP-REPORTING.md`.
+- `docs/QA-IPHONE.md` repeatable check (login both roles, rail, search,
+  foreground/background downloads, offline playback, PWA, logout, lockout) with
+  expected results.
+- Tests: 347 offline (+5 quick-wins) and 21 e2e (themed 404 + CSP report).
 
 ## 1.6.23 — session ID mask + background downloads
 
@@ -484,10 +501,10 @@ that the module layout matches.
 
 ```sh
 cd "Rave Player"
-.venv/bin/python -m pytest -q test        # 342 passed
+.venv/bin/python -m pytest -q test        # 347 passed
 node --check static/app.js
 sh -n scripts/deploy.sh
-git diff --stat fix/1.6.23-session-mask..feature/1.6.23-background-downloads
+git diff --stat main..feature/1.6.24-quickwins
 ```
 
 ## Post-merge fix — deploy.sh heredoc escaping (found on first real deploy)

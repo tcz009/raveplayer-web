@@ -212,7 +212,8 @@ check without guesswork.
 | `RAVEWEB_PASSWORD` / `RAVEWEB_FRIENDS_PASSWORD` | first-run only | Plaintext hashed in memory at startup and logged once as hashes; move to the `_HASH` vars. |
 | `RAVEWEB_ENV` | recommended `production` | Enables strict secret-key checks (`RAVEWEB_PROD=1` also works). |
 | `RAVEWEB_WIDGET_TOKEN` | optional | Read-only bearer token for the Control Centre `GET /api/admin/stats` feed; empty = owner-session only. |
-| `RAVEWEB_AUTH_DB` | `$RAVEWEB_DATA/auth.sqlite3` | Persistent SQLite audit/session store. |
+| `RAVEWEB_CSP_REPORT_ONLY` | `1` | Adds the report-only CSP + `/api/csp-report` collection; set `0` to stop reporting without tightening enforcement. |
+| `RAVEWEB_AUTH_DB` | `$RAVEWEB_DATA/auth.sqlite3` | Persistent SQLite audit/session store, including the shared login-failure/lockout counters. |
 | `RAVEWEB_SESSION_HOURS` / `RAVEWEB_REMEMBER_DAYS` | `12` / `30` | Absolute session lifetimes with/without “remember me”. |
 | `RAVEWEB_LOGIN_MAX_FAILURES` / `_FAILURE_WINDOW` / `_LOCKOUT` | `5` / `600` / `900` | Login throttle and lockout. |
 | `SOUNDCLOUD_CLIENT_ID` | empty | Enables `/api/soundcloud?q=` API text search; without it only the curated `soundcloud.json` sets are listed |
@@ -335,9 +336,9 @@ typography, hero and texture language — is documented in
 
 ## Tests
 
-### Offline suite (342 cases)
+### Offline suite (347 cases)
 
-The offline suite is 342 cases (all providers mocked) and uses the Flask test
+The offline suite is 347 cases (all providers mocked) and uses the Flask test
 client. `pytest` is a test-only dependency:
 
 ```sh
@@ -364,7 +365,7 @@ the cached app shell for any same-origin navigation, never caching
 bookmarks — remove and re-add once, as described in [`docs/PWA.md`](docs/PWA.md)
 (which also covers the plain-HTTP LAN limitation and what Cockney Player needs).
 
-### Browser smoke tests (20 cases)
+### Browser smoke tests (21 cases)
 
 `test_e2e/` drives the real app in headless Chromium through Playwright. It
 covers what the offline suite cannot: boot with the grouped 9-button rail and

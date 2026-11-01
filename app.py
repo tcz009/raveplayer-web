@@ -129,7 +129,7 @@ app.config.update(
     PERMANENT_SESSION_LIFETIME=datetime.timedelta(days=AUTH.remember_days),
     SESSION_REFRESH_EACH_REQUEST=True,
 )
-LOGIN_LIMITER = auth.LoginLimiter(max_failures=AUTH.max_failures,
+LOGIN_LIMITER = auth.SqliteLoginLimiter(max_failures=AUTH.max_failures,
                                   failure_window=AUTH.failure_window,
                                   lockout_seconds=AUTH.lockout_seconds)
 if AUTH.generated_hash:
@@ -164,6 +164,9 @@ STREAM_HOST_ALLOWLIST = tuple(
 )
 USER_AGENT = "RavePlayer-Web/1.0 (+https://github.com/tcz009/plugin.audio.raveplayer)"
 ART = "/static/art/"
+CSP_REPORT_ONLY = (os.environ.get("RAVEWEB_CSP_REPORT_ONLY", "1") or "1") == "1"
+CSP_REPORT_URI = "/api/csp-report"
+CSP_REPORT_GROUP = "csp-endpoint"
 CSP = (
     "default-src 'self'; img-src 'self' data: https: http:; media-src 'self'; "
     # The Mixcloud and SoundCloud sections play sets in the providers' own
@@ -630,6 +633,7 @@ def _widget_authorized():
 PUBLIC_PATHS = frozenset((
     "/login", "/logout", "/healthz", "/manifest.webmanifest", "/sw.js",
     "/static/auth.css", "/static/login.js", "/static/sw-register.js",
+    "/api/csp-report",
     "/static/art/icon.png", "/static/art/icon-180.png",
 ))
 
@@ -644,6 +648,8 @@ def _auth_guard():
     """Protect the shell, every API route and non-login static assets."""
     path = request.path
     if path.startswith("/api/"):
+        if path == "/api/csp-report":
+            return None
         if path == "/api/admin/stats" and _widget_authorized():
             return None
         if not _session_valid():
@@ -814,6 +820,30 @@ def _record_request_audit(response):
     except Exception:  # auditing must never break a response
         app.logger.exception("audit: request record failed")
     return response
+
+
+@app.post("/api/csp-report")
+def csp_report():
+    """Collect browser CSP violation reports (report-only phase)."""
+    raw = request.get_data(cache=False, as_text=False)
+    if len(raw) > 64 * 1024:
+        return Response("", status=413, mimetype="text/plain")
+    try:
+        payload = json.loads(raw.decode("utf-8", "replace") or "null")
+    except (ValueError, TypeError):
+        return Response("", status=204)
+    reports = payload if isinstance(payload, list) else [payload]
+    for entry in reports[:20]:
+        if not isinstance(entry, dict):
+            continue
+        report = entry.get("csp-report") if isinstance(entry.get("csp-report"), dict) else entry
+        app.logger.warning(
+            "csp violation directive=%s blocked=%s document=%s disposition=%s",
+            str(report.get("effective-directive") or report.get("violated-directive") or "-")[:80],
+            str(report.get("blocked-uri") or "-")[:300],
+            str(report.get("document-uri") or "-")[:300],
+            str(report.get("disposition") or "-")[:20])
+    return Response("", status=204)
 
 
 @app.post("/logout")
@@ -2247,9 +2277,21 @@ def _response_headers(response):
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    is_html = response.mimetype == "text/html"
     if (request.path in ("/", "/login", "/logout")
-            or request.path.startswith("/static/")):
+            or request.path.startswith("/static/") or is_html):
         response.headers.setdefault("Content-Security-Policy", CSP)
+        if CSP_REPORT_ONLY:
+            response.headers.setdefault(
+                "Content-Security-Policy-Report-Only",
+                CSP + "; report-uri " + CSP_REPORT_URI
+                + "; report-to " + CSP_REPORT_GROUP)
+            report_to = {
+                "group": CSP_REPORT_GROUP,
+                "max_age": 10886400,
+                "endpoints": [{"url": request.url_root.rstrip("/") + CSP_REPORT_URI}],
+            }
+            response.headers.setdefault("Report-To", json.dumps(report_to))
     if request.path.startswith("/api/"):
         response.headers.setdefault("Cache-Control", "no-store")
     if _request_is_https():
@@ -2276,6 +2318,26 @@ _SHORT_ERRORS = {
 }
 
 
+def _themed_error(code, exc=None):
+    if code == 500:
+        app.logger.error("unhandled error on %s", request.path,
+                         exc_info=getattr(exc, "original_exception", None))
+        title = "THE SIGNAL DROPPED"
+        message = "The tape jammed on the server. Nothing was lost — turn the page over and try again."
+    else:
+        title = "LOST THE TAPE"
+        message = "That reel is not in this archive. The track might have moved, or the link is older than the scene."
+    try:
+        return render_template("error.html", code=code, title=title,
+                               message=message, version=APP_VERSION), code
+    except Exception:  # a broken template must not turn a 500 into a crash
+        app.logger.exception("themed error page failed for %s", code)
+        return ("""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<title>Rave Player</title></head><body><h1>%s</h1>
+<p>%s</p><p><a href="/">Back to the archive</a></p>
+</body></html>""" % (title, message)), code
+
+
 @app.errorhandler(HTTPException)
 def _http_error(exc):
     code = exc.code or 500
@@ -2284,10 +2346,9 @@ def _http_error(exc):
             app.logger.error("unhandled error on %s", request.path,
                              exc_info=getattr(exc, "original_exception", None))
         return _json_error(_SHORT_ERRORS.get(code, exc.description or "error"), code)
-    if code == 500:
-        app.logger.error("unhandled error on %s", request.path,
-                         exc_info=getattr(exc, "original_exception", None))
-        return "Internal Server Error", 500
+    if code in (404, 500):
+        return _themed_error(code, exc)
+    return _SHORT_ERRORS.get(code, "request failed"), code
     return exc
 
 

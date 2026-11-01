@@ -696,3 +696,33 @@ def test_background_download_survives_navigation_and_completes(browser_page):
         assert browser_page.page_errors == []
     finally:
         e2e_conftest._FakeDownloadResponse.DELAY = old_delay
+
+
+def test_themed_404_and_csp_reporting(browser_page, live_server):
+    page = browser_page.page
+    # Fetch rather than navigate: the app-shell service worker intentionally
+    # turns stale same-origin navigations into the cached app, so this checks
+    # the server's 404 document/headers directly.
+    result = page.evaluate("""async () => {
+        const response = await fetch('/no-such-reel');
+        return {status: response.status, text: await response.text(),
+                csp: response.headers.get('content-security-policy-report-only') || ''};
+    }""")
+    assert result["status"] == 404
+    assert "LOST THE TAPE" in result["text"]
+    assert 'href="/"' in result["text"]
+    assert "report-uri /api/csp-report" in result["csp"]
+    # API 404s stay JSON.
+    api = page.evaluate("async () => { const r = await fetch('/api/no-such-reel'); return {status:r.status, json:await r.json()}; }")
+    assert api["status"] == 404 and api["json"]["error"] == "not found"
+    # Browser report endpoint is public and accepts a report without a session.
+    status = page.evaluate("""async () => {
+        const r = await fetch('/api/csp-report', {method: 'POST',
+            headers: {'Content-Type': 'application/csp-report'},
+            body: JSON.stringify({'csp-report': {'effective-directive': 'img-src',
+                'blocked-uri': 'https://example.invalid/x.png',
+                'document-uri': location.href, 'disposition': 'report'}})});
+        return r.status;
+    }""")
+    assert status == 204
+    assert browser_page.page_errors == []

@@ -22,7 +22,7 @@ A read-only owner stats feed (`GET /api/admin/stats`) is documented in
 | `RAVEWEB_FRIENDS_PASSWORD` | first-run alternative | Friends plaintext hashed in memory; generated hash logged once for `RAVEWEB_FRIENDS_PASSWORD_HASH`. |
 | `RAVEWEB_ENV` | recommended | Set to `production` on the host. Enables the strict secret-key check. `RAVEWEB_PROD=1` works too; `FLASK_ENV=production` is accepted. |
 | `RAVEWEB_WIDGET_TOKEN` | optional | Bearer token for the read-only `GET /api/admin/stats` Control Centre feed; empty disables bearer access. |
-| `RAVEWEB_AUTH_DB` | `$RAVEWEB_DATA/auth.sqlite3` | Persistent SQLite audit/session store (login events, sessions, stats). |
+| `RAVEWEB_AUTH_DB` | `$RAVEWEB_DATA/auth.sqlite3` | Persistent SQLite audit/session store (login events, sessions, stats, shared login-failure counters). |
 
 Optional tuning:
 
@@ -108,10 +108,10 @@ credential.
   shell history. Keep the env file root-owned and mode 600.
 - A stolen session cookie is valid until logout/expiry; changing `SECRET_KEY`
   invalidates **all** sessions immediately.
-- The failed-login limiter is in-process and keyed by **identity + IP**. The
-  production gunicorn pool is `-w 2`, so each identity/IP limit can be ~2× the
-  configured failures across workers; a shared store (Redis) is a later
-  hardening step. Lockout state resets on restart.
+- The failed-login limiter is keyed by **identity + IP** and lives in the shared
+  SQLite audit store, so both gunicorn workers enforce one policy (no ~2×
+  loophole). Lockout state survives a worker restart and clears on success or
+  after the failure window.
 - Only the two fixed identities; no arbitrary accounts/OAuth, no password
   reset flow, no email, no 2FA, no server-side session store/revocation list
   (signed cookies only, revoked by rotating `SECRET_KEY`). Favourites and

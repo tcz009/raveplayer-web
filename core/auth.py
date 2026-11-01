@@ -211,6 +211,38 @@ def same_text(left, right):
         return False
 
 
+class SqliteLoginLimiter(object):
+    """Failed-login throttle shared by every gunicorn worker via SQLite.
+
+    The counters live in the same audit database as sessions/events, so one
+    worker cannot be bypassed by retrying against the other.
+    """
+
+    def __init__(self, max_failures=5, failure_window=600.0, lockout_seconds=900.0):
+        self.max_failures = max(1, int(max_failures))
+        self.failure_window = float(failure_window)
+        self.lockout_seconds = float(lockout_seconds)
+
+    @staticmethod
+    def _audit():
+        from . import audit
+        return audit
+
+    def retry_after(self, key):
+        return self._audit().login_retry_after(
+            key, self.failure_window, self.lockout_seconds)
+
+    def fail(self, key):
+        return self._audit().login_fail(
+            key, self.max_failures, self.failure_window, self.lockout_seconds)
+
+    def reset(self, key):
+        self._audit().login_reset(key)
+
+    def clear(self):
+        self._audit().clear_login_failures()
+
+
 class LoginLimiter(object):
     """In-process failed-login throttle with a temporary lockout."""
 

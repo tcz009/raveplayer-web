@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#07070b">
+  <meta name="color-scheme" content="dark">
+  <meta name="robots" content="noindex">
+  <title>{{ title }} — Rave Player</title>
+  <link rel="icon" type="image/png" sizes="512x512" href="/static/art/icon.png">
+  <link rel="stylesheet" href="/static/auth.css?v={{ version }}">
+</head>
+<body class="login-page error-page">
+  <div class="halftone" aria-hidden="true"></div>
+  <main class="door error-door" aria-labelledby="error-title">
+    <div class="door-brand">
+      <img class="door-mark" src="/static/art/icon.png" alt="" width="56" height="56">
+      <div>
+        <span class="door-kicker">ARCHIVE · 88 → NOW</span>
+        <span class="door-name">RAVE<em>PLAYER</em></span>
+      </div>
+    </div>
+    <p class="error-code">{{ code }}</p>
+    <h1 id="error-title">{{ title }}</h1>
+    <p class="door-sub">{{ message }}</p>
+    <a class="enter error-home" href="/">Back to the archive ↗</a>
+    <p class="door-footer">THE LAST TRANSMISSION · RP-{{ code }}</p>
+  </main>
+</body>
+</html>

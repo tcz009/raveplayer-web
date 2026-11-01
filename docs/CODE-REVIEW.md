@@ -1,7 +1,7 @@
 # Independent code review — brief
 
 **Project:** Rave Player — web app (`raveplayer-web`)
-**Version under review:** 1.6.23 (`feature/1.6.23-background-downloads`, based on session-mask fix / 1.6.22 stats)
+**Version under review:** 1.6.24 (`feature/1.6.24-quickwins`, based on `main` @ `e4a514f` / 1.6.23)
 **Reviewer target:** `app.py`, `core/`, `static/`, `templates/`, `test/`; ignore `data/`, `__pycache__/`, `.venv/`.
 
 ## What it is
@@ -123,7 +123,12 @@ A prepared `.venv` exists in this checkout.
   1–2, ownership (owner all / friends own), restart recovery, completion into the
   normal index; UI background action, topbar chip, live Downloads rows/cancel and
   completion toast. Same direct-source/host/cap guards as foreground saves.
-- Tests: `205 → 342` offline (`pytest -q test`) and **20 browser e2e**
+- **1.6.24 quick wins**: shared SQLite login-failure/lockout counters (both
+  workers enforce one policy); themed 404/500 pages (API stays JSON); CSP
+  report-only header + public `/api/csp-report` endpoint/logging (enforcing CSP
+  unchanged; promotion documented in `docs/CSP-REPORTING.md`); iPhone QA runbook
+  (`docs/QA-IPHONE.md`).
+- Tests: `205 → 347` offline (`pytest -q test`) and **21 browser e2e**
   (`pytest test_e2e`, see `docs/E2E.md`).
 
 ## Areas worth scrutiny

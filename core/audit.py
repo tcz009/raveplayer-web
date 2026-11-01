@@ -13,6 +13,7 @@ silently allowing a session.
 import calendar
 import hashlib
 import ipaddress
+import math
 import os
 import secrets
 import sqlite3
@@ -66,6 +67,12 @@ CREATE INDEX IF NOT EXISTS idx_blocks_until ON blocks(until);
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS login_failures (
+    key TEXT PRIMARY KEY,
+    window_start REAL NOT NULL,
+    failures INTEGER NOT NULL,
+    locked_until REAL NOT NULL DEFAULT 0
 );
 """
 
@@ -368,6 +375,53 @@ def prune(max_age_days=30):
     _write("DELETE FROM events WHERE ts<?", (cutoff,))
     _write("DELETE FROM blocks WHERE until<?", (time.time(),))
     _write("DELETE FROM sessions WHERE expires_at<?", (cutoff,))
+
+
+def login_retry_after(key, failure_window, lockout_seconds):
+    """Shared failed-login lockout check (wall clock, so workers agree)."""
+    now = time.time()
+    rows = _read("SELECT window_start,failures,locked_until FROM login_failures "
+                 "WHERE key=?", (_text(key, 96),))
+    if not rows:
+        return 0
+    row = rows[0]
+    if row["locked_until"] > now:
+        return max(1, int(math.ceil(row["locked_until"] - now)))
+    if now - row["window_start"] > float(failure_window):
+        _write("DELETE FROM login_failures WHERE key=?", (_text(key, 96),))
+    return 0
+
+
+def login_fail(key, max_failures, failure_window, lockout_seconds):
+    """Record one failure in the shared store; returns the failure count."""
+    key = _text(key, 96)
+    now = time.time()
+    with closing(_connect()) as conn:
+        row = conn.execute("SELECT window_start,failures,locked_until "
+                           "FROM login_failures WHERE key=?", (key,)).fetchone()
+        if row is None or now - row["window_start"] > float(failure_window):
+            window_start, failures = now, 0
+        else:
+            window_start, failures = row["window_start"], row["failures"]
+        failures += 1
+        locked_until = (now + float(lockout_seconds)
+                        if failures >= int(max_failures) else 0.0)
+        conn.execute(
+            "INSERT INTO login_failures (key,window_start,failures,locked_until) "
+            "VALUES (?,?,?,?) ON CONFLICT(key) DO UPDATE SET "
+            "window_start=excluded.window_start, failures=excluded.failures, "
+            "locked_until=excluded.locked_until",
+            (key, window_start, failures, locked_until))
+        conn.commit()
+        return failures
+
+
+def login_reset(key):
+    _write("DELETE FROM login_failures WHERE key=?", (_text(key, 96),))
+
+
+def clear_login_failures():
+    _write("DELETE FROM login_failures")
 
 
 def valid_ip(value):
