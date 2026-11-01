@@ -23,9 +23,10 @@ def csrf_from(client, path="/login"):
     return match.group(1).decode()
 
 
-def login(client, password="test-password", remember=False, next_url="/", csrf=None):
+def login(client, password="test-password", remember=False, next_url="/", csrf=None,
+          username="owner"):
     token = csrf or csrf_from(client)
-    data = {"csrf": token, "password": password, "next": next_url}
+    data = {"csrf": token, "username": username, "password": password, "next": next_url}
     if remember:
         data["remember"] = "1"
     return client.post("/login", data=data)
@@ -96,6 +97,9 @@ def test_login_success_sets_hardened_cookie_and_audits(anon, caplog):
     assert "auth: login success" in caplog.text
     assert "test-password" not in caplog.text
     assert anon.get("/api/menu").status_code == 200
+    with anon.session_transaction() as sess:
+        assert sess["identity"] == "owner"
+        assert sess["role"] == "admin"
 
 
 def test_remember_me_extends_cookie_and_session(anon):
@@ -151,33 +155,75 @@ def test_https_marks_cookie_secure_and_sends_hsts(anon):
     page = anon.get("/login", base_url="https://localhost")
     token = re.search(rb'name="csrf" value="([^"]+)"', page.data).group(1).decode()
     response = anon.post("/login", base_url="https://localhost",
-                         data={"csrf": token, "password": "test-password"})
+                         data={"csrf": token, "username": "owner",
+                               "password": "test-password"})
     assert response.headers["Strict-Transport-Security"].startswith("max-age=31536000")
     cookie = "; ".join(response.headers.getlist("Set-Cookie"))
     assert "Secure" in cookie
     assert anon.get("/api/menu", base_url="https://localhost").status_code == 200
 
 
-def test_username_is_optional_but_enforced_when_configured(anon, monkeypatch):
-    monkeypatch.setattr(app_module.AUTH, "username", "operator")
+def test_owner_and_friends_logins_have_distinct_roles(anon):
+    # friends (viewer) can play everything non-admin.
     token = csrf_from(anon)
-    response = anon.post("/login", data={"csrf": token, "username": "nobody",
-                                         "password": "test-password"})
-    assert response.status_code == 401
-    response = anon.post("/login", data={"csrf": token, "username": "operator",
-                                         "password": "test-password"})
+    response = anon.post("/login", data={"csrf": token, "username": "friends",
+                                         "password": "friends-password"})
     assert response.status_code == 302
+    with anon.session_transaction() as sess:
+        assert sess["identity"] == "friends"
+        assert sess["role"] == "viewer"
+    assert anon.get("/api/menu").status_code == 200
+    assert anon.get("/api/admin/whoami").status_code == 403
+    anon.post("/logout")
+
+    # owner (admin) gets the admin probe.
+    response = login(anon, username="owner")
+    assert response.status_code == 302
+    assert anon.get("/api/admin/whoami").get_json() == {
+        "ok": True, "identity": "owner", "role": "admin"}
+
+
+def test_wrong_identity_password_pair_is_rejected_generically(anon):
+    for username, password in (("owner", "friends-password"),
+                               ("friends", "test-password"),
+                               ("nobody", "test-password")):
+        response = login(anon, username=username, password=password)
+        assert response.status_code == 401
+        assert b"Invalid username or password." in response.data
+
+
+def test_failed_logins_are_locked_out_per_identity_and_ip(anon):
+    # Lock friends only; the owner identity from the same IP must still work.
+    for _ in range(app_module.AUTH.max_failures):
+        assert login(anon, username="friends", password="wrong-friends").status_code == 401
+    assert login(anon, username="friends", password="friends-password").status_code == 429
+    owner = login(anon, username="owner")
+    assert owner.status_code == 302
+    anon.post("/logout")
+    assert login(anon, username="friends", password="friends-password").status_code == 429
+
+
+def test_friends_hash_can_rotate_independently(anon, monkeypatch):
+    monkeypatch.setattr(app_module.AUTH, "friends_hash",
+                        auth.generate_hash("new-friends-password"))
+    assert login(anon, username="friends", password="friends-password").status_code == 401
+    assert login(anon, username="friends", password="new-friends-password").status_code == 302
+    # The owner credential is untouched by a friends-only rotation.
+    anon.post("/logout")
+    assert login(anon, username="owner").status_code == 302
 
 
 def test_open_redirect_targets_are_sanitised(anon):
     token = csrf_from(anon)
-    response = anon.post("/login", data={"csrf": token, "password": "test-password",
+    response = anon.post("/login", data={"csrf": token, "username": "owner",
+                                         "password": "test-password",
                                          "next": "https://evil.example/"})
     assert response.status_code == 302
     assert response.headers["Location"] == "/"
     anon.post("/logout")
     token = csrf_from(anon)
-    response = anon.post("/login", data={"csrf": token, "password": "test-password",
+    response = anon.post("/login", data={"csrf": token, "username": "owner",
+                                         "password": "test-password",
                                          "next": "//evil.example/"})
     assert response.status_code == 302
     assert response.headers["Location"] == "/"
@@ -193,9 +239,17 @@ def test_auth_config_fails_closed_and_supports_first_run(monkeypatch):
         auth.load_config({"RAVEWEB_PASSWORD": "long-enough",
                           "RAVEWEB_ENV": "production"})
     config = auth.load_config({"RAVEWEB_PASSWORD": "test-password",
+                               "RAVEWEB_FRIENDS_PASSWORD": "friends-password",
                                "SECRET_KEY": "test-secret", "RAVEWEB_ENV": "test"})
     assert config.generated_hash
+    assert config.generated_friends_hash
     assert auth.verify_password(config.password_hash, "test-password")
+    assert auth.verify_password(config.friends_hash, "friends-password")
+    rotated = auth.load_config({"RAVEWEB_PASSWORD": "test-password",
+                                "RAVEWEB_FRIENDS_PASSWORD": "rotated-friends",
+                                "SECRET_KEY": "test-secret", "RAVEWEB_ENV": "test"})
+    assert not auth.verify_password(rotated.friends_hash, "friends-password")
+    assert auth.verify_password(rotated.friends_hash, "rotated-friends")
     custom = auth.generate_hash("another-password")
     assert auth.hash_scheme(custom) in ("argon2", "bcrypt", "werkzeug")
     assert auth.verify_password(custom, "another-password")

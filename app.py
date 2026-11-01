@@ -31,6 +31,7 @@ import ssl
 import tempfile
 import threading
 import time
+from functools import wraps
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import urllib.parse
 
@@ -133,10 +134,16 @@ LOGIN_LIMITER = auth.LoginLimiter(max_failures=AUTH.max_failures,
                                   lockout_seconds=AUTH.lockout_seconds)
 if AUTH.generated_hash:
     app.logger.warning(
-        "auth: RAVEWEB_PASSWORD was hashed for this run; persist it with "
+        "auth: owner RAVEWEB_PASSWORD was hashed for this run; persist it with "
         "RAVEWEB_PASSWORD_HASH=%s", AUTH.generated_hash)
+if AUTH.generated_friends_hash:
+    app.logger.warning(
+        "auth: friends RAVEWEB_FRIENDS_PASSWORD was hashed for this run; persist "
+        "it with RAVEWEB_FRIENDS_PASSWORD_HASH=%s", AUTH.generated_friends_hash)
 if AUTH.production and AUTH.secret_key:
     app.logger.info("auth: login enabled (production mode)")
+if not AUTH.friends_hash:
+    app.logger.warning("auth: no friends credential configured; only owner can sign in")
 app.config["MAX_CONTENT_LENGTH"] = 64 * 1024
 
 DATA_DIR = os.environ.get("RAVEWEB_DATA") or "/tmp/raveweb"
@@ -563,6 +570,12 @@ def _safe_next(value):
 def _session_valid():
     if not session.get("auth"):
         return False
+    if session.get("identity") not in ("owner", "friends"):
+        session.clear()
+        return False
+    if session.get("role") not in ("admin", "viewer"):
+        session.clear()
+        return False
     started = session.get("login_at")
     try:
         started = float(started)
@@ -626,7 +639,6 @@ def _render_login(next_url="", error="", status=200, retry_after=None):
         next_url=_safe_next(next_url) or "",
         csrf=_csrf_token(),
         error=error,
-        username_required=bool(AUTH.username),
         version=APP_VERSION,
     ), status, headers
 
@@ -647,38 +659,82 @@ def login_submit():
     if not submitted or not expected or not auth.same_text(submitted, expected):
         app.logger.warning("auth: login csrf rejected ip=%s", ip)
         return _render_login(next_url, "Your sign-in session expired — try again.", 400)
-    retry = LOGIN_LIMITER.retry_after(ip)
+    lock_key = "%s\x00%s" % (ip, (request.form.get("username") or "").strip().lower()[:64] or "-")
+    retry = LOGIN_LIMITER.retry_after(lock_key)
     if retry:
-        app.logger.warning("auth: login locked ip=%s retry=%ss", ip, retry)
+        app.logger.warning("auth: login locked ip=%s identity=%s retry=%ss",
+                           ip, lock_key.split("\x00", 1)[-1], retry)
         return _render_login(
             next_url, "Too many attempts. Try again in %d seconds." % retry,
             429, retry_after=retry)
-    username = (request.form.get("username") or "").strip()
+    identity = (request.form.get("username") or "").strip().lower()
     password = request.form.get("password") or ""
-    user_ok = not AUTH.username or auth.same_text(username, AUTH.username)
-    password_ok = auth.verify_password(AUTH.password_hash, password)
-    if user_ok and password_ok:
-        LOGIN_LIMITER.reset(ip)
+    # Fixed single-operator identities: owner=admin, friends=viewer.  Missing
+    # friends hash disables that identity without revealing it on the page.
+    credentials = {"owner": ("admin", AUTH.password_hash)}
+    if AUTH.friends_hash:
+        credentials["friends"] = ("viewer", AUTH.friends_hash)
+    entry = credentials.get(identity)
+    role = entry[0] if entry else ""
+    # Unknown usernames still run a hash check against the owner hash so timing
+    # does not reveal which identities exist.
+    reference_hash = entry[1] if entry else AUTH.password_hash
+    password_ok = auth.verify_password(reference_hash, password)
+    lock_key = "%s\x00%s" % (ip, identity or "-")
+    if entry and password_ok:
+        LOGIN_LIMITER.reset(lock_key)
         session.clear()
         session["auth"] = True
-        session["user"] = AUTH.username or username[:128] or "operator"
+        session["identity"] = identity
+        session["user"] = identity
+        session["role"] = role
         session["login_at"] = time.time()
         remember = bool(request.form.get("remember"))
         session["remember"] = remember
         session.permanent = remember
         session["csrf"] = secrets.token_urlsafe(32)
-        app.logger.info("auth: login success ip=%s user=%s", ip, session["user"])
+        app.logger.info("auth: login success ip=%s identity=%s role=%s",
+                        ip, identity, role)
         return redirect(next_url or "/")
-    LOGIN_LIMITER.fail(ip)
-    app.logger.warning("auth: login failure ip=%s user=%s", ip, username[:64] or "-")
+    LOGIN_LIMITER.fail(lock_key)
+    app.logger.warning("auth: login failure ip=%s identity=%s role=%s",
+                       ip, identity[:64] or "-", role or "-")
     return _render_login(next_url, "Invalid username or password.", 401)
+
+
+def require_admin(view):
+    """Reusable decorator: only the owner (admin role) may pass.
+
+    APIs get a 403 JSON response; page routes get a plain 403.  Put it on any
+    future admin-only route; the global auth guard still runs first.
+    """
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not _session_valid():
+            if request.path.startswith("/api/"):
+                return _json_error("authentication required", 401)
+            return redirect(url_for("login_page",
+                                    next=_safe_next(request.path) or "/"))
+        if session.get("role") != "admin":
+            return _json_error("admin access required", 403)
+        return view(*args, **kwargs)
+    return wrapped
+
+
+@app.get("/api/admin/whoami")
+@require_admin
+def admin_whoami():
+    return jsonify({"ok": True, "identity": session.get("identity"),
+                    "role": session.get("role")})
 
 
 @app.post("/logout")
 def logout():
-    user = session.get("user") or ""
+    identity = session.get("identity") or ""
+    role = session.get("role") or ""
     session.clear()
-    app.logger.info("auth: logout ip=%s user=%s", _client_ip(), user)
+    app.logger.info("auth: logout ip=%s identity=%s role=%s",
+                    _client_ip(), identity or "-", role or "-")
     response = redirect(url_for("login_page"))
     response.delete_cookie(app.config["SESSION_COOKIE_NAME"], path="/")
     return response

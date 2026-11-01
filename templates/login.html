@@ -23,7 +23,7 @@
     </div>
 
     <h1 id="login-title">THE DOOR</h1>
-    <p class="door-sub">One password between you and the archive.</p>
+    <p class="door-sub">Two keys. One archive.</p>
 
     {% if error %}
     <div class="door-error" role="alert">{{ error }}</div>
@@ -33,10 +33,10 @@
       <input type="hidden" name="next" value="{{ next_url }}">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <label class="field">
-        <span class="field-label">Username{% if not username_required %} <span class="field-optional">(optional)</span>{% endif %}</span>
+        <span class="field-label">Username</span>
         <input id="username" name="username" type="text" inputmode="text"
                autocomplete="username" autocapitalize="none" autocorrect="off"
-               spellcheck="false" {% if username_required %}required{% endif %}>
+               spellcheck="false" placeholder="owner or friends" required>
       </label>
       <label class="field">
         <span class="field-label">Password</span>
@@ -54,7 +54,7 @@
       <button id="login-submit" class="enter" type="submit">Enter ↗</button>
     </form>
 
-    <p class="door-note">Single-operator LAN app. No accounts, no cloud.</p>
+    <p class="door-note">Owner and friends logins. No accounts, no cloud.</p>
     <p class="door-footer">THE LAST TRANSMISSION · RP-ENTRY</p>
   </main>
   <script src="/static/login.js?v={{ version }}" defer></script>

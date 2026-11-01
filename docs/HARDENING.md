@@ -1,10 +1,10 @@
-# Hardening pass — Rave Player web (`raveplayer-web` 1.6.20)
+# Hardening pass — Rave Player web (`raveplayer-web` 1.6.21)
 
-**Branch:** `feature/1.6.20-auth` (not pushed) · **Base:** `main` @ `9bcbc5e` (1.6.19)
+**Branch:** `feature/1.6.21-roles` (not pushed) · **Base:** `feature/1.6.20-auth` @ `eae392c` (1.6.20)
 **Scope:** `app.py`, `core/`, `static/app.js`, `scripts/deploy.sh`, `docs/`, `test/`,
 `test_e2e/`, `VERSION`. No UX or content changes. No `data/` or advert files touched.
 
-**Result:** `205 → 326 passed` (`.venv/bin/python -m pytest -q test`), all
+**Result:** `205 → 329 passed` (`.venv/bin/python -m pytest -q test`), all
 offline; browser suite `test_e2e` **19 passed** (system Chrome, Playwright 1.60);
 `node --check static/app.js` and `sh -n scripts/deploy.sh` clean.
 
@@ -12,6 +12,24 @@ Inputs folded in: the internal task-22 brief and the adversarial pre-review
 (`docs/ADVERSARIAL-REVIEW.md`, web findings W1–W8). The review's "what is solid" list
 (stream SSRF guard, SPA escaping, CSP, content-type gate, atomic writes) was kept intact.
 
+
+## 1.6.21 — owner + friends roles
+
+Extends 1.6.20 login with two fixed identities (details/env in `docs/AUTH.md`):
+
+- `owner` = admin (`RAVEWEB_PASSWORD_HASH`), `friends` = viewer
+  (`RAVEWEB_FRIENDS_PASSWORD_HASH`); both share the full player. Missing friends
+  hash leaves that login closed; rotating the friends hash is independent.
+- Session stores `identity` and `role`; `_session_valid` rejects sessions
+  without a known identity/role (old 1.6.20 cookies are invalidated).
+- Reusable `require_admin` decorator + `/api/admin/whoami` owner probe; friends
+  get a 403 JSON.
+- Failed-login limiter keyed by identity + IP, so owner and friends lock out
+  independently; audit lines include identity/role, never passwords.
+- Login page visually unchanged except the generic `owner or friends` username
+  hint and required username field; CSRF/session/cookie/security headers from
+  1.6.20 retained.
+- Tests: 329 offline (+3 role/admin/rotation tests) and 19 e2e.
 
 ## 1.6.20 — single-operator web login
 
@@ -415,10 +433,10 @@ that the module layout matches.
 
 ```sh
 cd "Rave Player"
-.venv/bin/python -m pytest -q test        # 326 passed
+.venv/bin/python -m pytest -q test        # 329 passed
 node --check static/app.js
 sh -n scripts/deploy.sh
-git diff --stat main..feature/1.6.20-auth
+git diff --stat feature/1.6.20-auth..feature/1.6.21-roles
 ```
 
 ## Post-merge fix — deploy.sh heredoc escaping (found on first real deploy)

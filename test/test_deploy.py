@@ -114,7 +114,8 @@ def _run_remote(tmp_path, run_exit=0, health_exit=0, build_exit=0, old_container
               if [ "$prev" = "--env-file" ]; then
                 if [ -f "$arg" ]; then
                   perms=$(stat -f '%Lp' "$arg" 2>/dev/null || stat -c '%a' "$arg" 2>/dev/null)
-                  echo "envfile $perms $(cat "$arg")" >> "@LOG@"
+                  content=$(tr '\n' '|' < "$arg")
+                  echo "envfile $perms $content" >> "@LOG@"
                 else
                   echo "envfile-missing" >> "@LOG@"
                 fi
@@ -165,15 +166,24 @@ def _run_remote(tmp_path, run_exit=0, health_exit=0, build_exit=0, old_container
         "SOUNDCLOUD_CLIENT_ID": "secret-e2e-id",
     })
     env_file = "/tmp/raveplayer-web.env"
+    auth_env_file = "/tmp/raveplayer-web-auth.env"
     try:
-        if os.path.exists(env_file):
-            os.remove(env_file)
+        for path in (env_file, auth_env_file):
+            if os.path.exists(path):
+                os.remove(path)
+        with open(auth_env_file, "w", encoding="utf-8") as handle:
+            handle.write("SECRET_KEY=test-secret\n"
+                         "RAVEWEB_PASSWORD_HASH=owner-hash\n"
+                         "RAVEWEB_FRIENDS_PASSWORD_HASH=friends-hash\n"
+                         "RAVEWEB_ENV=test\n")
+        os.chmod(auth_env_file, 0o600)
         result = subprocess.run([sh, "-eu", str(block_path)], cwd=ROOT, env=env,
                                 capture_output=True, text=True, timeout=90)
     finally:
         env_left = os.path.exists(env_file)
-        if env_left:
-            os.remove(env_file)
+        for path in (env_file, auth_env_file):
+            if os.path.exists(path):
+                os.remove(path)
     calls = [line for line in log.read_text(encoding="utf-8").splitlines() if line]
     return result, calls, env_left
 
@@ -188,7 +198,12 @@ def test_remote_script_restarts_old_container_when_docker_run_fails(tmp_path):
     # The env file existed (0600, with the secret) while docker run was attempted,
     # and is removed on the rollback path.
     env_lines = [call for call in calls if call.startswith("envfile ")]
-    assert env_lines == ["envfile 600 SOUNDCLOUD_CLIENT_ID=secret-e2e-id"], calls
+    assert len(env_lines) == 1, calls
+    assert env_lines[0].startswith("envfile 600 SECRET_KEY=test-secret|"), env_lines
+    assert "RAVEWEB_PASSWORD_HASH=owner-hash" in env_lines[0]
+    assert "RAVEWEB_FRIENDS_PASSWORD_HASH=friends-hash" in env_lines[0]
+    assert "RAVEWEB_ENV=test" in env_lines[0]
+    assert "SOUNDCLOUD_CLIENT_ID=secret-e2e-id" in env_lines[0]
     assert env_left is False
     assert "rolling back to the previous container" in result.stdout
 

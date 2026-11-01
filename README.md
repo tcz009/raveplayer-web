@@ -203,9 +203,9 @@ check without guesswork.
 | `RAVEWEB_STREAM_BYTES` | `8 GiB` | Byte cap on one proxied stream |
 | `RAVEWEB_VERSION` | `VERSION` file | Overrides the version reported by `/healthz` and `/api/menu`, and the `?v=` cache-buster on the page |
 | `SECRET_KEY` | **required in production** | Signs the login session/CSRF cookies; a random ephemeral key is used in dev. Production refuses placeholder/empty values. |
-| `RAVEWEB_PASSWORD_HASH` | **required** (or `RAVEWEB_PASSWORD`) | Argon2/bcrypt/Werkzeug password hash for the single operator. |
-| `RAVEWEB_PASSWORD` | first-run only | Plaintext hashed in memory at startup and logged once as a hash; move it to `RAVEWEB_PASSWORD_HASH`. |
-| `RAVEWEB_USERNAME` | optional | If set, the login username must match (otherwise password-only). |
+| `RAVEWEB_PASSWORD_HASH` | **required** (or `RAVEWEB_PASSWORD`) | Owner/admin Argon2/bcrypt/Werkzeug password hash. |
+| `RAVEWEB_FRIENDS_PASSWORD_HASH` | recommended (or `RAVEWEB_FRIENDS_PASSWORD`) | Friends/viewer password hash; rotating it only changes friends. |
+| `RAVEWEB_PASSWORD` / `RAVEWEB_FRIENDS_PASSWORD` | first-run only | Plaintext hashed in memory at startup and logged once as hashes; move to the `_HASH` vars. |
 | `RAVEWEB_ENV` | recommended `production` | Enables strict secret-key checks (`RAVEWEB_PROD=1` also works). |
 | `RAVEWEB_SESSION_HOURS` / `RAVEWEB_REMEMBER_DAYS` | `12` / `30` | Absolute session lifetimes with/without “remember me”. |
 | `RAVEWEB_LOGIN_MAX_FAILURES` / `_FAILURE_WINDOW` / `_LOCKOUT` | `5` / `600` / `900` | Login throttle and lockout. |
@@ -217,14 +217,17 @@ are pruned at startup (14 days), so a long-lived volume does not fill up.
 
 ## Sign in
 
-The app is closed by default: one operator password unlocks the page, every
-`/api/*` route (including `/api/stream` and the Downloads endpoints) and the
-app's static assets. Set `SECRET_KEY` and `RAVEWEB_PASSWORD_HASH` (or a
-first-run `RAVEWEB_PASSWORD`) in the host environment before starting; the app
-refuses to boot without a credential. The login door is designed to the same
-art direction as the app. Session cookies are `HttpOnly`, `SameSite=Lax` and
-`Secure` over HTTPS, with a 12 h session / 30 d remember-me lifetime and
-per-IP failed-login lockout. Full env vars, hash generation, proxy notes,
+The app is closed by default: one of two fixed identities unlocks the page,
+every `/api/*` route (including `/api/stream` and the Downloads endpoints) and
+the app's static assets. **`owner`** (admin) uses `RAVEWEB_PASSWORD_HASH`;
+**`friends`** (viewer) uses `RAVEWEB_FRIENDS_PASSWORD_HASH`; both reach the full
+player and owner-only routes use `require_admin`. Set `SECRET_KEY` plus the
+hashes (or first-run `RAVEWEB_PASSWORD`/`RAVEWEB_FRIENDS_PASSWORD`) in the host
+environment before starting; the app refuses to boot without an owner
+credential. The login door is designed to the same art direction as the app.
+Session cookies are `HttpOnly`, `SameSite=Lax` and `Secure` over HTTPS, with a
+12 h session / 30 d remember-me lifetime and **per identity + IP** failed-login
+lockout. Full env vars, hash generation, proxy notes,
 threat model and deferrals: [`docs/AUTH.md`](docs/AUTH.md).
 
 ## API
@@ -319,9 +322,9 @@ typography, hero and texture language — is documented in
 
 ## Tests
 
-### Offline suite (326 cases)
+### Offline suite (329 cases)
 
-The offline suite is 326 cases (all providers mocked) and uses the Flask test
+The offline suite is 329 cases (all providers mocked) and uses the Flask test
 client. `pytest` is a test-only dependency:
 
 ```sh
@@ -359,7 +362,7 @@ rail/back layout, the Download action → progress panel (save and cancel) → D
 offline playback → delete round trip (and no Download action on podcast-like
 rows), the 150 ms loading pill (fast and slow requests), the Surprise spin/
 stamp reveal plus its reduced-motion skip, section navigation rendering every
-row, the login/logout flow + designed door page, the Mixcloud/SoundCloud embed panel (widget
+row, the owner login/logout flow + designed door page, the Mixcloud/SoundCloud embed panel (widget
 `src`, provider label, close/backdrop, CSP `frame-src`), normal text search, and
 a favourites add/remove round trip. The Flask app runs on a random localhost
 port with a temporary `RAVEWEB_DATA`; providers are stubbed and the browser's

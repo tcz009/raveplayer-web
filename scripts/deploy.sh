@@ -26,8 +26,28 @@ IMAGE="raveplayer-web:$VERSION"
 LATEST_IMAGE="raveplayer-web:latest"
 ALLOW_PRIVATE="${ALLOW_PRIVATE:-0}"
 MAX_STREAMS="${MAX_STREAMS:-6}"
+RAVEWEB_ENV="${RAVEWEB_ENV:-production}"
+
+# 1.6.21 auth: the container now fails closed without these. Refuse before we
+# touch the running box rather than letting the health check roll back.
+[ -n "${SECRET_KEY:-}" ] || { echo "SECRET_KEY is required" >&2; exit 1; }
+[ -n "${RAVEWEB_PASSWORD_HASH:-}" ] || { echo "RAVEWEB_PASSWORD_HASH is required" >&2; exit 1; }
+[ -n "${RAVEWEB_FRIENDS_PASSWORD_HASH:-}" ] || { echo "RAVEWEB_FRIENDS_PASSWORD_HASH is required" >&2; exit 1; }
 
 echo "deploying $IMAGE (git $REVISION), also tagging $LATEST_IMAGE"
+
+# Write secrets to a mode-600 file outside the build context and copy it to the
+# host. Never put them on an ssh command line or in the build context.
+AUTH_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/raveplayer-web-auth.XXXXXX")"
+trap 'rm -f "$AUTH_ENV_FILE" /tmp/raveplayer-web.tgz' EXIT INT TERM
+(umask 077
+ {
+   printf 'SECRET_KEY=%s\n' "$SECRET_KEY"
+   printf 'RAVEWEB_PASSWORD_HASH=%s\n' "$RAVEWEB_PASSWORD_HASH"
+   printf 'RAVEWEB_FRIENDS_PASSWORD_HASH=%s\n' "$RAVEWEB_FRIENDS_PASSWORD_HASH"
+   printf 'RAVEWEB_ENV=%s\n' "$RAVEWEB_ENV"
+ } > "$AUTH_ENV_FILE")
+scp -q -i "$KEY" -o BatchMode=yes "$AUTH_ENV_FILE" "$HOST:/tmp/raveplayer-web-auth.env"
 
 tar czf /tmp/raveplayer-web.tgz \
     --exclude='.venv' --exclude='.git' --exclude='test' --exclude='test_e2e' \
@@ -41,7 +61,8 @@ DATA_BACKUP="$DEST.data-backup"
 # Secrets live in a root-only env file outside the build context; the EXIT trap
 # guarantees it is removed on every path (success, run failure, rollback).
 ENV_FILE=/tmp/raveplayer-web.env
-trap 'rm -f "\$ENV_FILE"' EXIT INT TERM
+AUTH_ENV=/tmp/raveplayer-web-auth.env
+trap 'rm -f "\$ENV_FILE" "\$AUTH_ENV"' EXIT INT TERM
 # keep favourites/cache on the host (not only in /tmp) until the new box is good
 rm -rf "\$DATA_BACKUP"
 if [ -d $DEST/data ]; then cp -a $DEST/data "\$DATA_BACKUP"; fi
@@ -74,7 +95,8 @@ restore_previous() {
   fi
   exit 1
 }
-(umask 077 && printf 'SOUNDCLOUD_CLIENT_ID=%s\n' "${SOUNDCLOUD_CLIENT_ID:-}" > "\$ENV_FILE")
+(umask 077 && cat "\$AUTH_ENV" > "\$ENV_FILE" && printf 'SOUNDCLOUD_CLIENT_ID=%s\n' "${SOUNDCLOUD_CLIENT_ID:-}" >> "\$ENV_FILE")
+rm -f "\$AUTH_ENV"
 if ! docker run -d --name raveplayer-web-new --restart unless-stopped \
   --security-opt no-new-privileges:true \
   --label "org.opencontainers.image.version=$VERSION" \

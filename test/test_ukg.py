@@ -21,7 +21,9 @@ def web(tmp_path, monkeypatch):
     client = app.app.test_client()
     with client.session_transaction() as sess:
         sess["auth"] = True
-        sess["user"] = "operator"
+        sess["identity"] = "owner"
+        sess["user"] = "owner"
+        sess["role"] = "admin"
         sess["login_at"] = time.time()
         sess["remember"] = False
         sess["csrf"] = "test-csrf"

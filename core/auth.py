@@ -49,8 +49,8 @@ class AuthConfigError(RuntimeError):
 
 @dataclass
 class AuthConfig:
-    password_hash: str
-    username: str
+    password_hash: str              # owner (admin)
+    friends_hash: str               # friends (viewer), empty = disabled
     secret_key: str
     session_hours: float = 12.0
     remember_days: float = 30.0
@@ -59,6 +59,7 @@ class AuthConfig:
     lockout_seconds: float = 900.0
     production: bool = False
     generated_hash: str = ""
+    generated_friends_hash: str = ""
 
 
 def _env_float(env, name, default, minimum=0.0):
@@ -158,10 +159,20 @@ def load_config(env=None):
         if not plain:
             raise AuthConfigError(
                 "set RAVEWEB_PASSWORD_HASH (preferred) or RAVEWEB_PASSWORD; "
-                "refusing to start without an operator password")
+                "refusing to start without an owner password")
         encoded = generate_hash(plain)
         generated = encoded
     validate_scheme(encoded)
+
+    friends = (env.get("RAVEWEB_FRIENDS_PASSWORD_HASH") or "").strip()
+    generated_friends = ""
+    if not friends:
+        friends_plain = env.get("RAVEWEB_FRIENDS_PASSWORD") or ""
+        if friends_plain:
+            friends = generate_hash(friends_plain)
+            generated_friends = friends
+    if friends:
+        validate_scheme(friends)
 
     production = is_production(env)
     secret = (env.get("SECRET_KEY") or "").strip()
@@ -175,12 +186,9 @@ def load_config(env=None):
         # can boot.  Production always requires an explicit key.
         secret = secrets.token_hex(32)
 
-    username = (env.get("RAVEWEB_USERNAME") or "").strip()
-    if username and len(username) > 128:
-        raise AuthConfigError("RAVEWEB_USERNAME is too long")
     return AuthConfig(
         password_hash=encoded,
-        username=username,
+        friends_hash=friends,
         secret_key=secret,
         session_hours=_env_float(env, "RAVEWEB_SESSION_HOURS", 12.0, 0.05),
         remember_days=_env_float(env, "RAVEWEB_REMEMBER_DAYS", 30.0, 0.05),
@@ -189,6 +197,7 @@ def load_config(env=None):
         lockout_seconds=_env_float(env, "RAVEWEB_LOGIN_LOCKOUT", 900.0, 1.0),
         production=production,
         generated_hash=generated,
+        generated_friends_hash=generated_friends,
     )
 
 

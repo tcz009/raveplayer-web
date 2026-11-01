@@ -29,6 +29,7 @@ os.environ.setdefault("RAVEPLAYER_FAV_DIR", os.path.join(_BOOT, "favs"))
 os.environ.pop("RAVEWEB_PASSWORD_HASH", None)  # deterministic test credential
 os.environ["SECRET_KEY"] = "test-secret-key"
 os.environ["RAVEWEB_PASSWORD"] = "test-password"
+os.environ["RAVEWEB_FRIENDS_PASSWORD"] = "friends-password"
 os.environ["RAVEWEB_ENV"] = "test"
 
 import app as app_module  # noqa: E402
@@ -74,7 +75,9 @@ def web(tmp_path, monkeypatch):
     with app_module.app.test_client() as client:
         with client.session_transaction() as sess:
             sess["auth"] = True
-            sess["user"] = "operator"
+            sess["identity"] = "owner"
+            sess["user"] = "owner"
+            sess["role"] = "admin"
             sess["login_at"] = time.time()
             sess["remember"] = False
             sess["csrf"] = "test-csrf"

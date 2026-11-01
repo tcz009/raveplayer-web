@@ -41,6 +41,7 @@ os.environ.pop("RAVEWEB_VERSION", None)  # /healthz reports the VERSION file
 os.environ.pop("RAVEWEB_PASSWORD_HASH", None)  # deterministic test credential
 os.environ["SECRET_KEY"] = "e2e-secret-key"
 os.environ["RAVEWEB_PASSWORD"] = "test-password"
+os.environ["RAVEWEB_FRIENDS_PASSWORD"] = "friends-password"
 os.environ["RAVEWEB_ENV"] = "test"
 
 import app as app_module  # noqa: E402  (import intentionally after the env setup)
@@ -254,6 +255,7 @@ def browser_page(chromium, live_server):
     page.route("**/*", handle_route)
     page.goto(live_server.url + "/", wait_until="domcontentloaded")
     if page.locator("#login-form").count():
+        page.fill("#username", "owner")
         page.fill("#password", "test-password")
         page.click("#login-submit")
     page.wait_for_selector("#nav button")

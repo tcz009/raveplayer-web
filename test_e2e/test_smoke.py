@@ -609,6 +609,7 @@ def test_login_logout_flow_and_login_page_design(browser_page, live_server):
     _shot(browser_page, "login-desktop")
 
     # Password reveal is a real toggle and keeps its accessible state.
+    page.fill("#username", "owner")
     page.fill("#password", "not-the-password")
     page.click("#password-toggle")
     assert page.get_attribute("#password", "type") == "text"
@@ -638,6 +639,7 @@ def test_login_logout_flow_and_login_page_design(browser_page, live_server):
         phone_context.close()
 
     # Remember-me + correct password open the app.
+    page.fill("#username", "owner")
     page.fill("#password", "test-password")
     page.check("#remember")
     page.click("#login-submit")
