@@ -1,7 +1,7 @@
 # Independent code review — brief
 
 **Project:** Rave Player — web app (`raveplayer-web`)
-**Version under review:** 1.6.13 (`hardening/1.6.13`, based on `main` @ `ee9b77c` / 1.6.12)
+**Version under review:** 1.6.14 (`feature/1.6.14`, based on `main` @ `db3e8fd` / 1.6.13)
 **Reviewer target:** `app.py`, `core/`, `static/`, `templates/`, `test/`; ignore `data/`, `__pycache__/`, `.venv/`.
 
 ## What it is
@@ -52,8 +52,18 @@ A prepared `.venv` exists in this checkout.
   cleanup, plus the review's P3s (raves counts, `MERGE_WORKERS`, full-document entity
   scan, feed http(s)-only media URLs, cache entry hardening, DNBRADIO dates, legacy
   path/dedupe parity, `/api/ukg` cleaning, off-thread prune).
-- Tests: `205 → 257` offline (`pytest -q test`) and **7 browser e2e** (`pytest test_e2e`,
-  see `docs/E2E.md`).
+- **1.6.14 new mirror sources** (`docs/HARDENING.md` §1.6.14): Moxser
+  (`core/moxser.py`: sitemap index → mixes sitemaps → mix page → direct MP3,
+  cached/throttled/fail-soft), Hardscore (`core/hardscore.py`: RSS + events,
+  direct media or link-out), Rave Archive UK (`core/ravearchive.py`: RSS +
+  Mixcloud embed), GetDarker (`core/getdarker.py`: RSS embeds + `getdarker`
+  Mixcloud account) and the curated Pirate Radio Archives
+  (`core/pirate.py` + `resources/pirate-radio.json`). New endpoints
+  `/api/moxser[/<slug>]`, `/api/hardscore`, `/api/ravearchive[/<slug>]`,
+  `/api/getdarker`, `/api/pirate[/<station>]`; SPA sections wired in `app.js`
+  with a safe http(s)-only external-link fallback (no innerHTML, CSP unchanged).
+- Tests: `205 → 274` offline (`pytest -q test`) and **8 browser e2e**
+  (`pytest test_e2e`, see `docs/E2E.md`).
 
 ## Areas worth scrutiny
 

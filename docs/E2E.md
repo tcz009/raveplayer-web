@@ -1,4 +1,4 @@
-# Browser e2e run — `test_e2e` (Playwright), 1.6.13 tree
+# Browser e2e run — `test_e2e` (Playwright), 1.6.14 tree
 
 Owner: motion-1x1 · Task: close the last deferred web item ("actually run the
 browser suite"). Branch `hardening/1.6.13` (this e2e change was test+docs only;
@@ -8,13 +8,13 @@ browser suite"). Branch `hardening/1.6.13` (this e2e change was test+docs only;
 
 | Run | Command | Result |
 |---|---|---|
-| Offline suite (baseline) | `.venv/bin/python -m pytest -q test` | **257 passed in 5.8 s** |
+| Offline suite (baseline) | `.venv/bin/python -m pytest -q test` | **274 passed** |
 | Browser suite, no local browser | `.venv/bin/python -m pytest test_e2e -q` | 7 skipped (clean skip, as designed) |
-| Browser suite, system Chrome | see command below | **7 passed** |
+| Browser suite, system Chrome | see command below | **8 passed** |
 
 ```
 $ .venv/bin/python -m pytest -q test
-257 passed in 5.8s
+274 passed
 
 $ RAVEWEB_REQUIRE_BROWSER=1 RAVEWEB_PLAYWRIGHT_NO_SANDBOX=1 \
   RAVEWEB_CHROMIUM_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
@@ -24,7 +24,7 @@ $ RAVEWEB_REQUIRE_BROWSER=1 RAVEWEB_PLAYWRIGHT_NO_SANDBOX=1 \
 
 `RAVEWEB_REQUIRE_BROWSER=1` turns the "no browser" skip into a failure, so a
 broken install cannot pass silently (the CI browser job already sets it). The
-test module covers 7 cases: boot + full section menu, section navigation from
+test module covers 8 cases: boot + full section menu, section navigation from
 `/api/menu`, Mixcloud paste → embed panel (src/provider/href/title, close),
 SoundCloud paste → panel + backdrop close, plain text search, CSP
 `frame-src` allows the two widget hosts and refuses anything else, and a
@@ -92,7 +92,8 @@ each case.
    label with the API labels (stronger than the old count-only assertion).
 
 Result: 2 failed / 5 passed → **7 passed**. No `app.py`, `static/app.js`,
-template or UX change was needed; the offline suite remains 257 passed (1.6.13 tree).
+template or UX change was needed; the 1.6.14 tree keeps 274 offline tests green, and
+the Pirate Radio Archives tile has its own browser case (8 total).
 
 ## Branch / version
 
@@ -116,7 +117,7 @@ Playwright assertion messages (as shown above).
 ```sh
 cd "Rave Player"
 # offline suite (what ships with the image):
-.venv/bin/python -m pytest -q test                       # 257 passed
+.venv/bin/python -m pytest -q test                       # 274 passed
 
 # browser suite here (system Chrome; CI uses `playwright install chromium`):
 RAVEWEB_REQUIRE_BROWSER=1 RAVEWEB_PLAYWRIGHT_NO_SANDBOX=1 \

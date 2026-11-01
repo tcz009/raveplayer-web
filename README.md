@@ -9,7 +9,7 @@ Repo: <https://github.com/tcz009/raveplayer-web> · Kodi add-on: <https://github
 
 ## What it does
 
-Fifteen sections in the live `/api/menu`:
+Twenty-one sections in the live `/api/menu`:
 
 - **Latest** — newest podcasts, tape packs and DNB Radio shows, merged.
 - **Kool FM** — the station live now plus every Kool FM set in the archive.
@@ -28,6 +28,20 @@ Fifteen sections in the live `/api/menu`:
 - **SoundCloud Sets** — curated live sets from `soundcloud.json`, played in
   SoundCloud's own embedded player. `/api/soundcloud?q=` adds API text search
   when `SOUNDCLOUD_CLIENT_ID` is set.
+- **Moxser Mixes** — underground radio mixes from moxser.com. The server walks
+  the site's sitemaps, resolves a mix page to its direct MP3 and plays it
+  through `/api/stream`; requests are throttled (≤1/s) and cached (1–6 h).
+- **Hardscore** — hardcore/jungle tapes from hardscore.com (direct MP3 when the
+  post has one, otherwise the post opens on the source site) plus its event
+  listings.
+- **Rave Archive UK** — rave tape scans from rave-archive.com; each release
+  opens its Mixcloud player in the shared embed panel.
+- **GetDarker** — dubstep/grime/140 sets from GetDarker's RSS and curated
+  `getdarker` Mixcloud account, played in the Mixcloud widget.
+- **Pirate Radio Archives** — a small hand-checked archive of pirate recordings
+  (Risk FM 107.1/Beat Sanctuary, Weekend Rush 92.3/Hardscore, Flava FM/A-Team)
+  in `resources/pirate-radio.json`, with the same `station, year, title, djs,
+  source_url, stream_url, credit` schema as the Kodi add-on.
 - **Rave Nights** — the 55-name researched catalogue of promotions, venues and
   pirate stations, opening the Archive packs and Mixcloud sets recorded for
   each.
@@ -183,6 +197,11 @@ are pruned at startup (14 days), so a long-lived volume does not fill up.
 | `/api/ukg` | UK Garage hub: Mixcloud sets + Archive packs |
 | `/api/soundcloud?q=` | curated SoundCloud sets, or API search when configured |
 | `/api/raves`, `/api/rave/<key>` | Rave Nights catalogue and one entry |
+| `/api/moxser`, `/api/moxser/<slug>` | Moxser mixes; `<slug>` resolves to `{url}` (played via `/api/stream`) |
+| `/api/hardscore` | Hardscore mixes (direct MP3 where available) + events |
+| `/api/ravearchive`, `/api/ravearchive/<slug>` | Rave Archive UK releases; detail returns the Mixcloud `embed` row |
+| `/api/getdarker` | GetDarker sets (Mixcloud `embed` rows, source link fallback) |
+| `/api/pirate`, `/api/pirate/<station>` | Curated Pirate Radio Archives: stations then entries |
 | `/api/podcasts`, `/api/podcast/<id>` | RSS feeds |
 | `/api/dnb`, `/api/dnb/<mix>` | DNB Radio |
 | `/api/years`, `/api/year/<year>` | by-year browse |
@@ -268,11 +287,12 @@ search-submit paste wiring, the deploy script's version pinning/labels
 (parsed with `sh -n`), and static checks that every element id used by
 `app.js` exists in the template and that the JavaScript parses.
 
-### Browser smoke tests (7 cases)
+### Browser smoke tests (8 cases)
 
 `test_e2e/` drives the real app in headless Chromium through Playwright. It
 covers what the offline suite cannot: boot with every section from
-`/api/menu` (16 today), section navigation rendering every row, pasting a
+`/api/menu` (21 today), section navigation rendering every row, the curated Pirate
+Radio Archives tile, pasting a
 Mixcloud or SoundCloud URL into search
 (embed panel provider label, widget `src`, close and backdrop behaviour,
 CSP `frame-src` not refusing the iframe), normal text search, and a

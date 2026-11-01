@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Headless-browser smoke tests: the class of bugs the offline suite missed.
 
-Covers page boot + the full section menu (currently 16 entries; derived from
+Covers page boot + the full section menu (currently 21 entries; derived from
 `/api/menu` so adding a section updates one data file, not this test), section
 navigation rendering every row, the pasted Mixcloud/SoundCloud embed panel
 (widget src, provider label, close and backdrop behaviour, CSP not refusing the
@@ -230,3 +230,20 @@ def test_favourite_add_and_remove_round_trip(browser_page):
     page.locator("#list .row button[title='Remove from favourites']").click()
     page.wait_for_function("() => document.querySelectorAll('#list .row').length === 0")
     assert page.locator("#empty").is_visible()
+
+def test_pirate_radio_archive_tile_renders_curated_stations(browser_page):
+    """1.6.14: the curated Pirate Radio Archives tile is wired to /api/pirate."""
+    page = browser_page.page
+    page.get_by_role("button", name="Pirate Radio Archives", exact=True).click()
+    page.wait_for_function(
+        "() => document.querySelector('#title').textContent === 'Pirate Radio Archives'")
+    _wait_for_rows(page, 3)
+    assert _texts(page.locator("#list .row .row-label")) == [
+        "Risk FM 107.1", "Weekend Rush 92.3", "Flava FM",
+    ]
+    page.locator("#list .row").first.click()
+    page.wait_for_function(
+        "() => document.querySelector('#title').textContent === 'Risk FM 107.1'")
+    _wait_for_rows(page, 2)
+    assert len(_texts(page.locator("#list .row .row-label"))) == 2
+    assert browser_page.page_errors == []

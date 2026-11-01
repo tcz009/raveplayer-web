@@ -21,14 +21,8 @@ def embed_url(page_url):
     return "%s?hide_cover=1&mini=1&light=0&feed=%s" % (WIDGET, urllib.parse.quote(page_url, safe=""))
 
 
-def search(query, limit=24):
-    """Search cloudcasts; returns dicts with title/url/user/embed/thumb."""
-    try:
-        limit = max(1, min(int(limit), 48))
-    except (TypeError, ValueError):
-        limit = 24
-    url = "%s/search/?q=%s&type=cloudcast&limit=%d" % (API, fetch.quote(query), limit)
-    data = fetch.fetch_json(url, timeout=25, ttl=900)
+def _rows(data):
+    """Map a Mixcloud search/cloudcasts payload to our row dicts."""
     if not isinstance(data, dict):
         return []
     results = []
@@ -50,3 +44,26 @@ def search(query, limit=24):
             "duration": entry.get("audio_length"),
         })
     return results
+
+
+def search(query, limit=24):
+    """Search cloudcasts; returns dicts with title/url/user/embed/thumb."""
+    try:
+        limit = max(1, min(int(limit), 48))
+    except (TypeError, ValueError):
+        limit = 24
+    url = "%s/search/?q=%s&type=cloudcast&limit=%d" % (API, fetch.quote(query), limit)
+    return _rows(fetch.fetch_json(url, timeout=25, ttl=900))
+
+
+def account(username, limit=24):
+    """Cloudcasts of one curated Mixcloud account (no key needed)."""
+    try:
+        limit = max(1, min(int(limit), 48))
+    except (TypeError, ValueError):
+        limit = 24
+    name = fetch.quote(str(username or "").strip().strip("/"))
+    if not name:
+        return []
+    url = "%s/%s/cloudcasts/?limit=%d" % (API, name, limit)
+    return _rows(fetch.fetch_json(url, timeout=25, ttl=900))

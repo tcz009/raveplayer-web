@@ -1,6 +1,6 @@
 # Hardening pass — Rave Player web (`raveplayer-web` 1.6.13)
 
-**Branch:** `hardening/1.6.13` (not pushed) · **Base:** `main` @ `ee9b77c` (1.6.12)
+**Branch:** `feature/1.6.14` (not pushed) · **Base:** `main` @ `db3e8fd` (1.6.13)
 **Scope:** `app.py`, `core/`, `static/app.js`, `scripts/deploy.sh`, `docs/`, `test/`,
 `test_e2e/`, `VERSION`. No UX or content changes. No `data/` or advert files touched.
 
@@ -12,6 +12,39 @@ Inputs folded in: the internal task-22 brief and the adversarial pre-review
 (`docs/ADVERSARIAL-REVIEW.md`, web findings W1–W8). The review's "what is solid" list
 (stream SSRF guard, SPA escaping, CSP, content-type gate, atomic writes) was kept intact.
 
+
+## 1.6.14 — new mirror sources (Moxser, Hardscore, Rave Archive UK, GetDarker, pirate archive)
+
+Feature release; the security surface is unchanged and deliberately reuses the
+hardened fetch/proxy paths rather than adding a second networking stack.
+
+- **Adapters:** `core/moxser.py`, `core/hardscore.py`,
+  `core/ravearchive.py`, `core/getdarker.py` all fetch through
+  `core/fetch.py` (public-address redirect guard, 8 MiB cap, wall-clock
+  deadline, log redaction) with aggressive TTL caching and fail-soft parsing.
+  Rave Archive/GetDarker/Hardscore never touch the network in tests (fixtures +
+  monkeypatched fetch); `core/sources.py` holds the shared RSS/HTML helpers.
+- **Moxser** walks the sitemap index → `section-mixes` sitemaps → mix pages and
+  extracts title/date/flyer/direct MP3. It is throttled to ≤1 request/second
+  and cached (sitemaps 1 h, pages 6 h). The MP3 host is public HTTPS
+  (`enceladus.feralhosting.com`); `/api/stream` needs **no change** to serve
+  it and its Range support was verified end-to-end (206 + `Content-Range:
+  bytes 0-2047/45553738`, `audio/mpeg`, real ID3 bytes) — the SSRF guard still
+  re-validates the host, pins DNS and strips wildcard CORS.
+- **Curated pirate archive:** `core/pirate.py` reads
+  `resources/pirate-radio.json` (5 hand-checked entries across Risk FM 107.1,
+  Weekend Rush 92.3 and Flava FM), schema exactly `station, year, title, djs,
+  source_url, stream_url, credit`. Entries whose URL could not be confirmed
+  (Flava FM/A-Team) keep the metadata, leave `source_url` empty and carry the
+  dead-MegaUpload note in `credit`; no link is invented.
+- **UI:** five new sections in `/api/menu`; rows without direct audio get a
+  safe http(s)-only `external` fallback (`safeExternalHref` + `window.open`)
+  and mixed sources open their Mixcloud widget through the existing CSP
+  `frame-src`. No `innerHTML`, no CSP change.
+- **Tests:** `test/test_sources.py` (17 offline tests: parsers, routes, schema,
+  stream target) plus a browser case for the Pirate Radio Archives tile.
+  Playwright/offline fixtures replaced `core.fetch` so no test hits the
+  Internet.
 
 ## 1.6.13 — independent-review follow-up (W1–W14)
 
@@ -249,10 +282,10 @@ that the module layout matches.
 
 ```sh
 cd "Rave Player"
-.venv/bin/python -m pytest -q test        # 257 passed
+.venv/bin/python -m pytest -q test        # 274 passed
 node --check static/app.js
 sh -n scripts/deploy.sh
-git diff --stat main..hardening/1.6.13
+git diff --stat main..feature/1.6.14
 ```
 
 ## Post-merge fix — deploy.sh heredoc escaping (found on first real deploy)

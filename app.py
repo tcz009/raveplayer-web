@@ -36,7 +36,9 @@ import urllib.parse
 from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 from werkzeug.exceptions import HTTPException
 
-from core import archive, cache, dnbradio, favourites, feeds, latest, legacy, mixcloud, radio, raves, soundcloud
+from core import (archive, cache, dnbradio, favourites, feeds, getdarker, hardscore,
+                  latest, legacy, mixcloud, moxser, pirate, radio, raves, ravearchive,
+                  soundcloud)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.config["JSON_SORT_KEYS"] = False
@@ -161,6 +163,11 @@ SECTIONS = [
     ("ukg", "UK Garage", "garage.png", "DJ EZ, garage sets, live"),
     ("mixcloud", "Mixcloud Sets", "djez.png", "Live club and rave sets"),
     ("soundcloud", "SoundCloud Sets", "pirate.png", "Curated live sets"),
+    ("moxser", "Moxser Mixes", "radio.png", "Underground radio mixes, direct MP3"),
+    ("hardscore", "Hardscore", "hardcore.png", "Hardcore/jungle tapes and events"),
+    ("ravearchive", "Rave Archive UK", "tapepacks.png", "Rave tape scans with Mixcloud"),
+    ("getdarker", "GetDarker", "jungle.png", "Dubstep/grime sets on Mixcloud"),
+    ("pirates", "Pirate Radio Archives", "pirate.png", "Curated pirate-radio recordings"),
     ("raves", "Rave Nights", "rave.png", "Promotions, venues & pirate stations"),
     ("years", "By Year", "house.png", "Tape packs 1987 onwards"),
     ("legacy", "Legacy Sites", "pirate.png", "The 2014 survivors"),
@@ -212,6 +219,27 @@ def _folder(label, sub, api, art=None, fav=None):
     if fav:
         item["fav"] = fav
     return item
+
+
+def _http_url(value):
+    """Only http(s) leaves this process as a link/stream (no javascript: etc.)."""
+    if not isinstance(value, str):
+        return ""
+    value = value.strip()
+    if value.startswith("https://") or value.startswith("http://"):
+        return value
+    return ""
+
+
+def _external_row(label, sub, url, art=None):
+    """A row that opens a source page in a new tab (SPA external fallback)."""
+    item = _track(label, sub, None, art)
+    item["external"] = url
+    return item
+
+
+def _source_sub(*parts):
+    return " · ".join(str(part) for part in parts if part)
 
 
 def _year_label(doc):
@@ -587,6 +615,179 @@ def api_rave(key):
         docs, _ = archive.search(entry["archive_query"], rows=30)
         items.extend(_pack_items(docs))
     return jsonify({"title": entry["name"], "items": items})
+
+
+# --------------------------------------------------------------------------- 1.6.14 mirror sources
+
+
+@app.get("/api/moxser")
+def api_moxser():
+    """Moxser mixes (sitemap -> page -> direct MP3, resolved on play)."""
+    try:
+        entries = moxser.mixes(limit=48)
+    except Exception as exc:
+        app.logger.warning("moxser list failed: %s", exc)
+        return _json_error("could not load Moxser", 502)
+    items = []
+    for entry in entries:
+        title = _clean_text(entry.get("title"), MAX_TITLE)
+        slug = entry.get("slug") or ""
+        if not title or not slug:
+            continue
+        item = _track(title, _source_sub("Moxser", entry.get("date")), None,
+                      _http_url(entry.get("flyer")) or ART + "radio.png")
+        item["play_via"] = "/api/moxser/%s" % urllib.parse.quote(slug, safe="")
+        items.append(item)
+    return jsonify({"title": "Moxser Mixes", "items": items})
+
+
+@app.get("/api/moxser/<path:slug>")
+def api_moxser_resolve(slug):
+    mix = moxser.detail(slug)
+    if not mix:
+        return _json_error("could not resolve that mix", 404)
+    url = _http_url(mix.get("url"))
+    if not url:
+        return _json_error("could not resolve that mix", 404)
+    return jsonify({
+        "url": url,
+        "title": _clean_text(mix.get("title"), MAX_TITLE),
+        "sub": _source_sub("Moxser", mix.get("date")),
+        "art": _http_url(mix.get("flyer")) or ART + "radio.png",
+    })
+
+
+@app.get("/api/hardscore")
+def api_hardscore():
+    """Hardscore mixes with direct audio, plus their event listings."""
+    items = []
+    for entry in hardscore.mixes(limit=30):
+        title = _clean_text(entry.get("title"), MAX_TITLE)
+        if not title:
+            continue
+        sub = _source_sub("Hardscore", entry.get("date"))
+        media = _http_url(entry.get("media"))
+        if media:
+            items.append(_track(title, sub, media, ART + "hardcore.png"))
+        else:
+            link = _http_url(entry.get("link"))
+            if link:
+                items.append(_external_row(title, sub, link, ART + "hardcore.png"))
+    for entry in hardscore.events(limit=10):
+        title = _clean_text(entry.get("title"), MAX_TITLE)
+        link = _http_url(entry.get("link"))
+        if title and link:
+            items.append(_external_row(title, _source_sub("Event", entry.get("date")),
+                                       link, ART + "hardcore.png"))
+    return jsonify({"title": "Hardscore", "items": items})
+
+
+@app.get("/api/ravearchive")
+def api_ravearchive():
+    """Rave Archive UK releases (year/DJs from categories), each with a player."""
+    items = []
+    for entry in ravearchive.releases(limit=30):
+        title = _clean_text(entry.get("title"), MAX_TITLE)
+        slug = entry.get("slug") or ""
+        if not title or not slug:
+            continue
+        djs = ", ".join(entry.get("djs") or [])[:90]
+        items.append(_folder(title, _source_sub(entry.get("year"), djs),
+                             "/api/ravearchive/%s" % urllib.parse.quote(slug, safe=""),
+                             ART + "tapepacks.png"))
+    return jsonify({"title": "Rave Archive UK", "items": items})
+
+
+@app.get("/api/ravearchive/<path:slug>")
+def api_ravearchive_release(slug):
+    release = ravearchive.release(slug)
+    if not release:
+        return _json_error("unknown Rave Archive release", 404)
+    title = _clean_text(release.get("title"), MAX_TITLE)
+    link = _http_url(release.get("link"))
+    cloudcast = release.get("mixcloud") or ""
+    items = []
+    if cloudcast:
+        item = _track(title, "Mixcloud · Rave Archive UK", None, ART + "tapepacks.png")
+        item["embed"] = mixcloud.embed_url(cloudcast)
+        item["external"] = cloudcast
+        items.append(item)
+    elif link:
+        items.append(_external_row(title, "Open on Rave Archive UK", link,
+                                   ART + "tapepacks.png"))
+    if not items:
+        return _json_error("no player found for that release", 404)
+    return jsonify({"title": title, "items": items})
+
+
+@app.get("/api/getdarker")
+def api_getdarker():
+    """GetDarker sets: RSS embeds first, Mixcloud account as fallback."""
+    items = []
+    for entry in getdarker.sets(limit=30):
+        title = _clean_text(entry.get("title"), MAX_TITLE)
+        if not title:
+            continue
+        cloudcast = _http_url(entry.get("mixcloud"))
+        if cloudcast:
+            item = _track(title, _source_sub("GetDarker", entry.get("date")), None,
+                          ART + "jungle.png")
+            item["embed"] = mixcloud.embed_url(cloudcast)
+            item["external"] = cloudcast
+            items.append(item)
+            continue
+        media = _http_url(entry.get("media"))
+        if media:
+            items.append(_track(title, _source_sub("GetDarker", entry.get("date")),
+                                media, ART + "jungle.png"))
+            continue
+        link = _http_url(entry.get("link"))
+        if link:
+            items.append(_external_row(title, _source_sub("GetDarker", entry.get("date")),
+                                       link, ART + "jungle.png"))
+    return jsonify({"title": "GetDarker", "items": items})
+
+
+@app.get("/api/pirate")
+def api_pirate():
+    """Curated Pirate Radio Archives: one folder per station."""
+    items = []
+    for group in pirate.stations():
+        sub = _source_sub("%d archive%s" % (group["count"], "" if group["count"] == 1 else "s"),
+                          ", ".join(group.get("years") or []))
+        items.append(_folder(group["station"], sub or "curated archive",
+                             "/api/pirate/%s" % urllib.parse.quote(group["id"], safe=""),
+                             ART + "pirate.png"))
+    return jsonify({"title": "Pirate Radio Archives", "items": items})
+
+
+@app.get("/api/pirate/<slug>")
+def api_pirate_station(slug):
+    """Archive entries for one station; plays direct audio, links out otherwise."""
+    entries = pirate.station(slug)
+    if not entries:
+        return _json_error("unknown pirate station", 404)
+    items = []
+    for entry in entries:
+        title = _clean_text(entry.get("title"), MAX_TITLE)
+        if not title:
+            continue
+        sub = _source_sub(entry.get("year"), entry.get("djs"))
+        stream = _http_url(entry.get("stream_url"))
+        source = _http_url(entry.get("source_url"))
+        if stream:
+            item = _track(title, sub, stream, ART + "pirate.png")
+            if source:
+                item["external"] = source
+        elif source:
+            item = _external_row(title, sub, source, ART + "pirate.png")
+        else:
+            # Kept deliberately: the metadata is the archive, no dead link shown.
+            item = _track(title, _source_sub(sub, "link pending"), None, ART + "pirate.png")
+        if entry.get("credit"):
+            item["credit"] = entry["credit"]
+        items.append(item)
+    return jsonify({"title": pirate.station(slug)[0]["station"], "items": items})
 
 
 @app.get("/api/packs")

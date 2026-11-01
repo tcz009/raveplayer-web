@@ -615,6 +615,13 @@
         return;
       }
       if (item.open) navigate(item.open);
+      if (item.external) {
+        // Sources without a direct stream (Hardscore events, Rave Archive
+        // pages without an embed, pirate entries with only a source page) open
+        // on the source site. safeExternalHref only ever yields http(s).
+        const href = safeExternalHref(item.external, "");
+        if (href) window.open(href, "_blank", "noopener");
+      }
     }
 
     el.addEventListener("click", activate);
@@ -665,6 +672,11 @@
       years: "/api/years",
       mixcloud: "/api/mixcloud_hub",
       soundcloud: "/api/soundcloud",
+      moxser: "/api/moxser",
+      hardscore: "/api/hardscore",
+      ravearchive: "/api/ravearchive",
+      getdarker: "/api/getdarker",
+      pirates: "/api/pirate",
       raves: "/api/raves",
       legacy: "/api/legacy",
       favourites: "/api/favourites",
