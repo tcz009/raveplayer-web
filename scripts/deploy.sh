@@ -27,6 +27,7 @@ LATEST_IMAGE="raveplayer-web:latest"
 ALLOW_PRIVATE="${ALLOW_PRIVATE:-0}"
 MAX_STREAMS="${MAX_STREAMS:-6}"
 RAVEWEB_ENV="${RAVEWEB_ENV:-production}"
+WIDGET_TOKEN="${RAVEWEB_WIDGET_TOKEN:-}"
 
 # 1.6.21 auth: the container now fails closed without these. Refuse before we
 # touch the running box rather than letting the health check roll back.
@@ -46,6 +47,9 @@ trap 'rm -f "$AUTH_ENV_FILE" /tmp/raveplayer-web.tgz' EXIT INT TERM
    printf 'RAVEWEB_PASSWORD_HASH=%s\n' "$RAVEWEB_PASSWORD_HASH"
    printf 'RAVEWEB_FRIENDS_PASSWORD_HASH=%s\n' "$RAVEWEB_FRIENDS_PASSWORD_HASH"
    printf 'RAVEWEB_ENV=%s\n' "$RAVEWEB_ENV"
+   if [ -n "$WIDGET_TOKEN" ]; then
+       printf 'RAVEWEB_WIDGET_TOKEN=%s\n' "$WIDGET_TOKEN"
+   fi
  } > "$AUTH_ENV_FILE")
 scp -q -i "$KEY" -o BatchMode=yes "$AUTH_ENV_FILE" "$HOST:/tmp/raveplayer-web-auth.env"
 
