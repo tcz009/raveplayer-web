@@ -70,3 +70,148 @@ def test_deploy_script_keeps_secrets_off_the_docker_command_line():
     assert "-e SOUNDCLOUD_CLIENT_ID" not in script
     assert "/tmp/raveplayer-web.env" in script
     assert "rm -f" in script
+
+# --------------------------------------------------------------------------- functional rollback (W3)
+
+
+def _remote_block():
+    """Extract the remote heredoc body, with heredoc escapes resolved."""
+    script = _script()
+    start = script.index("<<REMOTE") + len("<<REMOTE")
+    end = script.index("\nREMOTE\n", start)
+    block = script[start:end]
+    assert "docker run" in block and "restore_previous" in block
+    return block.replace("\\$", "$")
+
+
+def _stub(path, body):
+    path.write_text(body, encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+def _run_remote(tmp_path, run_exit=0, health_exit=0, build_exit=0, old_container=True):
+    """Run the extracted remote script with stubbed docker/curl/tar/chown/seq."""
+    import textwrap
+
+    log = tmp_path / "docker.log"
+    log.write_text("", encoding="utf-8")
+    stub_bin = tmp_path / "stub-bin"
+    stub_bin.mkdir(exist_ok=True)
+
+    docker_body = textwrap.dedent("""\
+        #!/bin/sh
+        echo "$*" >> "@LOG@"
+        cmd="${1:-}"
+        case "$cmd" in
+          run)
+            prev=""
+            for arg in "$@"; do
+              if [ "$prev" = "--env-file" ]; then
+                if [ -f "$arg" ]; then
+                  perms=$(stat -f '%Lp' "$arg" 2>/dev/null || stat -c '%a' "$arg" 2>/dev/null)
+                  echo "envfile $perms $(cat "$arg")" >> "@LOG@"
+                else
+                  echo "envfile-missing" >> "@LOG@"
+                fi
+              fi
+              prev="$arg"
+            done
+            exit @RUN_EXIT@
+            ;;
+          inspect)
+            exit @INSPECT_EXIT@
+            ;;
+          build)
+            exit @BUILD_EXIT@
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+        """)
+    docker_body = (docker_body
+                   .replace("@LOG@", str(log))
+                   .replace("@RUN_EXIT@", str(run_exit))
+                   .replace("@INSPECT_EXIT@", "0" if old_container else "1")
+                   .replace("@BUILD_EXIT@", str(build_exit)))
+    _stub(stub_bin / "docker", docker_body)
+    _stub(stub_bin / "curl", "#!/bin/sh\nexit %d\n" % health_exit)
+    _stub(stub_bin / "tar", "#!/bin/sh\nexit 0\n")
+    _stub(stub_bin / "chown", "#!/bin/sh\nexit 0\n")
+    _stub(stub_bin / "seq", "#!/bin/sh\necho 1\n")
+
+    block_path = tmp_path / "remote.sh"
+    block_path.write_text(_remote_block(), encoding="utf-8")
+
+    sh = shutil.which("sh")
+    if not sh:
+        pytest.skip("sh is not installed")
+    env = dict(os.environ)
+    env.update({
+        "PATH": str(stub_bin) + os.pathsep + env.get("PATH", ""),
+        "DEST": str(tmp_path / "deploy"),
+        "PORT": "18097",
+        "VERSION": "1.6.13",
+        "REVISION": "deadbee",
+        "IMAGE": "raveplayer-web:1.6.13",
+        "LATEST_IMAGE": "raveplayer-web:latest",
+        "ALLOW_PRIVATE": "0",
+        "MAX_STREAMS": "6",
+        "SOUNDCLOUD_CLIENT_ID": "secret-e2e-id",
+    })
+    env_file = "/tmp/raveplayer-web.env"
+    try:
+        if os.path.exists(env_file):
+            os.remove(env_file)
+        result = subprocess.run([sh, "-eu", str(block_path)], cwd=ROOT, env=env,
+                                capture_output=True, text=True, timeout=90)
+    finally:
+        env_left = os.path.exists(env_file)
+        if env_left:
+            os.remove(env_file)
+    calls = [line for line in log.read_text(encoding="utf-8").splitlines() if line]
+    return result, calls, env_left
+
+
+def test_remote_script_restarts_old_container_when_docker_run_fails(tmp_path):
+    """W3: `docker run` failing after the old container was stopped must roll back."""
+    result, calls, env_left = _run_remote(tmp_path, run_exit=1)
+    assert result.returncode == 1, result.stderr
+    assert any(call.startswith("stop ") and "raveplayer-web" in call for call in calls), calls
+    assert any(call.startswith("start raveplayer-web") for call in calls), calls
+    assert not any(call.startswith("rename ") for call in calls), calls
+    # The env file existed (0600, with the secret) while docker run was attempted,
+    # and is removed on the rollback path.
+    env_lines = [call for call in calls if call.startswith("envfile ")]
+    assert env_lines == ["envfile 600 SOUNDCLOUD_CLIENT_ID=secret-e2e-id"], calls
+    assert env_left is False
+    assert "rolling back to the previous container" in result.stdout
+
+
+def test_remote_script_rolls_back_when_the_new_container_is_unhealthy(tmp_path):
+    result, calls, env_left = _run_remote(tmp_path, run_exit=0, health_exit=1)
+    assert result.returncode == 1, result.stderr
+    assert any(call.startswith("start raveplayer-web") for call in calls), calls
+    assert not any(call.startswith("rename ") for call in calls), calls
+    assert env_left is False
+
+
+def test_remote_script_promotes_the_new_container_when_healthy(tmp_path):
+    result, calls, env_left = _run_remote(tmp_path, run_exit=0, health_exit=0)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert any(call.startswith("rename raveplayer-web-new raveplayer-web")
+               for call in calls), calls
+    assert not any(call.startswith("start raveplayer-web") for call in calls), calls
+    assert env_left is False
+    assert not (tmp_path / "deploy.data-backup").exists(), "backup kept after success"
+
+
+def test_remote_script_does_not_stop_the_old_container_when_the_build_fails(tmp_path):
+    result, calls, env_left = _run_remote(tmp_path, build_exit=1)
+    assert result.returncode != 0
+    assert not any(call.startswith("stop ") for call in calls), calls
+    assert not any(call.startswith("run ") for call in calls), calls
+    env_lines = [call for call in calls if call.startswith("envfile")]
+    assert env_lines == []
+    assert env_left is False

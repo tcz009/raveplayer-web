@@ -39,8 +39,18 @@ def _space_words(value):
 
 
 def _url_path(value):
-    """Return a correctly quoted URL path, without double-encoding."""
-    return urllib.parse.quote(html.unescape(urllib.parse.unquote(str(value or ""))), safe="/")
+    """Return a correctly quoted URL path, without double-encoding.
+
+    Scraped paths are third-party input: reject empty/"."/".." segments so a
+    malformed link cannot walk up the site path (mirrors the add-on).
+    """
+    text = html.unescape(urllib.parse.unquote(str(value or "")))
+    parts = text.split("/")
+    if text.startswith("/"):
+        parts = parts[1:]
+    if not parts or any(part in ("", ".", "..") for part in parts):
+        return ""
+    return urllib.parse.quote(text, safe="/")
 
 
 def _pretty(text):
@@ -58,11 +68,18 @@ def packs():
     if not page:
         return []
     grouped = {}
+    seen = set()
     for pack, filename in MUSIC_RE.findall(page):
         pack = html.unescape(pack)
         filename = html.unescape(filename)
+        pack_path, file_path = _url_path(pack), _url_path(filename)
+        if not pack_path or not file_path:
+            continue
+        url = BASE + "music/" + pack_path + "/" + file_path
+        if url in seen:
+            continue
+        seen.add(url)
         entry = grouped.setdefault(pack, {"key": pack, "name": _pack_name(pack), "tracks": []})
-        url = BASE + "music/" + _url_path(pack) + "/" + _url_path(filename)
         entry["tracks"].append({"name": _pretty(filename.rsplit(".", 1)[0]), "url": url})
     result = []
     for entry in grouped.values():
@@ -74,7 +91,11 @@ def packs():
 
 def playable(url):
     """Kodi header syntax: appends Referer so the hotlink check passes."""
-    return str(url) + REFERER_SUFFIX
+    text = str(url)
+    if "|" in text:
+        # Already has a header suffix (e.g. a saved favourite); never double it.
+        return text
+    return text + REFERER_SUFFIX
 
 
 # --------------------------------------------------------------------------- jungletapes.com

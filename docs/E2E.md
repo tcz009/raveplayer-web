@@ -1,25 +1,25 @@
-# Browser e2e run — `test_e2e` (Playwright), 1.6.12 tree
+# Browser e2e run — `test_e2e` (Playwright), 1.6.13 tree
 
 Owner: motion-1x1 · Task: close the last deferred web item ("actually run the
-browser suite"). Branch `hardening/1.6.13` (test + docs only — see
+browser suite"). Branch `hardening/1.6.13` (this e2e change was test+docs only;
 "Branch / version" below).
 
 ## Result
 
 | Run | Command | Result |
 |---|---|---|
-| Offline suite (baseline) | `.venv/bin/python -m pytest -q test` | **230 passed in 2.29 s** |
+| Offline suite (baseline) | `.venv/bin/python -m pytest -q test` | **257 passed in 5.8 s** |
 | Browser suite, no local browser | `.venv/bin/python -m pytest test_e2e -q` | 7 skipped (clean skip, as designed) |
-| Browser suite, system Chrome | see command below | **7 passed in 15.27 s** |
+| Browser suite, system Chrome | see command below | **7 passed** |
 
 ```
 $ .venv/bin/python -m pytest -q test
-230 passed in 2.29s
+257 passed in 5.8s
 
 $ RAVEWEB_REQUIRE_BROWSER=1 RAVEWEB_PLAYWRIGHT_NO_SANDBOX=1 \
   RAVEWEB_CHROMIUM_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
   .venv/bin/python -m pytest test_e2e -q
-7 passed in 15.27s
+7 passed
 ```
 
 `RAVEWEB_REQUIRE_BROWSER=1` turns the "no browser" skip into a failure, so a
@@ -92,15 +92,17 @@ each case.
    label with the API labels (stronger than the old count-only assertion).
 
 Result: 2 failed / 5 passed → **7 passed**. No `app.py`, `static/app.js`,
-template or UX change was needed; the offline suite remains 230 passed.
+template or UX change was needed; the offline suite remains 257 passed (1.6.13 tree).
 
 ## Branch / version
 
 Branch **`hardening/1.6.13`** (base `main` = 1.6.12 + the 1.6.12 hardening
 work). Only `test_e2e/test_smoke.py`, `docs/E2E.md` and the README browser
 section changed — **no runtime code**, so `VERSION` is **not** bumped
-(1.6.12 remains the live/deploy version; test-only changes do not warrant a
-release number or a redeploy).
+(the e2e fix itself was test-only, so it did not bump VERSION at the time; the
+branch now carries the 1.6.13 runtime fixes from the independent review, which is why
+VERSION is 1.6.13 on this branch. 1.6.12 remains the live/deploy version until 1.6.13
+is released.)
 
 ## Artifacts
 
@@ -114,7 +116,7 @@ Playwright assertion messages (as shown above).
 ```sh
 cd "Rave Player"
 # offline suite (what ships with the image):
-.venv/bin/python -m pytest -q test                       # 230 passed
+.venv/bin/python -m pytest -q test                       # 257 passed
 
 # browser suite here (system Chrome; CI uses `playwright install chromium`):
 RAVEWEB_REQUIRE_BROWSER=1 RAVEWEB_PLAYWRIGHT_NO_SANDBOX=1 \

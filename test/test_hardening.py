@@ -7,6 +7,7 @@ favourites get a fresh directory per test.
 
 import email.message
 import gzip
+import json
 import os
 import re
 import threading
@@ -163,8 +164,23 @@ def _stale_cache_file(directory, name):
     return path
 
 
+def _wait_for(condition, timeout=3.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if condition():
+            return True
+        time.sleep(0.01)
+    return False
+
+
+def _wait_prune_idle():
+    import app as app_module
+    return _wait_for(lambda: not app_module._PRUNE_LOCK.locked())
+
+
 def test_cache_prune_runs_from_a_request_at_most_hourly(web, tmp_path, monkeypatch):
-    """W5: pruning must happen while serving, not only at worker import."""
+    """W5/W12: pruning happens while serving, not only at worker import, and
+    it must not run on the request thread."""
     import app as app_module
     monkeypatch.setenv("RAVEPLAYER_CACHE_DIR", str(tmp_path / "cache"))
     cache_dir = str(tmp_path / "cache")
@@ -176,13 +192,16 @@ def test_cache_prune_runs_from_a_request_at_most_hourly(web, tmp_path, monkeypat
 
     app_module._PRUNE_STATE["at"] = 0.0
     assert web.get("/api/menu").status_code == 200
-    assert not os.path.exists(stale), "a stale entry must be pruned from a request"
+    assert _wait_for(lambda: not os.path.exists(stale)), \
+        "a stale entry must be pruned after the request"
     assert os.path.exists(fresh), "fresh entries must be kept"
+    assert _wait_prune_idle()
 
     # Inside the interval a second stale file must survive (bounded frequency).
     stale2 = _stale_cache_file(cache_dir, "c" * 64 + ".json")
     assert web.get("/api/menu").status_code == 200
-    assert os.path.exists(stale2), "pruning must not run on every request"
+    time.sleep(0.2)
+    assert os.path.exists(stale2), "pruning must not run every hour-or-not"
 
 
 def test_cache_prune_work_is_capped_per_run(tmp_path, monkeypatch):
@@ -195,8 +214,32 @@ def test_cache_prune_work_is_capped_per_run(tmp_path, monkeypatch):
         _stale_cache_file(cache_dir, "%064x.json" % index)
     app_module._PRUNE_STATE["at"] = 0.0
     app_module._maybe_prune_cache()
+    assert _wait_prune_idle()
     left = [name for name in os.listdir(cache_dir) if name.endswith(".json")]
     assert len(left) == total - app_module.PRUNE_MAX_REMOVALS
+
+
+def test_cache_prune_does_not_block_the_request_thread(web, monkeypatch):
+    """W12: the first request of the hour must not stat the cache directory."""
+    import app as app_module
+
+    started = threading.Event()
+    finished = threading.Event()
+
+    def slow_prune():
+        started.set()
+        time.sleep(0.3)
+        finished.set()
+
+    monkeypatch.setattr(app_module, "_prune_cache", slow_prune)
+    app_module._PRUNE_STATE["at"] = 0.0
+    before = time.time()
+    response = web.get("/api/menu")
+    elapsed = time.time() - before
+    assert response.status_code == 200
+    assert elapsed < 0.25, "prune ran on the request thread (%.2fs)" % elapsed
+    assert started.wait(2.0), "prune thread never started"
+    assert finished.wait(2.0)
 
 
 # --------------------------------------------------------------------------- W6 — docs vs runtime
@@ -355,6 +398,16 @@ def test_fetch_response_size_caps():
                                             encoding="deflate")) is None
 
 
+def test_valid_gzip_and_deflate_bodies_still_decode():
+    from core import fetch as core_fetch
+
+    body = b"hello compressed world"
+    assert core_fetch._decode(_FakeResponse(gzip.compress(body), encoding="gzip")) == \
+        body.decode()
+    assert core_fetch._decode(_FakeResponse(zlib.compress(body), encoding="deflate")) == \
+        body.decode()
+
+
 def test_fetch_failure_logs_redact_query_secrets(monkeypatch, caplog):
     from core import fetch as core_fetch
 
@@ -448,3 +501,385 @@ def test_search_runs_soundcloud_and_mixcloud_concurrently(web, archive_search, m
     assert not barrier.broken, "providers ran one after another"
     assert sorted(reached) == ["mixcloud", "soundcloud"]
     assert len(payload["items"]) == 3  # pack + soundcloud + mixcloud rows
+
+# --------------------------------------------------------------------------- W1 (1.6.13) — huge / colon-form durations
+
+
+def test_archive_duration_rejects_huge_and_colon_form_values():
+    from core import archive
+
+    assert archive._duration("1:" + "9" * 400) is None          # colon form, huge int
+    assert archive._duration("1:" + "9" * 6) is None            # 6-digit part, absurd total
+    assert archive._duration(10 ** 5000) is None                # huge int metadata
+    assert archive._duration("9" * 5000) is None                # huge digit string
+    assert archive._duration(25 * 3600) is None                 # > 24 h display cap
+    assert archive._duration("1:02:03") == 3723                 # normal values still work
+    assert archive._duration(1872) == 1872
+    assert archive._duration("0:01:02") == 62
+
+
+def test_feed_duration_rejects_huge_and_colon_form_values():
+    from core import feeds
+
+    def duration(value):
+        return feeds.parse(_feed_xml(value))[0]["duration"]
+
+    assert duration("1:" + "9" * 400) is None
+    assert duration("1:" + "9" * 6) is None
+    assert duration("9" * 5000) is None
+    assert duration("25:00:00") is None
+    assert duration("1:02:03.500") == 3723
+
+
+def test_human_duration_handles_huge_ints_and_colon_forms():
+    import app as app_module
+
+    assert app_module._human_duration(10 ** 5000) == ""
+    assert app_module._human_duration("9" * 5000) == ""
+    assert app_module._human_duration("1:" + "9" * 400) == ""
+    assert app_module._human_duration(25 * 3600) == ""
+    assert app_module._human_duration(3723) == "1:02:03"
+    assert app_module._human_duration(0) == "0:00"
+
+
+def test_item_with_hostile_colon_form_length_is_not_a_500(web, monkeypatch):
+    """W1: reproduce the review's 500 through the real /api/item route."""
+    import app as app_module
+
+    monkeypatch.setattr(app_module.archive, "audio_files", lambda identifier: [{
+        "name": "a.mp3",
+        "title": "Show A",
+        "url": "https://archive.org/download/pack/a.mp3",
+        "length": "1:" + "9" * 400,
+    }])
+    response = web.get("/api/item/pack-1")
+    assert response.status_code == 200
+    assert response.get_json()["items"][0]["sub"] == ""
+
+
+def test_item_with_huge_int_length_is_not_a_500(web, monkeypatch):
+    import app as app_module
+
+    monkeypatch.setattr(app_module.archive, "audio_files", lambda identifier: [{
+        "name": "a.mp3",
+        "title": "Show B",
+        "url": "https://archive.org/download/pack/b.mp3",
+        "length": 10 ** 5000,
+    }])
+    response = web.get("/api/item/pack-1")
+    assert response.status_code == 200
+    assert response.get_json()["items"][0]["sub"] == ""
+
+
+# --------------------------------------------------------------------------- W2 — wall-clock bound on body reads
+
+
+class _SlowDripResponse(object):
+    """A body that returns one byte per recv, slower than any per-recv timeout."""
+
+    def __init__(self, delay=0.05):
+        self.headers = email.message.Message()
+        self.delay = delay
+        self.reads = 0
+
+    def read1(self, size):
+        self.reads += 1
+        time.sleep(self.delay)
+        return b"x"
+
+
+def test_decode_respects_a_wall_clock_deadline():
+    from core import fetch as core_fetch
+
+    response = _SlowDripResponse(delay=0.05)
+    started = time.monotonic()
+    assert core_fetch._decode(response, deadline=started + 0.15) is None
+    elapsed = time.monotonic() - started
+    # Old behaviour: read() would consume the whole (endless) body.  0.15 s
+    # deadline plus one 0.05 s recv is the bound; allow CI slack.
+    assert elapsed < 1.0, "deadline was not applied (%.2fs)" % elapsed
+    assert response.reads < 20
+
+
+def test_request_applies_its_timeout_as_a_whole_fetch_budget(monkeypatch):
+    from core import fetch as core_fetch
+
+    seen = {}
+
+    class FakeResponse(object):
+        headers = email.message.Message()
+        body = b"hello"
+
+        def __init__(self):
+            self.offset = 0
+
+        def read1(self, size):
+            chunk = self.body[self.offset:self.offset + size]
+            self.offset += len(chunk)
+            return chunk
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class FakeOpener(object):
+        def open(self, request, timeout=None):
+            seen["timeout"] = timeout
+            seen["deadline"] = getattr(request, "raveweb_deadline", None)
+            return FakeResponse()
+
+    monkeypatch.setattr(core_fetch, "_OPENER", FakeOpener())
+    started = time.monotonic()
+    assert core_fetch.fetch("https://example.com/feed", timeout=2) == "hello"
+    assert seen["timeout"] == 2
+    assert seen["deadline"] is not None
+    assert started + 1.5 <= seen["deadline"] <= time.monotonic() + 2.1
+
+
+# --------------------------------------------------------------------------- W13 — redirect hops share the budget
+
+
+def test_redirect_hops_are_clamped_to_the_remaining_budget(monkeypatch):
+    from core import fetch as core_fetch
+    import urllib.request
+
+    recorded = {}
+    monkeypatch.setattr(core_fetch, "_validate_redirect", lambda url: url)
+    monkeypatch.setattr(
+        urllib.request.HTTPRedirectHandler, "http_error_302",
+        lambda self, req, fp, code, msg, headers: recorded.setdefault(
+            "timeout", getattr(req, "timeout", None)),
+    )
+    handler = core_fetch._SafeRedirectHandler()
+    request = urllib.request.Request("https://public.example/start")
+    request.timeout = 5
+    request.raveweb_deadline = time.monotonic() + 1.0
+    handler.http_error_302(request, None, 302, "Found", {})
+    assert recorded["timeout"] is not None
+    assert 0.5 <= recorded["timeout"] <= 1.05, recorded
+
+
+def test_redirect_after_the_budget_is_exhausted_is_refused(monkeypatch):
+    from core import fetch as core_fetch
+    import urllib.request
+
+    monkeypatch.setattr(core_fetch, "_validate_redirect", lambda url: url)
+    handler = core_fetch._SafeRedirectHandler()
+    request = urllib.request.Request("https://public.example/start")
+    request.raveweb_deadline = time.monotonic() - 1
+    with pytest.raises(urllib.error.HTTPError):
+        handler.http_error_302(request, None, 302, "Found", {})
+    with pytest.raises(urllib.error.HTTPError):
+        handler.redirect_request(request, None, 302, "Found", {},
+                                 "https://public.example/next")
+
+
+# --------------------------------------------------------------------------- W4 — rave catalogue counts
+
+
+def test_malformed_rave_catalog_counts_do_not_break_the_section(web, tmp_path, monkeypatch):
+    import app as app_module
+    from core import raves
+
+    catalog = tmp_path / "rave-catalog.json"
+    catalog.write_text(json.dumps([{
+        "name": "Test Rave",
+        "archive_query": "test",
+        "archive_count": "1,200",
+        "mixcloud_count": None,
+    }]), encoding="utf-8")
+    monkeypatch.setattr(raves, "CATALOG", str(catalog))
+    registry = raves.registry()
+    assert registry[0]["archive_count"] == 0
+    assert registry[0]["mixcloud_count"] == 0
+    assert web.get("/api/raves").status_code == 200
+
+
+# --------------------------------------------------------------------------- W5 — cold /api/latest fan-out
+
+
+def test_latest_merge_runs_every_loader_concurrently(web, monkeypatch):
+    from core import latest
+
+    feeds = [{"id": "f%d" % index, "name": "Feed %d" % index, "url": "https://f/rss"}
+             for index in range(5)]
+    barrier = threading.Barrier(7)  # 5 feeds + Archive + DNBRADIO
+    reached = []
+
+    def feed_items(feed_id, limit=6):
+        barrier.wait(timeout=3)
+        reached.append(feed_id)
+        return []
+
+    def packs(rows=20):
+        barrier.wait(timeout=3)
+        reached.append("packs")
+        return []
+
+    def dnb(limit=12):
+        barrier.wait(timeout=3)
+        reached.append("dnb")
+        return []
+
+    monkeypatch.setattr(latest.feeds, "registry", lambda: feeds)
+    monkeypatch.setattr(latest.feeds, "episodes", feed_items)
+    monkeypatch.setattr(latest, "recent_packs", packs)
+    monkeypatch.setattr(latest, "recent_dnb", dnb)
+    assert latest.merge(limit=10) == []
+    assert not barrier.broken, "a loader waited for another (MERGE_WORKERS too small)"
+    assert len(reached) == 7
+
+
+# --------------------------------------------------------------------------- W6 — entity scan covers the document
+
+
+def test_entity_declaration_after_64k_is_still_refused():
+    from core import feeds
+
+    padding = "A" * 70000
+    document = (
+        "<?xml version='1.0'?><!-- " + padding + " -->"
+        "<!DOCTYPE rss [<!ENTITY a 'EXPANDED-OK'>]>"
+        "<rss><channel><item><title>&a;</title>"
+        "<enclosure url='https://cdn.example/x.mp3'/></item></channel></rss>"
+    )
+    assert feeds.parse(document) == []
+
+
+# --------------------------------------------------------------------------- W7 — feed media URLs are http(s) only
+
+
+def test_feed_media_urls_must_be_http_or_https():
+    from core import feeds
+
+    def document(url):
+        return ("<?xml version='1.0'?><rss><channel><item><title>T</title>"
+                "<enclosure url='%s'/></item></channel></rss>" % url)
+
+    assert feeds.parse(document("javascript:alert(1)")) == []
+    assert feeds.parse(document("file:///etc/passwd")) == []
+    assert feeds.parse(document("/podcast/x.mp3")) == []
+    episodes = feeds.parse(document("https://cdn.example/x.mp3"))
+    assert len(episodes) == 1 and episodes[0]["url"] == "https://cdn.example/x.mp3"
+
+
+# --------------------------------------------------------------------------- W8 — cache entry hardening
+
+
+def test_cache_entry_without_value_is_dropped(tmp_path, monkeypatch):
+    from core import cache
+
+    monkeypatch.setenv("RAVEPLAYER_CACHE_DIR", str(tmp_path / "cache"))
+    key = "test:missing-value"
+    path = cache.path_for(key)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump({"v": cache.VERSION, "ts": time.time()}, handle)
+    assert cache.get(key, 60) is cache.MISSING
+    assert not os.path.exists(path), "a valueless entry must be deleted, not re-read"
+
+
+def test_oversized_cache_entry_is_dropped(tmp_path, monkeypatch):
+    from core import cache
+
+    monkeypatch.setenv("RAVEPLAYER_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setattr(cache, "MAX_ENTRY_BYTES", 32)
+    key = "test:oversized"
+    path = cache.path_for(key)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump({"v": cache.VERSION, "ts": time.time(), "value": "x" * 100}, handle)
+    assert cache.get(key, 60) is cache.MISSING
+    assert not os.path.exists(path)
+
+    monkeypatch.setattr(cache, "MAX_ENTRY_BYTES", 4096)
+    assert cache.put(key, "kept") is True
+    assert cache.get(key, 60) == "kept"
+
+
+# --------------------------------------------------------------------------- W9 — DNB Radio dates
+
+
+def test_dnbradio_without_a_date_separator_does_not_duplicate_the_title():
+    from core import dnbradio
+
+    body_without = '<a href="/listen?mix=7" title="Some Show">x</a>'
+    parsed = dnbradio.parse_recordings(body_without)
+    assert parsed[0]["title"] == "Some Show"
+    assert parsed[0]["date"] == ""
+
+    body_with = '<a href="/listen?mix=8" title="2026-10-29 : DJ - Show">x</a>'
+    parsed = dnbradio.parse_recordings(body_with)
+    assert parsed[0]["title"] == "DJ - Show"
+    assert parsed[0]["date"] == "2026-10-29"
+
+
+# --------------------------------------------------------------------------- W10 — legacy parity
+
+
+def test_legacy_url_path_rejects_traversal_and_empty_segments():
+    from core import legacy
+
+    assert legacy._url_path("..") == ""
+    assert legacy._url_path("a/../b") == ""
+    assert legacy._url_path("a//b") == ""
+    assert legacy._url_path("/") == ""
+    assert legacy._url_path("Pack 1/Tape 2.mp3") == "Pack%201/Tape%202.mp3"
+
+
+def test_legacy_packs_dedupe_urls_and_skip_bad_paths(monkeypatch):
+    from core import legacy
+
+    page = (
+        '<a href="/music/PackOne/Tape1.mp3">a</a>'
+        '<a href="/music/PackOne/Tape1.mp3">b</a>'
+        '<a href="/music/../Tape2.mp3">c</a>'
+    )
+    monkeypatch.setattr(legacy.http, "fetch", lambda *a, **k: page)
+    packs = legacy.packs()
+    urls = [track["url"] for pack in packs for track in pack["tracks"]]
+    assert urls == ["https://www.ravetapepacks.com/music/PackOne/Tape1.mp3"]
+
+
+def test_legacy_playable_does_not_double_the_header_suffix():
+    from core import legacy
+
+    plain = "https://www.ravetapepacks.com/music/x.mp3"
+    with_suffix = legacy.playable(plain)
+    assert with_suffix.endswith(legacy.REFERER_SUFFIX)
+    assert legacy.playable(with_suffix) == with_suffix
+
+
+# --------------------------------------------------------------------------- W11 — /api/ukg cleaning
+
+
+def test_ukg_rows_are_cleaned_and_bounded(web, monkeypatch):
+    import app as app_module
+
+    monkeypatch.setattr(app_module.mixcloud, "search", lambda *a, **k: [])
+    monkeypatch.setattr(app_module.archive, "search", lambda *a, **k: ([{
+        "identifier": "pack-1",
+        "title": ["List", "Title"],
+    }, {
+        "identifier": "pack-2",
+        "title": "x" * 5000,
+    }], 2))
+    response = web.get("/api/ukg")
+    assert response.status_code == 200
+    items = response.get_json()["items"]
+    labels = [item["label"] for item in items]
+    assert labels[0] == "pack-1"  # list title falls back to the identifier
+    assert len(labels[1]) == app_module.MAX_TITLE
+    assert all(isinstance(item["fav"]["title"], str) for item in items)
+
+
+# --------------------------------------------------------------------------- W14 — documented open-proxy default
+
+
+def test_readme_documents_the_stream_proxy_default():
+    readme = _read("README.md")
+    lowered = readme.lower()
+    assert "RAVEWEB_STREAM_HOSTS" in readme
+    assert "open proxy" in lowered and "lan-only" in lowered

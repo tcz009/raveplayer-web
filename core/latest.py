@@ -20,9 +20,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from . import archive, dnbradio, feeds, kodi
 
 RAVE_COLLECTION = "collection:ravetapes AND mediatype:audio"
-# Small on purpose: a household doesn't need more sockets, and capping this
-# keeps a dead provider from spawning threads without bound.
-MERGE_WORKERS = 4
+# Every loader is independent (5 feeds + Archive + DNBRADIO = 7), so run one
+# worker per loader: a cold /api/latest then costs the slowest provider (~25 s)
+# instead of ceil(7/workers) rounds, which used to exceed the SPA's 40 s abort.
+# The pool is still bounded (never more than the number of loaders).
+MERGE_WORKERS = 7
 
 
 def parse_date(value):
@@ -117,7 +119,7 @@ def merge(limit=60):
     loaders.append(("dnb", recent_dnb))
 
     found = {}
-    with ThreadPoolExecutor(max_workers=MERGE_WORKERS) as pool:
+    with ThreadPoolExecutor(max_workers=min(MERGE_WORKERS, len(loaders))) as pool:
         futures = {pool.submit(loader): name for name, loader in loaders}
         for future in as_completed(futures):
             name = futures[future]

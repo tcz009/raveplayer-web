@@ -27,6 +27,10 @@ FEED_TTL = 900
 COUNT_WORKERS = 4
 COUNT_TIMEOUT = 12
 
+# Display-only, third-party: same bounds as core/archive.py.
+MAX_DURATION_SECONDS = 24 * 60 * 60
+MAX_DURATION_PART_DIGITS = 6
+
 
 def registry():
     """Return the configured feeds, dropping malformed entries."""
@@ -81,21 +85,47 @@ def _links(item):
     return item.findall("link") + item.findall(ATOM + "link")
 
 
+def _media_url(value):
+    """Return an http(s) URL only (mirrors the add-on's ``_media_url``)."""
+    if not isinstance(value, str):
+        return ""
+    value = value.strip()
+    lowered = value.lower()
+    if not (lowered.startswith("http://") or lowered.startswith("https://")):
+        return ""
+    return value
+
+
 def _enclosure_url(item):
     enclosure = _elements(item, "enclosure")
-    if enclosure is not None and enclosure.get("url"):
-        return enclosure.get("url")
+    if enclosure is not None:
+        url = _media_url(enclosure.get("url"))
+        if url:
+            return url
     content = item.find(MEDIA + "content")
-    if content is not None and content.get("url"):
-        return content.get("url")
+    if content is not None:
+        url = _media_url(content.get("url"))
+        if url:
+            return url
     for link in _links(item):
         if not link.get("href"):
             continue
         rel = (link.get("rel") or "").lower()
         kind = (link.get("type") or "").lower()
         if rel == "enclosure" or kind.startswith("audio"):
-            return link.get("href")
+            url = _media_url(link.get("href"))
+            if url:
+                return url
     return ""
+
+
+def _bounded_duration(seconds):
+    """Return a sane positive duration, or None (never a huge int)."""
+    try:
+        seconds = int(seconds)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return seconds if 0 < seconds <= MAX_DURATION_SECONDS else None
 
 
 def _duration(item):
@@ -105,13 +135,13 @@ def _duration(item):
     if ":" in raw:
         # Ignore a fractional-seconds tail: "1:02:03.500" is still 1h 2m 3s.
         clock = raw.split(".", 1)[0]
-        parts = [int(part) for part in re.findall(r"\d+", clock)][:3]
-        if not parts:
+        raw_parts = re.findall(r"\d+", clock)[:3]
+        if not raw_parts or any(len(part) > MAX_DURATION_PART_DIGITS for part in raw_parts):
             return None
         seconds = 0
-        for part in parts:
-            seconds = seconds * 60 + part
-        return seconds
+        for part in raw_parts:
+            seconds = seconds * 60 + int(part)
+        return _bounded_duration(seconds)
     try:
         # Third-party feeds: "inf"/"1e400"/"nan" must not raise OverflowError
         # (mirrors the Kodi add-on's duration parsing fix).
@@ -120,10 +150,7 @@ def _duration(item):
         return None
     if not math.isfinite(seconds):
         return None
-    try:
-        return int(seconds)
-    except (OverflowError, ValueError):
-        return None
+    return _bounded_duration(seconds)
 
 
 _ENTITY_RE = re.compile(r"<!ENTITY", re.IGNORECASE)
@@ -138,7 +165,7 @@ def parse(xml_text):
     """
     if not isinstance(xml_text, str):
         return []
-    if _ENTITY_RE.search(xml_text[:65536]):
+    if _ENTITY_RE.search(xml_text):
         kodi.log("refusing feed with entity declarations", level=30)
         return []
     try:

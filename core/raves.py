@@ -18,6 +18,14 @@ def slug(name):
     return re.sub(r"[^a-z0-9]+", "-", str(name).lower()).strip("-")
 
 
+def _count(value):
+    """Catalogue counts are hand-edited data: one bad value must not 500 the section."""
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
 def registry():
     try:
         with open(CATALOG, encoding="utf-8") as handle:
@@ -37,8 +45,8 @@ def registry():
             "type": entry.get("type", ""),
             "archive_query": entry.get("archive_query", ""),
             "mixcloud_query": entry.get("mixcloud_query", ""),
-            "archive_count": int(entry.get("archive_count") or 0),
-            "mixcloud_count": int(entry.get("mixcloud_count") or 0),
+            "archive_count": _count(entry.get("archive_count")),
+            "mixcloud_count": _count(entry.get("mixcloud_count")),
         })
     return entries
 

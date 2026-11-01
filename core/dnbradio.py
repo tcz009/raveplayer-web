@@ -17,6 +17,7 @@ RECORDINGS_TTL = 10 * 60
 
 MIX_RE = re.compile(r'href="/listen\?mix=(\d+)"\s+title="([^"]+)"', re.IGNORECASE)
 MP3_RE = re.compile(r'(?:href|src)="(https?://[^"]+?\.mp3[^"]*)"', re.IGNORECASE)
+DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
 def parse_recordings(body):
@@ -29,12 +30,18 @@ def parse_recordings(body):
             continue
         seen.add(mix_id)
         clean = html_module.unescape(title).replace(" on DNBRADIO", "").strip()
-        date, _, show = clean.partition(" : ")
-        result.append({
-            "id": mix_id,
-            "title": (show.strip() or clean) or "Untitled",
-            "date": date.strip(),
-        })
+        date, separator, show = clean.partition(" : ")
+        # The page's title attribute is "2026-10-29 : DJ - Show".  If a page
+        # ever loses the separator, do not present the whole string as both the
+        # title and the date (mirrors the add-on's DATE_RE guard).
+        if separator and DATE_RE.match(date.strip()):
+            result.append({
+                "id": mix_id,
+                "title": (show.strip() or clean) or "Untitled",
+                "date": date.strip(),
+            })
+        else:
+            result.append({"id": mix_id, "title": clean or "Untitled", "date": ""})
     return result
 
 

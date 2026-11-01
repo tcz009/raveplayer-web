@@ -21,6 +21,9 @@ from . import kodi
 
 VERSION = 1
 CACHE_DIR_ENV = "RAVEPLAYER_CACHE_DIR"
+# A cache file is JSON we wrote ourselves; anything larger is either corrupt or
+# was placed there deliberately, and must not be loaded into memory.
+MAX_ENTRY_BYTES = 8 * 1024 * 1024
 
 
 class _Missing(object):
@@ -83,6 +86,15 @@ def _remove(path):
 def _read(key):
     path = path_for(key)
     try:
+        if os.path.getsize(path) > MAX_ENTRY_BYTES:
+            _log("ignoring oversized entry %s" % key)
+            _remove(path)
+            return MISSING
+    except FileNotFoundError:
+        return MISSING
+    except OSError:
+        return MISSING
+    try:
         with open(path, "r", encoding="utf-8") as handle:
             payload = json.load(handle)
     except FileNotFoundError:
@@ -99,10 +111,12 @@ def _read(key):
     if not isinstance(timestamp, (int, float)):
         _remove(path)
         return MISSING
-    value = payload.get("value", MISSING)
-    if value is None:
+    # A payload without a usable value used to hand the MISSING sentinel back
+    # as the value and re-read the same file forever: treat it as a miss.
+    if "value" not in payload or payload["value"] is None:
+        _remove(path)
         return MISSING
-    return timestamp, value
+    return timestamp, payload["value"]
 
 
 def get(key, ttl, now=None):

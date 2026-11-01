@@ -219,16 +219,23 @@ def _year_label(doc):
     return str(year) if year else ""
 
 
+# Display-only duration cap (24 h): one hostile Archive/feed value must never
+# turn a list row into a 500.  Parsing is bounded in core/archive.py and
+# core/feeds.py too; this is the last line of defence for a huge int that
+# reaches the view (float(huge_int) raises OverflowError on Python 3.9).
+MAX_DURATION_SECONDS = 24 * 60 * 60
+
+
 def _human_duration(value):
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return ""
-    if not math.isfinite(number):
+    if not math.isfinite(number) or number > MAX_DURATION_SECONDS:
         return ""
     try:
         seconds = int(number)
-    except (OverflowError, ValueError):  # pragma: no cover - covered by isfinite
+    except (OverflowError, ValueError):  # pragma: no cover - covered by float()
         return ""
     if seconds < 0:
         return ""
@@ -480,14 +487,7 @@ def api_ukg():
         item["external"] = entry["url"]
         items.append(item)
     docs, _ = archive.search(ARCHIVE_SECTIONS[-1][2], rows=30)
-    for doc in docs:
-        identifier = doc.get("identifier")
-        if not identifier:
-            continue
-        title = doc.get("title") or identifier
-        items.append(_folder(title, _year_label(doc), "/api/item/%s" % urllib.parse.quote(identifier),
-                             archive.thumb(identifier),
-                             {"kind": "pack", "target": identifier, "title": title}))
+    items.extend(_pack_items(docs))
     return jsonify({"title": "UK Garage", "items": items})
 
 
@@ -1528,17 +1528,42 @@ def _prune_cache():
         app.logger.info("pruned %d stale cache files from %s", removed, directory)
 
 
-def _maybe_prune_cache():
-    """Run _prune_cache at most once an hour, from the request path.
+_PRUNE_LOCK = threading.Lock()
 
-    It used to run only at worker import, so a long-lived gunicorn worker never
-    pruned and the volume could grow without bound between restarts.
+
+def _prune_cache_worker():
+    """Run one bounded prune in a daemon thread; never raise."""
+    try:
+        _prune_cache()
+    except Exception:  # pragma: no cover - maintenance is best effort
+        pass
+    finally:
+        _PRUNE_LOCK.release()
+
+
+def _maybe_prune_cache():
+    """Schedule one _prune_cache per hour, off the request thread.
+
+    It used to run only at worker import; then it ran synchronously on the
+    first request of the hour, so a slow /data volume could stall that request
+    (including /api/stream) for seconds.  Now the request only checks a clock
+    and starts a daemon thread; at most one prune runs at a time.
     """
     now = time.time()
     if now - _PRUNE_STATE["at"] < PRUNE_INTERVAL:
         return
+    if not _PRUNE_LOCK.acquire(False):
+        return
     _PRUNE_STATE["at"] = now
-    _prune_cache()
+    try:
+        thread = threading.Thread(target=_prune_cache_worker,
+                                  name="raveweb-cache-prune", daemon=True)
+        thread.start()
+    except RuntimeError:  # pragma: no cover - thread creation unavailable
+        try:
+            _prune_cache()
+        finally:
+            _PRUNE_LOCK.release()
 
 
 @app.before_request

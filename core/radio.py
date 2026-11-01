@@ -119,9 +119,10 @@ def stream_url(station):
 
 def _as_int(value):
     try:
-        return int(value)
+        number = int(value)
     except (TypeError, ValueError, OverflowError):
         return 0
+    return max(-10 ** 9, min(10 ** 9, number))
 
 
 def display(station):

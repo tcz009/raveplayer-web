@@ -69,6 +69,15 @@ provider marks hotlink-protected MP3s.
 
 ### Proxy security
 
+`/api/stream` is deliberately a **LAN-only, unauthenticated open proxy**: it can
+fetch any *public* http(s) URL so hotlink-protected files, live-radio hosts and
+podcast CDNs keep playing. Keep port 8097 on the LAN (never publish or forward
+it), or pin the destinations with `RAVEWEB_STREAM_HOSTS` (see the env table) to
+turn it into a scoped proxy. Cross-origin reads are blocked: the route sends no
+wildcard CORS header and responses carry `Cross-Origin-Resource-Policy:
+same-origin`, so other web pages cannot read proxied bytes through a visitor's
+browser.
+
 - Only `http` and `https` are accepted. `file:`, `ftp:`, `gopher:` and
   URLs with embedded credentials are refused.
 - Every hostname is resolved by the proxy and **all** returned addresses must

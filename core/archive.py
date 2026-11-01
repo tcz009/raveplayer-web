@@ -10,6 +10,13 @@ import math
 import re
 import urllib.parse
 
+# Third-party durations are display-only.  Anything past a day is metadata
+# noise (or hostile), and a colon component longer than six digits must never
+# reach int() (Python 3.11+ raises ValueError after 4300 digits; older versions
+# build a huge int that later overflows float()).
+MAX_DURATION_SECONDS = 24 * 60 * 60
+MAX_DURATION_PART_DIGITS = 6
+
 from . import fetch as http
 
 SEARCH_URL = "https://archive.org/advancedsearch.php"
@@ -157,39 +164,54 @@ def _file_key(name):
     return folder, base
 
 
+def _bounded_duration(seconds):
+    """Return a sane positive duration, or None (never a huge int)."""
+    try:
+        seconds = int(seconds)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if 0 < seconds <= MAX_DURATION_SECONDS:
+        return seconds
+    return None
+
+
 def _duration(value):
     """Return seconds from the Archive's ``length`` field, or None.
 
-    Archive metadata is third-party: ``inf``/``1e400``/``nan`` must not raise
-    (``int(float("inf"))`` is an OverflowError, which used to make
-    ``/api/item`` answer 500 for the whole item).
+    Archive metadata is third-party: ``inf``/``1e400``/``nan`` and huge
+    colon-form values (``"1:" + "9"*400``) must not raise or produce an
+    unbounded int -- on Python 3.9 that int later overflows ``float()`` in
+    ``_human_duration`` (500 on ``/api/item``), and on 3.12 the ``int()`` call
+    itself raises the 4300-digit ValueError.
     """
     if isinstance(value, bool):
         return None
     if isinstance(value, (int, float)):
-        try:
-            if not math.isfinite(value):
+        if isinstance(value, float):
+            try:
+                if not math.isfinite(value):
+                    return None
+            except (TypeError, ValueError):
                 return None
-            seconds = int(value)
-        except (OverflowError, ValueError):
-            return None
-        return seconds if seconds > 0 else None
+        return _bounded_duration(value)
     text = _as_text(value)
     if not text:
         return None
     if ":" in text:
-        parts = [int(part) for part in re.findall(r"\d+", text)[:3]]
-        if not parts:
+        raw_parts = re.findall(r"\d+", text)[:3]
+        if not raw_parts or any(len(part) > MAX_DURATION_PART_DIGITS for part in raw_parts):
             return None
         seconds = 0
-        for part in parts:
-            seconds = seconds * 60 + part
-        return seconds or None
+        for part in raw_parts:
+            seconds = seconds * 60 + int(part)
+        return _bounded_duration(seconds)
     try:
-        seconds = int(float(text))
-    except (TypeError, ValueError, OverflowError):
+        seconds = float(text)
+    except (TypeError, ValueError):
         return None
-    return seconds if seconds > 0 else None
+    if not math.isfinite(seconds):
+        return None
+    return _bounded_duration(seconds)
 
 
 def _track_title(entry, item_title):
@@ -231,7 +253,7 @@ def _rank(entry):
 def _as_int(value):
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return 0
 
 

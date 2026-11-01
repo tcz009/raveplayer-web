@@ -10,6 +10,7 @@ import json
 import os
 import re
 import socket
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -28,6 +29,7 @@ DEFAULT_TIMEOUT = 20
 # the stream proxy's opt-in.
 MAX_REDIRECTS = 3
 MAX_BODY_BYTES = 8 * 1024 * 1024
+READ_CHUNK_BYTES = 64 * 1024
 ALLOW_PRIVATE_ENV = "RAVEWEB_ALLOW_PRIVATE"
 
 _BLOCKED_NETWORKS = tuple(
@@ -67,26 +69,91 @@ def _charset(headers, raw):
     return charset
 
 
-def _decode(response):
-    """Read at most MAX_BODY_BYTES and decode; returns None when too large.
+def _read_limited(response, deadline, limit=MAX_BODY_BYTES):
+    """Read a body in small chunks, enforcing a wall-clock deadline.
 
-    Without a cap a broken or hostile upstream could stream gigabytes into the
-    worker's memory: archive/feeds/API bodies are only ever a few MB.
+    ``HTTPResponse.read(n)`` blocks until it has n bytes, EOF or a *per-recv*
+    socket timeout, so an upstream that drips bytes faster than the timeout can
+    pin the worker long past the request timeout (review W2: 12 s read with
+    timeout=2).  ``read1`` returns after one recv and the deadline is re-checked
+    before every chunk; the 8 MiB cap is unchanged.
     """
-    raw = response.read(MAX_BODY_BYTES + 1)
-    if len(raw) > MAX_BODY_BYTES:
-        kodi.log("refusing response over %d bytes" % MAX_BODY_BYTES, level=30)
+    chunks = []
+    total = 0
+    while True:
+        if deadline is not None and time.monotonic() >= deadline:
+            kodi.log("response body read timed out", level=30)
+            return None
+        remaining = limit + 1 - total
+        if remaining <= 0:
+            kodi.log("refusing response over %d bytes" % limit, level=30)
+            return None
+        try:
+            chunk = response.read1(min(READ_CHUNK_BYTES, remaining))
+        except AttributeError:  # pragma: no cover - minimal fake responses
+            chunk = response.read(min(READ_CHUNK_BYTES, remaining))
+        if not chunk:
+            return b"".join(chunks)
+        chunks.append(chunk)
+        total += len(chunk)
+
+
+def _gunzip_limited(raw, deadline):
+    data, total = [], 0
+    with gzip.GzipFile(fileobj=io.BytesIO(raw)) as stream:
+        while True:
+            if deadline is not None and time.monotonic() >= deadline:
+                kodi.log("compressed response read timed out", level=30)
+                return None
+            chunk = stream.read1(READ_CHUNK_BYTES)
+            if not chunk:
+                return b"".join(data)
+            data.append(chunk)
+            total += len(chunk)
+            if total > MAX_BODY_BYTES:
+                kodi.log("refusing response over %d bytes after decompression"
+                         % MAX_BODY_BYTES, level=30)
+                return None
+
+
+def _inflate_limited(raw, deadline):
+    data, total = [], 0
+    decompressor = zlib.decompressobj()
+    pending = raw
+    while True:
+        if deadline is not None and time.monotonic() >= deadline:
+            kodi.log("compressed response read timed out", level=30)
+            return None
+        chunk = decompressor.decompress(pending, READ_CHUNK_BYTES)
+        pending = decompressor.unconsumed_tail
+        if chunk:
+            data.append(chunk)
+            total += len(chunk)
+            if total > MAX_BODY_BYTES:
+                kodi.log("refusing response over %d bytes after decompression"
+                         % MAX_BODY_BYTES, level=30)
+                return None
+        if decompressor.eof or not chunk:
+            return b"".join(data)
+
+
+def _decode(response, deadline=None):
+    """Read at most MAX_BODY_BYTES within ``deadline`` and decode it.
+
+    Without the cap a broken/hostile upstream could stream gigabytes into the
+    worker's memory; without the deadline a slow-drip upstream could hold the
+    worker for hours.
+    """
+    raw = _read_limited(response, deadline)
+    if raw is None:
         return None
     encoding = (response.headers.get("Content-Encoding") or "").strip().lower()
     if "gzip" in encoding:
-        with gzip.GzipFile(fileobj=io.BytesIO(raw)) as stream:
-            raw = stream.read(MAX_BODY_BYTES + 1)
+        raw = _gunzip_limited(raw, deadline)
     elif encoding == "deflate":
-        decompressor = zlib.decompressobj()
-        raw = decompressor.decompress(raw, MAX_BODY_BYTES + 1)
-        if decompressor.unconsumed_tail:
-            kodi.log("refusing compressed response over %d bytes" % MAX_BODY_BYTES, level=30)
-            return None
+        raw = _inflate_limited(raw, deadline)
+    if raw is None:
+        return None
     if len(raw) > MAX_BODY_BYTES:
         kodi.log("refusing response over %d bytes after decompression" % MAX_BODY_BYTES,
                  level=30)
@@ -191,9 +258,14 @@ def _validate_redirect(url):
 
 
 class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """HTTPRedirectHandler that re-validates every hop and caps the chain."""
+    """HTTPRedirectHandler that re-validates every hop, caps the chain, and
+    clamps each hop to the caller's remaining wall-clock budget (review W13)."""
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
+        deadline = getattr(req, "raveweb_deadline", None)
+        if deadline is not None and time.monotonic() >= deadline:
+            raise urllib.error.HTTPError(
+                newurl, code, "redirect budget exhausted", headers, fp)
         count = getattr(req, "raveweb_redirects", 0) + 1
         if count > MAX_REDIRECTS:
             raise urllib.error.HTTPError(
@@ -208,20 +280,47 @@ class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
             req, fp, code, msg, headers, target)
         if new is not None:
             new.raveweb_redirects = count
+            if deadline is not None:
+                new.raveweb_deadline = deadline
         return new
+
+    def http_error_302(self, req, fp, code, msg, headers):
+        # Clamp the next hop to what is left of the request budget; without
+        # this every hop could consume the full provider timeout again.
+        deadline = getattr(req, "raveweb_deadline", None)
+        if deadline is not None:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise urllib.error.HTTPError(
+                    req.full_url, code, "redirect budget exhausted", headers, fp)
+            req.timeout = max(0.5, min(getattr(req, "timeout", remaining), remaining))
+        return super(_SafeRedirectHandler, self).http_error_302(
+            req, fp, code, msg, headers)
+
+    http_error_301 = http_error_303 = http_error_307 = http_error_308 = http_error_302
 
 
 _OPENER = urllib.request.build_opener(_SafeRedirectHandler())
 
 
 def _request(url, timeout, headers):
-    """Perform one request and return the decoded body, or None on failure."""
+    """Perform one request and return the decoded body, or None on failure.
+
+    ``timeout`` is a budget for the whole fetch (connect + headers + body +
+    redirects), not just one socket receive.
+    """
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     for key, value in (headers or {}).items():
         request.add_header(key, value)
     try:
-        with _OPENER.open(request, timeout=timeout) as response:
-            return _decode(response)
+        budget = max(0.5, float(timeout if timeout is not None else DEFAULT_TIMEOUT))
+    except (TypeError, ValueError):
+        budget = float(DEFAULT_TIMEOUT)
+    deadline = time.monotonic() + budget
+    request.raveweb_deadline = deadline
+    try:
+        with _OPENER.open(request, timeout=budget) as response:
+            return _decode(response, deadline)
     except urllib.error.HTTPError as exc:
         try:
             exc.close()

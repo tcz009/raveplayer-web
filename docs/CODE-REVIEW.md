@@ -1,7 +1,7 @@
 # Independent code review — brief
 
 **Project:** Rave Player — web app (`raveplayer-web`)
-**Version under review:** 1.6.11 (commit `0f391f9` on `main`)
+**Version under review:** 1.6.13 (`hardening/1.6.13`, based on `main` @ `ee9b77c` / 1.6.12)
 **Reviewer target:** `app.py`, `core/`, `static/`, `templates/`, `test/`; ignore `data/`, `__pycache__/`, `.venv/`.
 
 ## What it is
@@ -41,6 +41,19 @@ A prepared `.venv` exists in this checkout.
 
 - **Live radio:** curated Kool London + Rinse FM streams; radio-browser results filtered; new `rinse` section/filter (1.6.10).
 - **Archive playback:** item audio now uses the item’s own storage node (`d1`/`server`/`d2` + `dir`) rather than the `archive.org/download/` redirect, which intermittently hit a node returning HTTP 500 (1.6.11).
+- **1.6.12 hardening pass** (`docs/HARDENING.md`): provider redirect SSRF guard + response
+  body caps/log redaction (`core/fetch.py`), favourites read-modify-write lock, deploy
+  rollback + env-file secrets, radio mirror/search/podcast latency bounds, `/api/stream`
+  wildcard CORS removed (+ optional `RAVEWEB_STREAM_HOSTS`), stale `Content-Length`
+  dropped, cache pruning.
+- **1.6.13 independent-review follow-up** (same doc): duration bounds (no 500 on huge
+  colon-form metadata; Python 3.12 int limits), wall-clock deadline on provider body
+  reads and redirect hops, deploy rollback for `docker run` failures with trap-based env
+  cleanup, plus the review's P3s (raves counts, `MERGE_WORKERS`, full-document entity
+  scan, feed http(s)-only media URLs, cache entry hardening, DNBRADIO dates, legacy
+  path/dedupe parity, `/api/ukg` cleaning, off-thread prune).
+- Tests: `205 → 257` offline (`pytest -q test`) and **7 browser e2e** (`pytest test_e2e`,
+  see `docs/E2E.md`).
 
 ## Areas worth scrutiny
 

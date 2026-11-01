@@ -38,6 +38,10 @@ scp -q -i "$KEY" -o BatchMode=yes /tmp/raveplayer-web.tgz "$HOST:/tmp/raveplayer
 ssh -i "$KEY" -o BatchMode=yes "$HOST" "bash -s" <<REMOTE
 set -eu
 DATA_BACKUP="$DEST.data-backup"
+# Secrets live in a root-only env file outside the build context; the EXIT trap
+# guarantees it is removed on every path (success, run failure, rollback).
+ENV_FILE=/tmp/raveplayer-web.env
+trap 'rm -f "\$ENV_FILE"' EXIT INT TERM
 # keep favourites/cache on the host (not only in /tmp) until the new box is good
 rm -rf "\$DATA_BACKUP"
 if [ -d $DEST/data ]; then cp -a $DEST/data "\$DATA_BACKUP"; fi
@@ -59,11 +63,19 @@ if docker inspect raveplayer-web >/dev/null 2>&1; then
   docker stop -t 20 raveplayer-web >/dev/null 2>&1 || true
 fi
 docker rm -f raveplayer-web-new >/dev/null 2>&1 || true
-# Secrets travel in a root-only env file outside the build context, never on the
-# docker command line (where ps would expose them while the container starts).
-ENV_FILE=/tmp/raveplayer-web.env
-(umask 077 && printf 'SOUNDCLOUD_CLIENT_ID=%s\n' "${SOUNDCLOUD_CLIENT_ID:-}" > "\$ENV_FILE")
-docker run -d --name raveplayer-web-new --restart unless-stopped \
+# One rollback path for every failure after the old container was stopped: a
+# failed `docker run` used to abort under `set -eu` and leave the site down.
+restore_previous() {
+  echo "rolling back to the previous container"
+  docker logs --tail 60 raveplayer-web-new 2>&1 || true
+  docker rm -f raveplayer-web-new >/dev/null 2>&1 || true
+  if docker inspect raveplayer-web >/dev/null 2>&1; then
+    docker start raveplayer-web >/dev/null 2>&1 || true
+  fi
+  exit 1
+}
+(umask 077 && printf 'SOUNDCLOUD_CLIENT_ID=%s\n' "\${SOUNDCLOUD_CLIENT_ID:-}" > "\$ENV_FILE")
+if ! docker run -d --name raveplayer-web-new --restart unless-stopped \
   --security-opt no-new-privileges:true \
   --label "org.opencontainers.image.version=$VERSION" \
   --label "org.opencontainers.image.revision=$REVISION" \
@@ -73,7 +85,9 @@ docker run -d --name raveplayer-web-new --restart unless-stopped \
   -e RAVEWEB_ALLOW_PRIVATE=$ALLOW_PRIVATE \
   -e RAVEWEB_MAX_STREAMS=$MAX_STREAMS \
   --env-file "\$ENV_FILE" \
-  $IMAGE >/dev/null
+  $IMAGE >/dev/null; then
+  restore_previous
+fi
 rm -f "\$ENV_FILE"
 healthy=0
 for i in \$(seq 1 20); do
@@ -84,13 +98,7 @@ for i in \$(seq 1 20); do
   sleep 1
 done
 if [ "\$healthy" -ne 1 ]; then
-  echo "health check failed - rolling back to the previous container"
-  docker logs --tail 60 raveplayer-web-new 2>&1 || true
-  docker rm -f raveplayer-web-new >/dev/null 2>&1 || true
-  if docker inspect raveplayer-web >/dev/null 2>&1; then
-    docker start raveplayer-web >/dev/null 2>&1 || true
-  fi
-  exit 1
+  restore_previous
 fi
 # New container is healthy: promote it and drop the rollback target.
 docker rm -f raveplayer-web >/dev/null 2>&1 || true

@@ -1,15 +1,48 @@
-# Hardening pass — Rave Player web (`raveplayer-web` 1.6.12)
+# Hardening pass — Rave Player web (`raveplayer-web` 1.6.13)
 
-**Branch:** `hardening/1.6.12` (not pushed) · **Base:** `v1.6.11-review` (`e49b11d`)
-**Scope:** `app.py`, `core/`, `static/app.js`, `scripts/deploy.sh`, `docs/CODE-REVIEW.md`,
-`VERSION`. No UX or content changes. No `data/` or advert files touched.
+**Branch:** `hardening/1.6.13` (not pushed) · **Base:** `main` @ `ee9b77c` (1.6.12)
+**Scope:** `app.py`, `core/`, `static/app.js`, `scripts/deploy.sh`, `docs/`, `test/`,
+`test_e2e/`, `VERSION`. No UX or content changes. No `data/` or advert files touched.
 
-**Result:** `205 → 230 passed` in `2.6 s` (`.venv/bin/python -m pytest -q test`), all
-offline, no network. `node --check static/app.js` clean.
+**Result:** `205 → 257 passed` in `5.8 s` (`.venv/bin/python -m pytest -q test`), all
+offline; browser suite `test_e2e` **7 passed** (system Chrome, Playwright 1.60);
+`node --check static/app.js` and `sh -n scripts/deploy.sh` clean.
 
 Inputs folded in: the internal task-22 brief and the adversarial pre-review
 (`docs/ADVERSARIAL-REVIEW.md`, web findings W1–W8). The review's "what is solid" list
 (stream SSRF guard, SPA escaping, CSP, content-type gate, atomic writes) was kept intact.
+
+
+## 1.6.13 — independent-review follow-up (W1–W14)
+
+Second-round findings from `docs/INDEPENDENT-REVIEW-2026-11.md` (web verdict: SHIP WITH
+NOTES, 3 × P2). Every P2 and P3 is addressed; nothing is deferred except the documented
+open-proxy product decision (W14).
+
+| # | Sev | Finding | Fix | Test evidence |
+|---|---|---|---|---|
+| W1 | P2 | `/api/item` 500 on a colon-form huge `length` (`"1:" + "9"*400`) | `archive._duration`/`feeds._duration` reject >6-digit colon parts and durations >24 h; `_human_duration` catches `OverflowError` from `float(huge_int)` and caps at 24 h (covers Python 3.12's 4300-digit `int()` limit because no huge string reaches `int()`) | reproductions now return **200**; `test_hardening.py` W1 tests (units + `/api/item` for colon-form and `10**5000`) |
+| W2 | P2 | `core/fetch._decode` had no wall-clock bound (12.03 s read with `timeout=2`) | body read via `read1` in 64 KiB chunks with a monotonic deadline; gzip streams and deflate inflate chunked with the same deadline; 8 MiB cap unchanged | `test_decode_respects_a_wall_clock_deadline` (fake slow-drip: `<1 s` vs unbounded), `test_request_applies_its_timeout_as_a_whole_fetch_budget`, existing cap tests |
+| W3 | P2 | `deploy.sh`: `docker run` failing after `docker stop` aborted under `set -eu` → no rollback, env file with SoundCloud ID left in `/tmp` | single `restore_previous()` rollback path used for run failure and health failure; `trap 'rm -f "$ENV_FILE"' EXIT INT TERM`; build happens before the old container is touched | new functional tests run the extracted remote script against a **stubbed docker/curl**: run-fail restarts old + removes env file (0600, secret present only at run time), unhealthy rollback, healthy promote, build-fail leaves the old container running |
+| W4 | P3 | `raves.registry` `int(“1,200”)` 500s `/api/raves` | `_count()` guard → 0 | `test_malformed_rave_catalog_counts_do_not_break_the_section` (registry + route) |
+| W5 | P3 | cold `/api/latest` with 7 loaders × 4 workers > SPA 40 s abort | `MERGE_WORKERS = 7`, capped by loader count → one round, ~25 s worst case | barrier test: all 7 loaders run concurrently, no broken barrier |
+| W6 | P3 | feed entity scan only looked at the first 64 KiB | scan the whole (8 MiB-capped) document | entity declaration after a 70 KB prefix is refused |
+| W7 | P3 | feed `enclosure_url` accepted `javascript:`/`file:`/relative play URLs | `_media_url()` only returns http(s) (mirrors the add-on) | three bad schemes dropped, https kept |
+| W8 | P3 | cache entry without `"value"` re-read forever; no read size cap | `_read` drops valueless entries and files over `MAX_ENTRY_BYTES` (8 MiB) | valueless + oversized entries removed and treated as misses; normal put/get still works |
+| W9 | P3 | DNBRADIO title without `" : "` became both title and date | `DATE_RE` guard (add-on parity) | separator-less and dated titles |
+| W10 | P3 | legacy scraper accepted `..`/empty path segments, duplicate URLs, double Referer suffix | `_url_path` rejects bad segments; `packs()` de-dupes URLs; `playable()` never appends twice | path/traversal/dedupe/playable tests |
+| W11 | P3 | `/api/ukg` rendered raw Archive titles (list/huge) | reuse `_pack_items` (`_clean_text` + limit) | `test_ukg_rows_are_cleaned_and_bounded` |
+| W12 | P3 | cache prune ran **on the request thread** (first request of the hour could stall) | prune now runs in a daemon thread, one at a time (`_PRUNE_LOCK`), triggered by a cheap hourly check | request latency test (<0.25 s with a slow prune), hourly guard, capped-work test |
+| W13 | P3 | redirect hops each got the full provider timeout | `_request` sets an absolute deadline; `_SafeRedirectHandler` clamps each hop to the remaining budget and refuses past-deadline redirects | clamp + budget-exhausted tests |
+| W14 | P3 | `/api/stream` open-proxy default undocumented | README proxy-security section now states the LAN-only unauthenticated open-proxy default, the `RAVEWEB_STREAM_HOSTS` pin, and the no-CORS/CORP behaviour | README assertion test |
+
+**Stale docs corrected:** the 1.6.12 entries above that said the body read was only
+size-capped (now deadline-bounded), that pruning ran from `before_request` on the
+request thread (now off-thread), that the entity scan was a prefix window (now the
+whole document), and that the deploy rollback covered only health failures (now also
+`docker run`, with the env file removed by a trap). Test counts and the reproduce
+command below are updated; `docs/CODE-REVIEW.md` and `docs/E2E.md` are refreshed to
+1.6.13.
 
 ---
 
@@ -114,10 +147,11 @@ SOUNDCLOUD_CLIENT_ID` / `--env-file` present.
 
 `_prune_cache()` ran once at worker import, removed at most 400 files and only examined
 `os.listdir()[:5000]`; a long-lived worker never pruned again.
-**Fix.** `app.py`: pruning now runs from a `before_request` hook, at most once per
-`PRUNE_INTERVAL = 3600 s`, with counted work (`PRUNE_MAX_SCAN = 20000`,
-`PRUNE_MAX_REMOVALS = 400`) instead of a list slice. It is wrapped so maintenance can
-never break a request.
+**Fix.** `app.py`: pruning runs at most once per `PRUNE_INTERVAL = 3600 s`, with
+counted work (`PRUNE_MAX_SCAN = 20000`, `PRUNE_MAX_REMOVALS = 400`) instead of a list
+slice. Since 1.6.13 (W12) it runs in a daemon thread triggered by a cheap request-hook
+check, so `/data` maintenance can never stall a request; a lock keeps it to one run at
+a time.
 **Tests.** `test_hardening.py::test_cache_prune_runs_from_a_request_at_most_hourly` and
 `test_cache_prune_work_is_capped_per_run`.
 
@@ -178,7 +212,7 @@ that the module layout matches.
 
 | # | Finding | Severity | Fix | Test |
 |---|---|---|---|---|
-| H2 | Provider fetches read the whole body into memory (a hostile/broken upstream can stream GBs); gzip/deflate not capped either | P2 | `core/fetch.py`: raw read, gzip and deflate paths capped at `MAX_BODY_BYTES = 8 MiB`; oversize → `None` | `test_hardening.py::test_fetch_response_size_caps` (raw + gzip + truncated-deflate) |
+| H2 | Provider fetches read the whole body into memory (a hostile/broken upstream can stream GBs); gzip/deflate not capped either | P2 | `core/fetch.py`: read in 64 KiB `read1` chunks with an 8 MiB cap **and a monotonic deadline** (1.6.13/W2); gzip/deflate chunked with the same bound | `test_hardening.py::test_fetch_response_size_caps`, `test_decode_respects_a_wall_clock_deadline` |
 | H3 | Provider fetch failures logged the **full URL**, including `SOUNDCLOUD_CLIENT_ID` and signed query strings | P2 | `core/fetch.py::_safe_url` logs scheme/host/path only (no query/fragment/userinfo) for fetch failures and bad-JSON logs | `test_hardening.py::test_fetch_failure_logs_redact_query_secrets` |
 | H4 | `core/radio.py`: three dead mirrors meant 3 × 20 s in one request | P2 | per-hop `MIRROR_TIMEOUT = 8 s` + overall `MIRROR_DEADLINE = 15 s`, shared by tag and name lookups | `test_hardening.py::test_radio_mirror_failover_is_bounded` |
 | H5 | Cold `/api/podcasts` fetched 5 feeds serially (5 × 25 s); cold `/api/search` fetched widen + SoundCloud + Mixcloud serially | P2 | `core/feeds.counts()` runs counts in a bounded pool (`COUNT_WORKERS = 4`, `COUNT_TIMEOUT = 12 s`); `app._gather()` runs the independent search jobs together (`SEARCH_WORKERS = 3`), preserving output order | `test_hardening.py` parallel/count tests + existing `test_speedups` count cache tests |
@@ -202,22 +236,23 @@ that the module layout matches.
 
 ## Known limits / not done
 
-- The deploy rollback path is covered by string/ordering tests plus `sh -n`, not exercised
-  against a live Docker host (this environment has no Docker daemon for that host).
-- `W1` default host allow-list deferred (product decision, see above).
-- The browser suite (`test_e2e`, 7 cases) was not run: the `.venv` here has no Playwright
-  package (`requirements-browser.txt` is test-only and not installed in this checkout).
-- No dependency/version change, so no wheel check was needed for 3.12; docs now match the
-  Dockerfile.
+- 1.6.12's deploy rollback was covered by string/ordering tests only. Since 1.6.13 the
+  extracted remote script is executed with a **stubbed docker** (run-fail, unhealthy,
+  healthy, build-fail) — still not a live Docker host, but the control flow is exercised.
+- `W1` default host allow-list deferred (product decision, see above): live radio needs
+  arbitrary public hosts; the default remains "no CORS, opt-in `RAVEWEB_STREAM_HOSTS`".
+- Browser suite: **run and green** (7/7, system Chrome) — see `docs/E2E.md`. Playwright's
+  own Chromium cannot be installed in this sandbox (EPERM on the home cache dir).
+- No dependency/version change beyond `VERSION`; docs match the 3.12 container.
 
 ## How to reproduce
 
 ```sh
 cd "Rave Player"
-.venv/bin/python -m pytest -q test        # 230 passed
+.venv/bin/python -m pytest -q test        # 257 passed
 node --check static/app.js
 sh -n scripts/deploy.sh
-git diff --stat main..hardening/1.6.12
+git diff --stat main..hardening/1.6.13
 ```
 
 ## Post-merge fix — deploy.sh heredoc escaping (found on first real deploy)
