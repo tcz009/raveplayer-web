@@ -33,6 +33,15 @@ os.environ["RAVEWEB_FRIENDS_PASSWORD"] = "friends-password"
 os.environ["RAVEWEB_ENV"] = "test"
 
 import app as app_module  # noqa: E402
+from core import audit  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def isolated_audit_store(tmp_path):
+    """Every test gets a fresh SQLite audit/session file."""
+    audit.configure(str(tmp_path / "auth.sqlite3"))
+    yield
+    audit.configure(None)
 
 
 @pytest.fixture(autouse=True)
@@ -73,11 +82,13 @@ def web(tmp_path, monkeypatch):
     app_module._DATA_PROBE.update({"at": 0.0, "ok": True})
     app_module.app.config.update(TESTING=True, PROPAGATE_EXCEPTIONS=False)
     with app_module.app.test_client() as client:
+        sid = audit.create_session("owner", "admin", "127.0.0.1", "pytest", 3600)
         with client.session_transaction() as sess:
             sess["auth"] = True
             sess["identity"] = "owner"
             sess["user"] = "owner"
             sess["role"] = "admin"
+            sess["sid"] = sid
             sess["login_at"] = time.time()
             sess["remember"] = False
             sess["csrf"] = "test-csrf"

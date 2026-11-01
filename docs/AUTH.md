@@ -7,6 +7,9 @@ There are exactly two fixed identities: **owner** (role `admin`) and
 **friends** (role `viewer`). They share the full player; owner-only routes are
 gated by the reusable `require_admin` decorator (example: `/api/admin/whoami`).
 Arbitrary accounts, OAuth and per-user libraries are deferred.
+A read-only owner stats feed (`GET /api/admin/stats`) is documented in
+[`docs/ADMIN.md`](ADMIN.md); it accepts an owner session or a read-only
+`RAVEWEB_WIDGET_TOKEN` bearer.
 
 ## Required environment
 
@@ -18,6 +21,8 @@ Arbitrary accounts, OAuth and per-user libraries are deferred.
 | `RAVEWEB_PASSWORD` | first-run alternative | Owner plaintext hashed **in memory** at startup; generated hash logged once for `RAVEWEB_PASSWORD_HASH`. |
 | `RAVEWEB_FRIENDS_PASSWORD` | first-run alternative | Friends plaintext hashed in memory; generated hash logged once for `RAVEWEB_FRIENDS_PASSWORD_HASH`. |
 | `RAVEWEB_ENV` | recommended | Set to `production` on the host. Enables the strict secret-key check. `RAVEWEB_PROD=1` works too; `FLASK_ENV=production` is accepted. |
+| `RAVEWEB_WIDGET_TOKEN` | optional | Bearer token for the read-only `GET /api/admin/stats` Control Centre feed; empty disables bearer access. |
+| `RAVEWEB_AUTH_DB` | `$RAVEWEB_DATA/auth.sqlite3` | Persistent SQLite audit/session store (login events, sessions, stats). |
 
 Optional tuning:
 

@@ -38,14 +38,14 @@ import urllib.parse
 import gzip
 import secrets
 
-from flask import (Flask, Response, jsonify, redirect, render_template, request,
+from flask import (Flask, Response, g, jsonify, redirect, render_template, request,
                    send_file, session, stream_with_context, url_for)
 from werkzeug.exceptions import HTTPException
 from flask.sessions import SecureCookieSessionInterface
 
-from core import (archive, auth, cache, dnbradio, downloads, favourites, feeds,
-                  getdarker, hardscore, latest, legacy, mixcloud, moxser, pirate,
-                  radio, raves, ravearchive, soundcloud)
+from core import (archive, audit, auth, cache, dnbradio, downloads, favourites,
+                  feeds, getdarker, hardscore, latest, legacy, mixcloud, moxser,
+                  pirate, radio, raves, ravearchive, soundcloud)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.config["JSON_SORT_KEYS"] = False
@@ -576,6 +576,19 @@ def _session_valid():
     if session.get("role") not in ("admin", "viewer"):
         session.clear()
         return False
+    sid = session.get("sid")
+    try:
+        if not sid or not audit.session_active(sid):
+            session.clear()
+            return False
+        if not getattr(g, "_audit_touched", False):
+            audit.touch_session(sid, _client_ip(),
+                                (request.headers.get("User-Agent") or "")[:300])
+            g._audit_touched = True
+    except Exception:  # an unreadable audit store fails closed
+        app.logger.exception("auth: session store unavailable")
+        session.clear()
+        return False
     started = session.get("login_at")
     try:
         started = float(started)
@@ -598,6 +611,20 @@ def _csrf_token():
     return token
 
 
+def _widget_token_expected():
+    return (os.environ.get("RAVEWEB_WIDGET_TOKEN") or "").strip()
+
+
+def _widget_authorized():
+    expected = _widget_token_expected()
+    if not expected:
+        return False
+    header = request.headers.get("Authorization") or ""
+    if not header.lower().startswith("bearer "):
+        return False
+    return auth.same_text(header[7:].strip(), expected)
+
+
 PUBLIC_PATHS = frozenset((
     "/login", "/logout", "/healthz", "/manifest.webmanifest", "/sw.js",
     "/static/auth.css", "/static/login.js", "/static/sw-register.js",
@@ -615,6 +642,8 @@ def _auth_guard():
     """Protect the shell, every API route and non-login static assets."""
     path = request.path
     if path.startswith("/api/"):
+        if path == "/api/admin/stats" and _widget_authorized():
+            return None
         if not _session_valid():
             return _json_error("authentication required", 401)
         return None
@@ -658,12 +687,18 @@ def login_submit():
     expected = session.get("csrf", "")
     if not submitted or not expected or not auth.same_text(submitted, expected):
         app.logger.warning("auth: login csrf rejected ip=%s", ip)
+        audit.record_event("login_csrf_rejected", ip=ip,
+                           user_agent=request.headers.get("User-Agent", ""),
+                           endpoint="/login", status=400)
         return _render_login(next_url, "Your sign-in session expired — try again.", 400)
     lock_key = "%s\x00%s" % (ip, (request.form.get("username") or "").strip().lower()[:64] or "-")
     retry = LOGIN_LIMITER.retry_after(lock_key)
     if retry:
         app.logger.warning("auth: login locked ip=%s identity=%s retry=%ss",
                            ip, lock_key.split("\x00", 1)[-1], retry)
+        audit.record_event("login_locked", identity=lock_key.split("\x00", 1)[-1],
+                           ip=ip, user_agent=request.headers.get("User-Agent", ""),
+                           endpoint="/login", status=429)
         return _render_login(
             next_url, "Too many attempts. Try again in %d seconds." % retry,
             429, retry_after=retry)
@@ -683,20 +718,31 @@ def login_submit():
     lock_key = "%s\x00%s" % (ip, identity or "-")
     if entry and password_ok:
         LOGIN_LIMITER.reset(lock_key)
+        remember = bool(request.form.get("remember"))
+        ttl = ((AUTH.remember_days if remember else AUTH.session_hours) * 3600.0)
+        sid = audit.create_session(identity, role, ip,
+                                   request.headers.get("User-Agent", ""),
+                                   ttl_seconds=ttl, remember=remember)
         session.clear()
         session["auth"] = True
         session["identity"] = identity
         session["user"] = identity
         session["role"] = role
+        session["sid"] = sid
         session["login_at"] = time.time()
-        remember = bool(request.form.get("remember"))
         session["remember"] = remember
         session.permanent = remember
         session["csrf"] = secrets.token_urlsafe(32)
+        audit.record_event("login_success", identity=identity, role=role, ip=ip,
+                           user_agent=request.headers.get("User-Agent", ""),
+                           endpoint="/login", status=302)
         app.logger.info("auth: login success ip=%s identity=%s role=%s",
                         ip, identity, role)
         return redirect(next_url or "/")
     LOGIN_LIMITER.fail(lock_key)
+    audit.record_event("login_failure", identity=identity, role=role, ip=ip,
+                       user_agent=request.headers.get("User-Agent", ""),
+                       endpoint="/login", status=401)
     app.logger.warning("auth: login failure ip=%s identity=%s role=%s",
                        ip, identity[:64] or "-", role or "-")
     return _render_login(next_url, "Invalid username or password.", 401)
@@ -728,10 +774,63 @@ def admin_whoami():
                     "role": session.get("role")})
 
 
+@app.get("/api/admin/stats")
+def admin_stats():
+    """Read-only Control Centre feed: owner session or widget bearer token."""
+    if not _widget_authorized():
+        if not _session_valid():
+            return _json_error("authentication required", 401)
+        if session.get("role") != "admin":
+            return _json_error("admin access required", 403)
+    try:
+        payload = audit.stats()
+    except Exception:
+        app.logger.exception("audit: stats unavailable")
+        return jsonify({"status": "down", "generated_at": None,
+                        "error": "stats unavailable"}), 503
+    return jsonify(payload)
+
+
+@app.after_request
+def _record_request_audit(response):
+    """Persist endpoint/bytes/identity for the stats feed (best-effort)."""
+    try:
+        path = request.path
+        if (path.startswith("/static/")
+                or path in ("/healthz", "/manifest.webmanifest", "/sw.js")):
+            return response
+        if not (path.startswith("/api/") or path in ("/", "/login")
+                or path.startswith("/downloads")):
+            return response
+        role = session.get("role") if session.get("sid") else ""
+        identity = session.get("identity") if session.get("sid") else ""
+        size = response.content_length or 0
+        audit.record_event(
+            "request", identity=identity or "", role=role or "",
+            ip=_client_ip(), user_agent=request.headers.get("User-Agent", ""),
+            endpoint=path, bytes=size, status=response.status_code)
+    except Exception:  # auditing must never break a response
+        app.logger.exception("audit: request record failed")
+    return response
+
+
 @app.post("/logout")
 def logout():
     identity = session.get("identity") or ""
     role = session.get("role") or ""
+    sid = session.get("sid")
+    if sid:
+        try:
+            audit.revoke_session(sid)
+        except Exception:  # logging out must never 500
+            app.logger.exception("auth: could not revoke session on logout")
+    try:
+        audit.record_event("logout", identity=identity, role=role,
+                           ip=_client_ip(),
+                           user_agent=request.headers.get("User-Agent", ""),
+                           endpoint="/logout", status=302)
+    except Exception:
+        app.logger.exception("auth: logout audit failed")
     session.clear()
     app.logger.info("auth: logout ip=%s identity=%s role=%s",
                     _client_ip(), identity or "-", role or "-")

@@ -11,7 +11,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 
 import app  # noqa: E402
-from core import mixcloud  # noqa: E402
+from core import audit, mixcloud  # noqa: E402
 
 
 @pytest.fixture()
@@ -19,11 +19,13 @@ def web(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "DATA_DIR", str(tmp_path))
     app.app.config.update(TESTING=True)
     client = app.app.test_client()
+    sid = audit.create_session("owner", "admin", "127.0.0.1", "pytest", 3600)
     with client.session_transaction() as sess:
         sess["auth"] = True
         sess["identity"] = "owner"
         sess["user"] = "owner"
         sess["role"] = "admin"
+        sess["sid"] = sid
         sess["login_at"] = time.time()
         sess["remember"] = False
         sess["csrf"] = "test-csrf"

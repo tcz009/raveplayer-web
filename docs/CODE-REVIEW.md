@@ -1,7 +1,7 @@
 # Independent code review — brief
 
 **Project:** Rave Player — web app (`raveplayer-web`)
-**Version under review:** 1.6.21 (`feature/1.6.21-roles`, based on 1.6.20 auth / 1.6.19 PWA)
+**Version under review:** 1.6.22 (`feature/1.6.22-stats`, based on 1.6.21 roles / 1.6.20 auth)
 **Reviewer target:** `app.py`, `core/`, `static/`, `templates/`, `test/`; ignore `data/`, `__pycache__/`, `.venv/`.
 
 ## What it is
@@ -107,7 +107,15 @@ A prepared `.venv` exists in this checkout.
   over HTTPS), 12 h/30 d lifetimes; all pages/APIs/downloads gated; designed
   responsive login page. Arbitrary accounts/OAuth deferred.
 - **1.6.20 web login**: single-operator groundwork above (now extended).
-- Tests: `205 → 329` offline (`pytest -q test`) and **19 browser e2e**
+- **1.6.22 owner stats** (`docs/ADMIN.md`): persistent SQLite audit/session
+  store (`RAVEWEB_AUTH_DB`, default `$RAVEWEB_DATA/auth.sqlite3`) recording
+  login/failure/lockout/logout/CSRF events, identity/role/IP/user-agent/
+  endpoint/bytes; session rows with sid validity. Read-only
+  `GET /api/admin/stats` for owner session or `RAVEWEB_WIDGET_TOKEN` bearer
+  (friends 403): sessions now, 24 h logins/failures/lockouts/unique IPs/
+  requests/bytes, 7-day bandwidth, top endpoints, last IPs. Revoke/block/
+  friends-actions intentionally deferred, no UI.
+- Tests: `205 → 335` offline (`pytest -q test`) and **19 browser e2e**
   (`pytest test_e2e`, see `docs/E2E.md`).
 
 ## Areas worth scrutiny

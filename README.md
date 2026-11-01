@@ -207,6 +207,8 @@ check without guesswork.
 | `RAVEWEB_FRIENDS_PASSWORD_HASH` | recommended (or `RAVEWEB_FRIENDS_PASSWORD`) | Friends/viewer password hash; rotating it only changes friends. |
 | `RAVEWEB_PASSWORD` / `RAVEWEB_FRIENDS_PASSWORD` | first-run only | Plaintext hashed in memory at startup and logged once as hashes; move to the `_HASH` vars. |
 | `RAVEWEB_ENV` | recommended `production` | Enables strict secret-key checks (`RAVEWEB_PROD=1` also works). |
+| `RAVEWEB_WIDGET_TOKEN` | optional | Read-only bearer token for the Control Centre `GET /api/admin/stats` feed; empty = owner-session only. |
+| `RAVEWEB_AUTH_DB` | `$RAVEWEB_DATA/auth.sqlite3` | Persistent SQLite audit/session store. |
 | `RAVEWEB_SESSION_HOURS` / `RAVEWEB_REMEMBER_DAYS` | `12` / `30` | Absolute session lifetimes with/without “remember me”. |
 | `RAVEWEB_LOGIN_MAX_FAILURES` / `_FAILURE_WINDOW` / `_LOCKOUT` | `5` / `600` / `900` | Login throttle and lockout. |
 | `SOUNDCLOUD_CLIENT_ID` | empty | Enables `/api/soundcloud?q=` API text search; without it only the curated `soundcloud.json` sets are listed |
@@ -231,6 +233,13 @@ lockout. Full env vars, hash generation, proxy notes,
 threat model and deferrals: [`docs/AUTH.md`](docs/AUTH.md).
 
 ## API
+
+### Owner stats
+
+`GET /api/admin/stats` returns the read-only Control Centre feed (sessions now,
+24 h logins/failures/lockouts, unique IPs, bytes/day, top endpoints). It accepts
+an owner session or `Authorization: Bearer $RAVEWEB_WIDGET_TOKEN`; friends are
+403. Full payload/schema and deferred actions: [`docs/ADMIN.md`](docs/ADMIN.md).
 
 | Endpoint | Purpose |
 |---|---|
@@ -322,9 +331,9 @@ typography, hero and texture language — is documented in
 
 ## Tests
 
-### Offline suite (329 cases)
+### Offline suite (335 cases)
 
-The offline suite is 329 cases (all providers mocked) and uses the Flask test
+The offline suite is 335 cases (all providers mocked) and uses the Flask test
 client. `pytest` is a test-only dependency:
 
 ```sh

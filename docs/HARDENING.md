@@ -1,10 +1,10 @@
-# Hardening pass — Rave Player web (`raveplayer-web` 1.6.21)
+# Hardening pass — Rave Player web (`raveplayer-web` 1.6.22)
 
-**Branch:** `feature/1.6.21-roles` (not pushed) · **Base:** `feature/1.6.20-auth` @ `eae392c` (1.6.20)
+**Branch:** `feature/1.6.22-stats` (not pushed) · **Base:** `feature/1.6.21-roles` @ `645dff9` (1.6.21)
 **Scope:** `app.py`, `core/`, `static/app.js`, `scripts/deploy.sh`, `docs/`, `test/`,
 `test_e2e/`, `VERSION`. No UX or content changes. No `data/` or advert files touched.
 
-**Result:** `205 → 329 passed` (`.venv/bin/python -m pytest -q test`), all
+**Result:** `205 → 335 passed` (`.venv/bin/python -m pytest -q test`), all
 offline; browser suite `test_e2e` **19 passed** (system Chrome, Playwright 1.60);
 `node --check static/app.js` and `sh -n scripts/deploy.sh` clean.
 
@@ -12,6 +12,26 @@ Inputs folded in: the internal task-22 brief and the adversarial pre-review
 (`docs/ADVERSARIAL-REVIEW.md`, web findings W1–W8). The review's "what is solid" list
 (stream SSRF guard, SPA escaping, CSP, content-type gate, atomic writes) was kept intact.
 
+
+## 1.6.22 — read-only owner stats
+
+Scope cut for delivery: read-only monitoring only; no revoke/block/rotate HTTP
+actions and no Rave Player UI in this phase.
+
+- `core/audit.py`: persistent SQLite (WAL) sessions/events store under
+  `RAVEWEB_AUTH_DB` (default `$RAVEWEB_DATA/auth.sqlite3`). Records login
+  success/failure/lockout/CSRF/logout events and per-request endpoint/bytes/
+  identity/role/IP/UA; session rows back `sessions_now`.
+- `GET /api/admin/stats` for owner session or read-only
+  `RAVEWEB_WIDGET_TOKEN` bearer; friends 403; no session 401. Payload:
+  sessions now/items, 24 h logins/failures/lockouts/unique IPs/requests/bytes,
+  today's counts, 7-day bandwidth buckets, top endpoints, last IPs.
+- `_session_valid` now requires a live server-side sid; tests/e2e log in
+  normally. Logout revokes the session row. Request auditing is best-effort and
+  can never break a response.
+- Deferred with a note in `docs/ADMIN.md`: session list/revoke, blocks, friends
+  password disable/rotate, retention/pruning and UI.
+- Tests: 335 offline (+6 `test/test_stats.py`) and 19 e2e.
 
 ## 1.6.21 — owner + friends roles
 
@@ -433,10 +453,10 @@ that the module layout matches.
 
 ```sh
 cd "Rave Player"
-.venv/bin/python -m pytest -q test        # 329 passed
+.venv/bin/python -m pytest -q test        # 335 passed
 node --check static/app.js
 sh -n scripts/deploy.sh
-git diff --stat feature/1.6.20-auth..feature/1.6.21-roles
+git diff --stat feature/1.6.21-roles..feature/1.6.22-stats
 ```
 
 ## Post-merge fix — deploy.sh heredoc escaping (found on first real deploy)
