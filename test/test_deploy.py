@@ -70,6 +70,10 @@ def test_deploy_script_keeps_secrets_off_the_docker_command_line():
     assert "-e SOUNDCLOUD_CLIENT_ID" not in script
     assert "/tmp/raveplayer-web.env" in script
     assert "rm -f" in script
+    # The value must be expanded by the *deploying* shell (ssh does not forward
+    # the local environment), and never written with a literal escaped dollar.
+    assert '"${SOUNDCLOUD_CLIENT_ID:-}"' in script
+    assert '"\\${SOUNDCLOUD_CLIENT_ID' not in script
 
 # --------------------------------------------------------------------------- functional rollback (W3)
 

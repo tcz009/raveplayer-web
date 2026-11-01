@@ -74,7 +74,7 @@ restore_previous() {
   fi
   exit 1
 }
-(umask 077 && printf 'SOUNDCLOUD_CLIENT_ID=%s\n' "\${SOUNDCLOUD_CLIENT_ID:-}" > "\$ENV_FILE")
+(umask 077 && printf 'SOUNDCLOUD_CLIENT_ID=%s\n' "${SOUNDCLOUD_CLIENT_ID:-}" > "\$ENV_FILE")
 if ! docker run -d --name raveplayer-web-new --restart unless-stopped \
   --security-opt no-new-privileges:true \
   --label "org.opencontainers.image.version=$VERSION" \
