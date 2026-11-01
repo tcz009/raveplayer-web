@@ -1,7 +1,7 @@
 # Independent code review — brief
 
 **Project:** Rave Player — web app (`raveplayer-web`)
-**Version under review:** 1.6.24 (`feature/1.6.24-quickwins`, based on `main` @ `e4a514f` / 1.6.23)
+**Version under review:** 1.6.25 (`feature/1.6.25-admin-write`, based on the 1.6.24 quick wins)
 **Reviewer target:** `app.py`, `core/`, `static/`, `templates/`, `test/`; ignore `data/`, `__pycache__/`, `.venv/`.
 
 ## What it is
@@ -128,7 +128,11 @@ A prepared `.venv` exists in this checkout.
   report-only header + public `/api/csp-report` endpoint/logging (enforcing CSP
   unchanged; promotion documented in `docs/CSP-REPORTING.md`); iPhone QA runbook
   (`docs/QA-IPHONE.md`).
-- Tests: `205 → 347` offline (`pytest -q test`) and **21 browser e2e**
+- **1.6.25 owner write API** (`docs/ADMIN-WRITE-API.md`): masked-session
+  list/revoke, IP/identity blocks with TTL and session revocation, persisted
+  friends disable/enable, CSRF on all mutations, 30/min admin rate limit, audit
+  rows, stats `blocked_now`/`recent_actions`; friends 403, widget token 401.
+- Tests: `205 → 354` offline (`pytest -q test`) and **21 browser e2e**
   (`pytest test_e2e`, see `docs/E2E.md`).
 
 ## Areas worth scrutiny

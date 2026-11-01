@@ -244,7 +244,7 @@ threat model and deferrals: [`docs/AUTH.md`](docs/AUTH.md).
 `GET /api/admin/stats` returns the read-only Control Centre feed (sessions now,
 24 h logins/failures/lockouts, unique IPs, bytes/day, top endpoints). It accepts
 an owner session or `Authorization: Bearer $RAVEWEB_WIDGET_TOKEN`; friends are
-403. Full payload/schema and deferred actions: [`docs/ADMIN.md`](docs/ADMIN.md).
+403. Full payload/schema and owner write endpoints (sessions, blocks, friends disable/enable) are in [`docs/ADMIN.md`](docs/ADMIN.md) and [`docs/ADMIN-WRITE-API.md`](docs/ADMIN-WRITE-API.md).
 
 | Endpoint | Purpose |
 |---|---|
@@ -336,9 +336,9 @@ typography, hero and texture language — is documented in
 
 ## Tests
 
-### Offline suite (347 cases)
+### Offline suite (354 cases)
 
-The offline suite is 347 cases (all providers mocked) and uses the Flask test
+The offline suite is 354 cases (all providers mocked) and uses the Flask test
 client. `pytest` is a test-only dependency:
 
 ```sh

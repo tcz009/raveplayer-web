@@ -1,10 +1,10 @@
-# Hardening pass — Rave Player web (`raveplayer-web` 1.6.24)
+# Hardening pass — Rave Player web (`raveplayer-web` 1.6.25)
 
-**Branch:** `feature/1.6.24-quickwins` (not pushed) · **Base:** `main` @ `e4a514f` (1.6.23)
+**Branch:** `feature/1.6.25-admin-write` (not pushed) · **Base:** `feature/1.6.24-quickwins` @ `81c4881` (1.6.24)
 **Scope:** `app.py`, `core/`, `static/app.js`, `scripts/deploy.sh`, `docs/`, `test/`,
 `test_e2e/`, `VERSION`. No UX or content changes. No `data/` or advert files touched.
 
-**Result:** `205 → 347 passed` (`.venv/bin/python -m pytest -q test`), all
+**Result:** `205 → 354 passed` (`.venv/bin/python -m pytest -q test`), all
 offline; browser suite `test_e2e` **21 passed** (system Chrome, Playwright 1.60);
 `node --check static/app.js` and `sh -n scripts/deploy.sh` clean.
 
@@ -12,6 +12,24 @@ Inputs folded in: the internal task-22 brief and the adversarial pre-review
 (`docs/ADVERSARIAL-REVIEW.md`, web findings W1–W8). The review's "what is solid" list
 (stream SSRF guard, SPA escaping, CSP, content-type gate, atomic writes) was kept intact.
 
+
+## 1.6.25 — owner write API (sessions, blocks, friends)
+
+Owner/admin writes only; the Control Centre UI is a separate workspace.
+
+- `GET /api/admin/sessions` returns masked ids only;
+  `POST /api/admin/sessions/<masked_id>/revoke` revokes exactly that server-side
+  session (raw ids 404). `GET /api/admin/csrf` issues the session CSRF token.
+- `POST /api/admin/blocks` for `ip`/`identity` with reason/TTL, list and delete;
+  existing sessions for the target are revoked, blocked logins get a generic
+  403 and blocked sessions fail the next auth check. Audit events added.
+- `POST /api/admin/friends/disable|enable` persists a runtime DB flag, revokes
+  friend sessions, and is audited; owner login is unaffected.
+- All mutations require `X-CSRF-Token`, are rate-limited 30/min per IP and
+  audited (`admin_*`); stats adds `blocked_now`/`recent_actions`. Friends 403;
+  widget token cannot write; no secrets in responses/logs.
+- Tests: 354 offline (+7 admin-write); e2e unchanged at 21 (no Rave Player UI
+  change). Docs ADMIN-WRITE-API for the Control Centre workspace.
 
 ## 1.6.24 — shared lockout, themed errors, CSP reporting
 
@@ -501,10 +519,10 @@ that the module layout matches.
 
 ```sh
 cd "Rave Player"
-.venv/bin/python -m pytest -q test        # 347 passed
+.venv/bin/python -m pytest -q test        # 354 passed
 node --check static/app.js
 sh -n scripts/deploy.sh
-git diff --stat main..feature/1.6.24-quickwins
+git diff --stat feature/1.6.24-quickwins..feature/1.6.25-admin-write
 ```
 
 ## Post-merge fix — deploy.sh heredoc escaping (found on first real deploy)

@@ -49,6 +49,12 @@ Environment:
       }
     ]
   },
+  "blocked_now": 1,
+  "recent_actions": [
+    {"at":"2026-11-01T20:20:00Z","event":"admin_block_created",
+     "identity":"owner","role":"admin","ip":"192.168.1.10",
+     "endpoint":"/api/admin/blocks","status":201,"detail":"identity:friends"}
+  ],
   "sessions_now": 2,
   "unique_ips_24h": 3,
   "logins_24h": 5,
@@ -95,6 +101,9 @@ Semantics:
   `by_day` always has seven UTC date buckets (today last).
 - `top_endpoints` is the top 10 request paths by request count in 24 h.
 - `last_ips` is up to 20 distinct IPs seen in 24 h, newest first.
+- `blocked_now` is the count of unexpired identity/IP blocks.
+- `recent_actions` is the newest 12 `admin_*` audit events; write endpoints and
+  CSRF/rate-limit rules are in [`ADMIN-WRITE-API.md`](ADMIN-WRITE-API.md).
 - `sessions.items[].session_id_masked` is a short non-reversible SHA-256
   prefix for display only; the raw session id/token is **never** returned.
   (1.6.23 security fix: earlier builds exposed the raw id.)

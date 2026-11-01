@@ -132,6 +132,9 @@ app.config.update(
 LOGIN_LIMITER = auth.SqliteLoginLimiter(max_failures=AUTH.max_failures,
                                   failure_window=AUTH.failure_window,
                                   lockout_seconds=AUTH.lockout_seconds)
+ADMIN_ACTION_LIMITER = auth.SqliteLoginLimiter(max_failures=30,
+                                               failure_window=60.0,
+                                               lockout_seconds=60.0)
 if AUTH.generated_hash:
     app.logger.warning(
         "auth: owner RAVEWEB_PASSWORD was hashed for this run; persist it with "
@@ -586,6 +589,9 @@ def _session_valid():
         if not sid or not audit.session_active(sid):
             session.clear()
             return False
+        if audit.is_blocked(session.get("identity") or "", _client_ip()):
+            session.clear()
+            return False
         if not getattr(g, "_audit_touched", False):
             audit.touch_session(sid, _client_ip(),
                                 (request.headers.get("User-Agent") or "")[:300])
@@ -699,7 +705,17 @@ def login_submit():
                            user_agent=request.headers.get("User-Agent", ""),
                            endpoint="/login", status=400)
         return _render_login(next_url, "Your sign-in session expired — try again.", 400)
-    lock_key = "%s\x00%s" % (ip, (request.form.get("username") or "").strip().lower()[:64] or "-")
+    identity_attempt = (request.form.get("username") or "").strip().lower()[:64]
+    try:
+        if audit.is_blocked(identity_attempt, ip):
+            audit.record_event("login_blocked", identity=identity_attempt, ip=ip,
+                               user_agent=request.headers.get("User-Agent", ""),
+                               endpoint="/login", status=403)
+            return _render_login(next_url, "Access temporarily blocked.", 403)
+    except Exception:
+        app.logger.exception("auth: block check failed")
+        return _render_login(next_url, "Sign-in is temporarily unavailable.", 503)
+    lock_key = "%s\x00%s" % (ip, identity_attempt or "-")
     retry = LOGIN_LIMITER.retry_after(lock_key)
     if retry:
         app.logger.warning("auth: login locked ip=%s identity=%s retry=%ss",
@@ -710,12 +726,16 @@ def login_submit():
         return _render_login(
             next_url, "Too many attempts. Try again in %d seconds." % retry,
             429, retry_after=retry)
-    identity = (request.form.get("username") or "").strip().lower()
+    identity = identity_attempt
     password = request.form.get("password") or ""
     # Fixed single-operator identities: owner=admin, friends=viewer.  Missing
     # friends hash disables that identity without revealing it on the page.
     credentials = {"owner": ("admin", AUTH.password_hash)}
-    if AUTH.friends_hash:
+    try:
+        friends_disabled = audit.get_setting("friends_disabled") == "1"
+    except Exception:
+        friends_disabled = True  # fail closed for the viewer identity
+    if AUTH.friends_hash and not friends_disabled:
         credentials["friends"] = ("viewer", AUTH.friends_hash)
     entry = credentials.get(identity)
     role = entry[0] if entry else ""
@@ -797,6 +817,190 @@ def admin_stats():
         return jsonify({"status": "down", "generated_at": None,
                         "error": "stats unavailable"}), 503
     return jsonify(payload)
+
+
+# --------------------------------------------------------------------------- admin write API
+
+
+def _audit_admin(event, detail="", status=200):
+    try:
+        audit.record_event(event, identity=session.get("identity") or "",
+                           role=session.get("role") or "", ip=_client_ip(),
+                           user_agent=request.headers.get("User-Agent", ""),
+                           endpoint=request.path, status=status,
+                           detail=detail)
+    except Exception:
+        app.logger.exception("audit: admin action record failed")
+
+
+def _admin_csrf_ok():
+    submitted = (request.headers.get("X-CSRF-Token")
+                 or request.form.get("csrf") or "")
+    if not submitted and request.is_json:
+        payload = request.get_json(silent=True)
+        if isinstance(payload, dict):
+            submitted = payload.get("csrf") or ""
+    return bool(submitted) and auth.same_text(submitted, session.get("csrf", ""))
+
+
+def _admin_mutation_error():
+    if not _admin_csrf_ok():
+        _audit_admin("admin_csrf_rejected", "", 403)
+        return _json_error("csrf token required", 403)
+    key = "admin:%s" % _client_ip()
+    try:
+        retry = ADMIN_ACTION_LIMITER.retry_after(key)
+        if retry:
+            _audit_admin("admin_rate_limited", "", 429)
+            return _json_error("too many admin actions", 429,
+                               {"Retry-After": str(retry)})
+        ADMIN_ACTION_LIMITER.fail(key)
+    except Exception:
+        app.logger.exception("admin: rate limit store unavailable")
+        return _json_error("admin actions temporarily unavailable", 503)
+    return None
+
+
+def _block_public(block):
+    kind = "identity" if block.get("identity") else "ip"
+    return {
+        "id": block["id"],
+        "kind": kind,
+        "value": block.get("identity") if kind == "identity" else block.get("ip"),
+        "reason": block.get("reason") or "",
+        "created_at": block.get("created_at"),
+        "until": block.get("until"),
+        "created_by": block.get("created_by") or "",
+    }
+
+
+@app.get("/api/admin/csrf")
+@require_admin
+def admin_csrf():
+    return jsonify({"csrf": _csrf_token()})
+
+
+@app.get("/api/admin/sessions")
+@require_admin
+def admin_sessions():
+    items = [{
+        "session_id_masked": audit.masked_session_id(row["id"]),
+        "identity": row["identity"], "role": row["role"], "ip": row["ip"],
+        "created": row["created_at"], "last_seen": row["last_seen"],
+        "expires_at": row["expires_at"],
+    } for row in audit.list_sessions()]
+    return jsonify({"sessions": items})
+
+
+@app.post("/api/admin/sessions/<masked_id>/revoke")
+@require_admin
+def admin_revoke_session(masked_id):
+    err = _admin_mutation_error()
+    if err:
+        return err
+    row = audit.find_session_by_masked(masked_id)
+    if not row:
+        _audit_admin("admin_session_revoke_failed", masked_id, 404)
+        return _json_error("unknown session", 404)
+    audit.revoke_session(row["id"])
+    _audit_admin("admin_session_revoked", masked_id, 200)
+    return jsonify({"revoked": True, "session_id_masked": masked_id,
+                    "identity": row["identity"], "role": row["role"]})
+
+
+@app.get("/api/admin/blocks")
+@require_admin
+def admin_blocks():
+    return jsonify({"blocks": [_block_public(row) for row in audit.list_blocks()]})
+
+
+@app.post("/api/admin/blocks")
+@require_admin
+def admin_block_create():
+    err = _admin_mutation_error()
+    if err:
+        return err
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return _json_error("expected a JSON object", 400)
+    kind = _clean_text(payload.get("kind"), 16).lower()
+    value = _clean_text(payload.get("value"), 64).strip()
+    reason = _clean_text(payload.get("reason"), 300).strip()
+    if kind not in ("ip", "identity") or not value:
+        return _json_error("kind must be ip or identity, with a value", 400)
+    try:
+        ttl = int(payload.get("ttl_seconds", payload.get("ttl", 3600)) or 3600)
+    except (TypeError, ValueError):
+        return _json_error("ttl_seconds must be an integer", 400)
+    ttl = max(60, min(ttl, 86400 * 30))
+    if kind == "ip":
+        if not audit.valid_ip(value):
+            return _json_error("invalid ip address", 400)
+        until = audit.add_block(ip=value, seconds=ttl, reason=reason,
+                                created_by=session.get("identity") or "owner")
+        audit.revoke_sessions(ip=value)
+    else:
+        value = value.lower()
+        until = audit.add_block(identity=value, seconds=ttl, reason=reason,
+                                created_by=session.get("identity") or "owner")
+        audit.revoke_sessions(identity=value)
+    _audit_admin("admin_block_created", "%s:%s" % (kind, value), 201)
+    blocks = audit.list_blocks()
+    created = next((row for row in blocks if row["until"] == until
+                    and ((row["identity"] == value) if kind == "identity"
+                         else (row["ip"] == value))), None)
+    return jsonify({"block": _block_public(created) if created else None}), 201
+
+
+@app.delete("/api/admin/blocks/<int:block_id>")
+@require_admin
+def admin_block_delete(block_id):
+    err = _admin_mutation_error()
+    if err:
+        return err
+    block = audit.get_block(block_id)
+    if not block:
+        return _json_error("unknown block", 404)
+    audit.delete_block(block_id)
+    _audit_admin("admin_block_deleted", "%s:%s" % (
+        "identity" if block.get("identity") else "ip",
+        block.get("identity") or block.get("ip")), 200)
+    return jsonify({"deleted": True, "id": block_id})
+
+
+@app.get("/api/admin/friends")
+@require_admin
+def admin_friends_status():
+    try:
+        disabled = audit.get_setting("friends_disabled") == "1"
+    except Exception:
+        return _json_error("settings unavailable", 503)
+    return jsonify({"friends_enabled": bool(AUTH.friends_hash) and not disabled,
+                    "disabled": disabled})
+
+
+@app.post("/api/admin/friends/disable")
+@require_admin
+def admin_friends_disable():
+    err = _admin_mutation_error()
+    if err:
+        return err
+    audit.set_setting("friends_disabled", "1")
+    audit.revoke_sessions(identity="friends")
+    _audit_admin("admin_friends_disabled", "", 200)
+    return jsonify({"friends_enabled": False})
+
+
+@app.post("/api/admin/friends/enable")
+@require_admin
+def admin_friends_enable():
+    err = _admin_mutation_error()
+    if err:
+        return err
+    audit.delete_setting("friends_disabled")
+    _audit_admin("admin_friends_enabled", "", 200)
+    enabled = bool(AUTH.friends_hash)
+    return jsonify({"friends_enabled": enabled})
 
 
 @app.after_request

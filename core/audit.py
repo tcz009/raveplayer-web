@@ -50,7 +50,8 @@ CREATE TABLE IF NOT EXISTS events (
     user_agent TEXT NOT NULL DEFAULT '',
     endpoint TEXT NOT NULL DEFAULT '',
     bytes INTEGER NOT NULL DEFAULT 0,
-    status INTEGER NOT NULL DEFAULT 0
+    status INTEGER NOT NULL DEFAULT 0,
+    detail TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts);
 CREATE INDEX IF NOT EXISTS idx_events_event ON events(event, ts);
@@ -104,6 +105,9 @@ def _connect():
     with _LOCK:
         if path not in _READY:
             conn.executescript(_SCHEMA)
+            cols = {row["name"] for row in conn.execute("PRAGMA table_info(events)")}
+            if "detail" not in cols:
+                conn.execute("ALTER TABLE events ADD COLUMN detail TEXT NOT NULL DEFAULT ''")
             conn.commit()
             _READY.add(path)
     return conn
@@ -122,14 +126,14 @@ def _read(sql, params=()):
 
 
 def record_event(event, identity="", role="", ip="", user_agent="", endpoint="",
-                 bytes=0, status=0, ts=None):
+                 bytes=0, status=0, ts=None, detail=""):
     _write(
-        "INSERT INTO events (ts,event,identity,role,ip,user_agent,endpoint,bytes,status) "
-        "VALUES (?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO events (ts,event,identity,role,ip,user_agent,endpoint,bytes,status,detail) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?)",
         (float(ts if ts is not None else time.time()), _text(event, 64),
          _text(identity, 64), _text(role, 16), _text(ip, 64),
          _text(user_agent, 300), _text(endpoint, 300), int(bytes or 0),
-         int(status or 0)))
+         int(status or 0), _text(detail, 300)))
 
 
 def create_session(identity, role, ip, user_agent, ttl_seconds, remember=False):
@@ -189,6 +193,29 @@ def revoke_sessions(identity=None, ip=None):
                  [now] + params)
 
 
+def masked_session_id(sid):
+    if not sid:
+        return ""
+    return hashlib.sha256(str(sid).encode("utf-8")).hexdigest()[:10] + "…"
+
+
+def find_session_by_masked(masked):
+    """Resolve a display-only masked id to an active session row."""
+    if not isinstance(masked, str) or not masked:
+        return None
+    target = masked.rstrip("…").lower()
+    if len(target) != 10 or any(ch not in "0123456789abcdef" for ch in target):
+        return None
+    now = time.time()
+    for row in _read(
+            "SELECT id,identity,role,ip,user_agent,created_at,last_seen,expires_at,remember "
+            "FROM sessions WHERE revoked_at IS NULL AND expires_at>? "
+            "ORDER BY last_seen DESC", (now,)):
+        if masked_session_id(row["id"])[:10] == target:
+            return dict(row)
+    return None
+
+
 def list_sessions():
     now = time.time()
     rows = _read(
@@ -224,6 +251,21 @@ def is_blocked(identity="", ip=""):
         "OR (ip<>'' AND ip=?)) LIMIT 1",
         (now, _text(identity, 64), _text(ip, 64)))
     return bool(rows)
+
+
+def get_block(block_id):
+    rows = _read("SELECT id,identity,ip,created_at,until,reason,created_by "
+                 "FROM blocks WHERE id=?", (int(block_id),))
+    return dict(rows[0]) if rows else None
+
+
+def delete_block(block_id):
+    return _write("DELETE FROM blocks WHERE id=?", (int(block_id),)) > 0
+
+
+def count_active_blocks():
+    rows = _read("SELECT COUNT(*) AS n FROM blocks WHERE until>?", (time.time(),))
+    return int(rows[0]["n"] or 0)
 
 
 def delete_blocks(identity=None, ip=None):
@@ -331,11 +373,23 @@ def stats(window_hours=24, top_limit=10):
          "expires_at": _iso(item["expires_at"])}
         for item in active
     ]
+    actions = _read(
+        "SELECT ts,event,identity,role,ip,endpoint,status,detail FROM events "
+        "WHERE event LIKE 'admin_%' ORDER BY ts DESC LIMIT 12")
+    recent_actions = [
+        {"at": _iso(row["ts"]), "event": row["event"],
+         "identity": row["identity"], "role": row["role"],
+         "ip": row["ip"], "endpoint": row["endpoint"],
+         "status": int(row["status"] or 0), "detail": row["detail"]}
+        for row in actions
+    ]
     return {
         "status": "ok",
         "generated_at": _iso(now),
         "updated": _iso(now),
         "window_hours": window_hours,
+        "blocked_now": count_active_blocks(),
+        "recent_actions": recent_actions,
         "sessions": {
             "now": sessions_now,
             "online_owner": owner_now,
