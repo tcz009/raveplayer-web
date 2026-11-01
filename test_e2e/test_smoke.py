@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
 """Headless-browser smoke tests: the class of bugs the offline suite missed.
 
-Covers page boot + the 15-section menu, section navigation rendering rows, the
-pasted Mixcloud/SoundCloud embed panel (widget src, provider label, close and
-backdrop behaviour, CSP not refusing the iframes), normal text search, and a
-favourites add/remove round trip.
+Covers page boot + the full section menu (currently 16 entries; derived from
+`/api/menu` so adding a section updates one data file, not this test), section
+navigation rendering every row, the pasted Mixcloud/SoundCloud embed panel
+(widget src, provider label, close and backdrop behaviour, CSP not refusing the
+iframes), normal text search, and a favourites add/remove round trip.
 
 These are deterministic and offline: the Flask app is started locally by the
 shared fixtures and every provider call is stubbed (see conftest.py).  Run
@@ -66,9 +67,19 @@ def _wait_for_widget_stub(page):
 # --------------------------------------------------------------------------- tests
 
 
-def test_boot_renders_the_shell_and_all_fifteen_sections(browser_page):
+def test_boot_renders_the_shell_and_all_sections(browser_page):
     page = browser_page.page
-    assert page.locator("#nav button").count() == 15
+    # The nav must render exactly the sections the API advertises.  Deriving the
+    # count keeps this test honest when a section is added (Rinse FM arrived in
+    # 1.6.10) instead of failing on a stale hardcoded number.
+    sections = page.evaluate(
+        "async () => (await (await fetch('/api/menu')).json()).sections"
+    )
+    assert len(sections) >= 15
+    assert page.locator("#nav button").count() == len(sections)
+    labels = _texts(page.locator("#nav button"))
+    for expected in ("Latest", "Rinse FM", "Favourites", "Search"):
+        assert expected in labels
     assert _text(page.locator("#title")) == "Latest"
     assert _texts(page.locator("#list .row .row-label")) == [
         "Boot Pack", "Boot Episode",
@@ -84,8 +95,16 @@ def test_section_navigation_renders_rows(browser_page):
     page = browser_page.page
     page.get_by_role("button", name="Quick Filters", exact=True).click()
     page.wait_for_function("() => document.querySelector('#title').textContent === 'Quick Filters'")
-    _wait_for_rows(page, 15)
-    assert page.locator("#list .row").count() == 15
+    # One row per filter in the data file (16 today; again, no hardcoded count).
+    filters = page.evaluate(
+        "async () => (await (await fetch('/api/filters')).json()).items"
+    )
+    assert len(filters) >= 15
+    _wait_for_rows(page, len(filters))
+    assert page.locator("#list .row").count() == len(filters)
+    assert _texts(page.locator("#list .row .row-label")) == [
+        entry["label"] for entry in filters
+    ]
     assert _text(page.locator("#nav button[aria-current='page']")) == "Quick Filters"
     assert page.evaluate("location.hash") == "#/api/filters"
     assert browser_page.page_errors == []

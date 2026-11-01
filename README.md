@@ -262,8 +262,9 @@ search-submit paste wiring, the deploy script's version pinning/labels
 ### Browser smoke tests (7 cases)
 
 `test_e2e/` drives the real app in headless Chromium through Playwright. It
-covers what the offline suite cannot: boot with all 15 sections, section
-navigation rendering rows, pasting a Mixcloud or SoundCloud URL into search
+covers what the offline suite cannot: boot with every section from
+`/api/menu` (16 today), section navigation rendering every row, pasting a
+Mixcloud or SoundCloud URL into search
 (embed panel provider label, widget `src`, close and backdrop behaviour,
 CSP `frame-src` not refusing the iframe), normal text search, and a
 favourites add/remove round trip. The Flask app runs on a random localhost
@@ -278,6 +279,9 @@ external requests are intercepted, so the tests need no internet.
 
 Playwright is test-only (not in the runtime image or `requirements.txt`). If
 the package or its Chromium build is missing, the browser tests skip cleanly;
+see [`docs/E2E.md`](docs/E2E.md) for the last full local run (system Chrome in a
+sandbox that cannot install Playwright's own Chromium), counts, and the exact
+commands.
 set `RAVEWEB_REQUIRE_BROWSER=1` to turn that skip into a failure (the CI
 browser job does, so a broken install cannot pass silently). In a restricted
 local sandbox `RAVEWEB_PLAYWRIGHT_NO_SANDBOX=1` may be needed, and
