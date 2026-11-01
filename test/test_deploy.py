@@ -44,7 +44,7 @@ def test_deploy_script_keeps_a_rollback_target_and_restarts_it():
     script = _script()
     for marker in (
         "raveplayer-web-new",                          # new container starts aside
-        'DATA_BACKUP="\\$DEST.data-backup"',          # host-side data backup
+        'DATA_BACKUP="$DEST.data-backup"',              # host-side data backup (DEST expanded locally)
         "rolling back to the previous container",
         "docker rm -f raveplayer-web-new",             # new one discarded
         "docker start raveplayer-web",                 # old one restarted
@@ -57,6 +57,10 @@ def test_deploy_script_keeps_a_rollback_target_and_restarts_it():
     assert script.index("docker stop -t 20 raveplayer-web") < script.index(
         "docker rm -f raveplayer-web-new")
     assert "rm -rf /tmp/raveplayer-data" not in script, "data must not live only in /tmp"
+    # Regression: remote-only vars must be escaped inside the unquoted heredoc,
+    # otherwise `set -u` aborts the local script before ssh runs.
+    assert 'rm -rf "\\$DATA_BACKUP"' in script
+    assert 'rm -rf "$DATA_BACKUP"' not in script
 
 
 def test_deploy_script_keeps_secrets_off_the_docker_command_line():

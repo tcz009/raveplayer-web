@@ -219,3 +219,16 @@ node --check static/app.js
 sh -n scripts/deploy.sh
 git diff --stat main..hardening/1.6.12
 ```
+
+## Post-merge fix — deploy.sh heredoc escaping (found on first real deploy)
+
+The hardened rollback script failed on its first live run with
+`DATA_BACKUP: unbound variable`: remote-only variables were written as
+`\$DATA_BACKUP` inside the unquoted heredoc but their **assignment** was not
+escaped/expanded consistently, so `set -u` aborted locally before `ssh` ran.
+Fixed by expanding `$DEST` locally in the assignment (`DATA_BACKUP="$DEST.data-backup"`)
+and escaping every remote read (`"\$DATA_BACKUP"`); `SOUNDCLOUD_CLIENT_ID` is
+expanded locally so the secret travels only over ssh stdin into the root-only
+env file. `test_deploy.py` now asserts the correct form and that the unescaped
+form is absent. The real deploy then completed: 1.6.12 healthy, rollback path
+(new container aside → health check → rename) exercised end to end.

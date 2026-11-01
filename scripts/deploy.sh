@@ -37,7 +37,7 @@ scp -q -i "$KEY" -o BatchMode=yes /tmp/raveplayer-web.tgz "$HOST:/tmp/raveplayer
 
 ssh -i "$KEY" -o BatchMode=yes "$HOST" "bash -s" <<REMOTE
 set -eu
-DATA_BACKUP="\$DEST.data-backup"
+DATA_BACKUP="$DEST.data-backup"
 # keep favourites/cache on the host (not only in /tmp) until the new box is good
 rm -rf "\$DATA_BACKUP"
 if [ -d $DEST/data ]; then cp -a $DEST/data "\$DATA_BACKUP"; fi
@@ -62,7 +62,7 @@ docker rm -f raveplayer-web-new >/dev/null 2>&1 || true
 # Secrets travel in a root-only env file outside the build context, never on the
 # docker command line (where ps would expose them while the container starts).
 ENV_FILE=/tmp/raveplayer-web.env
-(umask 077 && printf 'SOUNDCLOUD_CLIENT_ID=%s\n' "\${SOUNDCLOUD_CLIENT_ID:-}" > "\$ENV_FILE")
+(umask 077 && printf 'SOUNDCLOUD_CLIENT_ID=%s\n' "${SOUNDCLOUD_CLIENT_ID:-}" > "\$ENV_FILE")
 docker run -d --name raveplayer-web-new --restart unless-stopped \
   --security-opt no-new-privileges:true \
   --label "org.opencontainers.image.version=$VERSION" \
