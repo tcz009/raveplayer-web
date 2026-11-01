@@ -57,7 +57,11 @@ The sections behind the groups:
 - **Downloads** — explicit, direct-file saves kept under `RAVEWEB_DATA/downloads`
   (Archive tracks, Moxser MP3s, Hardscore MP3/M4A, Pirate Radio Archives direct
   files). Each row shows size/date, plays from the local copy offline, can be
-  saved to another device (Content-Disposition + Range) and deleted. Provider
+  saved to another device (Content-Disposition + Range) and deleted.
+  **Background jobs** (1.6.23) keep saving after the progress panel is dismissed
+  or the tab closes: a spinner/percent chip links to the Downloads view, where
+  queued/downloading rows can be cancelled; owners see all users' jobs, friends
+  only their own. See `docs/DOWNLOADS.md`. Provider
   pages (Mixcloud/SoundCloud/YouTube), live streams, HLS, podcasts, legacy
   scrapers and GetDarker are never downloadable in phase 1; nothing downloads
   automatically. See [`docs/DOWNLOADS.md`](docs/DOWNLOADS.md).
@@ -331,9 +335,9 @@ typography, hero and texture language — is documented in
 
 ## Tests
 
-### Offline suite (335 cases)
+### Offline suite (342 cases)
 
-The offline suite is 335 cases (all providers mocked) and uses the Flask test
+The offline suite is 342 cases (all providers mocked) and uses the Flask test
 client. `pytest` is a test-only dependency:
 
 ```sh
@@ -360,7 +364,7 @@ the cached app shell for any same-origin navigation, never caching
 bookmarks — remove and re-add once, as described in [`docs/PWA.md`](docs/PWA.md)
 (which also covers the plain-HTTP LAN limitation and what Cockney Player needs).
 
-### Browser smoke tests (19 cases)
+### Browser smoke tests (20 cases)
 
 `test_e2e/` drives the real app in headless Chromium through Playwright. It
 covers what the offline suite cannot: boot with the grouped 9-button rail and
@@ -371,7 +375,7 @@ rail/back layout, the Download action → progress panel (save and cancel) → D
 offline playback → delete round trip (and no Download action on podcast-like
 rows), the 150 ms loading pill (fast and slow requests), the Surprise spin/
 stamp reveal plus its reduced-motion skip, section navigation rendering every
-row, the owner login/logout flow + designed door page, the Mixcloud/SoundCloud embed panel (widget
+row, the owner login/logout flow + designed door page, background download → navigate away → completion, the Mixcloud/SoundCloud embed panel (widget
 `src`, provider label, close/backdrop, CSP `frame-src`), normal text search, and
 a favourites add/remove round trip. The Flask app runs on a random localhost
 port with a temporary `RAVEWEB_DATA`; providers are stubbed and the browser's

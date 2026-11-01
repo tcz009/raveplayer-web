@@ -1,11 +1,11 @@
 # Hardening pass — Rave Player web (`raveplayer-web` 1.6.23)
 
-**Branch:** `fix/1.6.23-session-mask` (not pushed) · **Base:** `main` @ `b5cacae` (1.6.22)
+**Branch:** `feature/1.6.23-background-downloads` (not pushed) · **Base:** `fix/1.6.23-session-mask` @ `f4c7334`
 **Scope:** `app.py`, `core/`, `static/app.js`, `scripts/deploy.sh`, `docs/`, `test/`,
 `test_e2e/`, `VERSION`. No UX or content changes. No `data/` or advert files touched.
 
-**Result:** `205 → 335 passed` (`.venv/bin/python -m pytest -q test`), all
-offline; browser suite `test_e2e` **19 passed** (system Chrome, Playwright 1.60);
+**Result:** `205 → 342 passed` (`.venv/bin/python -m pytest -q test`), all
+offline; browser suite `test_e2e` **20 passed** (system Chrome, Playwright 1.60);
 `node --check static/app.js` and `sh -n scripts/deploy.sh` clean.
 
 Inputs folded in: the internal task-22 brief and the adversarial pre-review
@@ -13,7 +13,7 @@ Inputs folded in: the internal task-22 brief and the adversarial pre-review
 (stream SSRF guard, SPA escaping, CSP, content-type gate, atomic writes) was kept intact.
 
 
-## 1.6.23 — mask session IDs in stats
+## 1.6.23 — session ID mask + background downloads
 
 Security fix: `/api/admin/stats` exposed raw server session IDs under
 `sessions.items[].id`; those values must never leave the server.
@@ -27,6 +27,22 @@ Security fix: `/api/admin/stats` exposed raw server session IDs under
   payload and that only the masked field is present.
 - Fix prepared for the 1.6.23 release; Control Centre must bind to
   `session_id_masked` and label it “Session (masked)”. Deploy pending sign-off.
+
+Background downloads in the same release:
+
+- New persisted job store `downloads/jobs.json`; `POST /api/downloads/jobs`
+  validates with the existing direct-source/host/cap predicate and returns
+  before transfer; in-process workers capped by `RAVEWEB_DOWNLOAD_JOBS` (1–2).
+- States queued/downloading/completed/failed/cancelled with bytes/progress/error;
+  `GET /api/downloads/jobs`, detail, and cancel. Jobs are per identity (owner
+  sees all; friends own); completion inserts the normal Downloads index.
+- Restart recovery marks interrupted jobs failed and removes unique `.part`
+  files; failures/cancels also discard partials. Background temp names include
+  the job id so a foreground cancel of the same URL cannot delete the job file.
+- UI: Download in background action, topbar spinner/percent chip, live job rows
+  with cancel, persistence across reload, completion toast.
+- Tests: 342 offline (+7 job lifecycle/cancel/caps/recovery/ownership) and 20 e2e
+  (background → navigate away → completes → Downloads).
 
 ## 1.6.22 — read-only owner stats
 
@@ -468,10 +484,10 @@ that the module layout matches.
 
 ```sh
 cd "Rave Player"
-.venv/bin/python -m pytest -q test        # 335 passed
+.venv/bin/python -m pytest -q test        # 342 passed
 node --check static/app.js
 sh -n scripts/deploy.sh
-git diff --stat main..fix/1.6.23-session-mask
+git diff --stat fix/1.6.23-session-mask..feature/1.6.23-background-downloads
 ```
 
 ## Post-merge fix — deploy.sh heredoc escaping (found on first real deploy)

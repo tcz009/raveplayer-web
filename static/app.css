@@ -1515,3 +1515,83 @@ body.loading-active .status { opacity: 0; }
   .logout { order: 3; }
   .logout-btn { min-height: 40px; padding: 0 9px; font-size: 8px; }
 }
+
+/* 1.6.23 — background download chip + panel action */
+.job-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 11px 0 7px;
+  border: 1px solid var(--acid);
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--acid);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.job-chip:hover { background: var(--acid); color: var(--ink); }
+.job-chip:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.job-chip .spinner-head { --head: 20px; }
+.job-chip[data-state="queued"] { color: var(--paper); border-color: var(--paper); }
+.download-actions { gap: 9px; flex-wrap: wrap; }
+.dl-background {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 2px solid var(--paper);
+  border-radius: 0;
+  background: var(--acid);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  box-shadow: 3px 3px 0 var(--cyan);
+}
+.dl-background:hover { background: var(--paper); box-shadow: 3px 3px 0 var(--magenta); }
+.dl-background:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.dl-background:disabled { opacity: 0.6; cursor: progress; }
+
+/* Background jobs in the Downloads list */
+.row.job-row { border-style: dashed; }
+.job-row-head { flex: 0 0 auto; margin-right: 10px; }
+.job-progress {
+  height: 3px;
+  margin-top: 6px;
+  background: var(--line);
+  overflow: hidden;
+}
+.job-progress span {
+  display: block;
+  height: 100%;
+  background: var(--acid);
+  transition: width 180ms linear;
+}
+.job-cancel {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--paper);
+  background: transparent;
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.job-cancel:hover { background: var(--magenta); color: var(--ink); }
+.job-cancel:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+@media (max-width: 760px) {
+  .job-chip #job-chip-text { display: none; }
+  .job-chip { padding: 0 6px; min-height: 28px; }
+  .dl-background { width: 100%; }
+  .download-actions { justify-content: stretch; }
+  .download-actions .dl-cancel { margin-left: auto; }
+}

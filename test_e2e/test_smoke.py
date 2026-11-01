@@ -648,3 +648,51 @@ def test_login_logout_flow_and_login_page_design(browser_page, live_server):
         "() => document.querySelectorAll('#list .row:not(.skeleton)').length > 0")
     assert page.locator("#logout").is_visible()
     assert browser_page.page_errors == []
+
+
+def test_background_download_survives_navigation_and_completes(browser_page):
+    """1.6.23: background job keeps running when the tab leaves the panel."""
+    from test_e2e import conftest as e2e_conftest
+    page = browser_page.page
+    old_delay = e2e_conftest._FakeDownloadResponse.DELAY
+    e2e_conftest._FakeDownloadResponse.DELAY = 0.12  # ~3.9 s: enough to navigate
+    try:
+        page.locator("#list .row", has_text="Boot Pack").click()
+        page.wait_for_function("() => location.hash.includes('/api/item/boot-pack')")
+        _wait_for_rows(page, 1)
+        page.locator("#list .row .download-btn").first.click()
+        page.wait_for_selector("#download-panel", state="visible")
+        assert page.locator("#dl-background").is_visible()
+        page.locator("#dl-background").click()
+        page.wait_for_selector("#download-panel", state="hidden", timeout=5000)
+        page.wait_for_function(
+            "() => document.querySelector('#toast').textContent.includes('background')",
+            timeout=5000)
+
+        # Navigate away while the server-side job is still running.
+        page.get_by_role("button", name="Latest", exact=True).click()
+        page.wait_for_function("() => document.querySelector('#title').textContent === 'Latest'")
+        # It must also survive a full page reload, not just client navigation.
+        page.reload(wait_until="domcontentloaded")
+        page.wait_for_selector("#nav button")
+        page.wait_for_selector("#job-chip", state="visible", timeout=5000)
+        assert "%" in page.locator("#job-chip-text").text_content() or \
+            "QUEUED" in page.locator("#job-chip-text").text_content().upper()
+
+        # Completion is detected while elsewhere, then the row is in Downloads.
+        page.wait_for_function(
+            "() => document.querySelector('#toast').textContent.includes('Saved to Downloads')",
+            timeout=15000)
+        page.get_by_role("button", name="Downloads", exact=True).click()
+        page.wait_for_function("() => document.querySelector('#title').textContent === 'Downloads'")
+        _wait_for_rows(page, 1)
+        page.wait_for_function(
+            "() => document.querySelectorAll('#list .job-row').length === 0", timeout=8000)
+        assert page.locator("#list .row .row-label").first.text_content().strip() == "Boot Track"
+
+        # Clean up so later tests see an empty Downloads view.
+        page.locator("#list .row button[title='Remove download']").click()
+        page.wait_for_function("() => document.querySelectorAll('#list .row').length === 0")
+        assert browser_page.page_errors == []
+    finally:
+        e2e_conftest._FakeDownloadResponse.DELAY = old_delay

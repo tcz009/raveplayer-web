@@ -886,6 +886,7 @@
       state.title = typeof data.title === "string" ? data.title : "";
       titleEl.textContent = state.title || "Rave Player";
       render(state.items);
+      if (path === "/api/downloads") renderJobRows();
       moreEl.hidden = !state.next;
       setStatus(`${state.items.length} ITEMS`);
       if (path.startsWith("/api/search")) {
@@ -1398,6 +1399,170 @@
     return "dl" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
   }
 
+  /* Server-side background jobs: persisted, independent of this tab. */
+  const JOB_POLL = { timer: 0, refreshing: false, jobs: [], initialized: false, seen: new Set() };
+
+  function activeJob(job) {
+    return !!job && (job.state === "queued" || job.state === "downloading");
+  }
+
+  function jobPercent(job) {
+    if (!job) return 0;
+    if (typeof job.progress === "number") return Math.max(0, Math.min(100, job.progress));
+    if (job.bytes_total) {
+      return Math.max(0, Math.min(100, Math.floor((job.bytes_done || 0) * 100 / job.bytes_total)));
+    }
+    return 0;
+  }
+
+  function updateJobChip() {
+    const chip = $("job-chip");
+    if (!chip) return;
+    const active = JOB_POLL.jobs.filter(activeJob);
+    chip.hidden = active.length === 0;
+    if (!active.length) return;
+    const first = active.find((job) => job.state === "downloading") || active[0];
+    const percent = jobPercent(first);
+    chip.dataset.state = first.state;
+    const text = first.state === "queued" ? "Queued" : percent + "%";
+    $("job-chip-text").textContent = text;
+    chip.setAttribute("aria-label",
+      `${active.length} background download${active.length === 1 ? "" : "s"} — ${text}. Open Downloads.`);
+    chip.title = `Background downloads — ${active.length} active`;
+  }
+
+  function jobRow(job) {
+    const el = document.createElement("div");
+    el.className = "row job-row";
+    el.dataset.key = "job:" + job.id;
+    el.dataset.label = job.title || "Download";
+    const head = document.createElement("span");
+    head.className = "spinner-head small job-row-head";
+    head.setAttribute("aria-hidden", "true");
+    const text = document.createElement("div");
+    text.className = "row-text";
+    const label = document.createElement("div");
+    label.className = "row-label";
+    label.textContent = job.title || "Download";
+    const sub = document.createElement("div");
+    sub.className = "row-sub";
+    const detail = job.state === "downloading"
+      ? `${jobPercent(job)}% · ${formatBytes(job.bytes_done)}${job.bytes_total ? " of " + formatBytes(job.bytes_total) : ""}`
+      : "Queued — waiting for a download slot";
+    sub.textContent = detail;
+    const progress = document.createElement("div");
+    progress.className = "job-progress";
+    const fill = document.createElement("span");
+    fill.style.width = Math.max(0, Math.min(100, jobPercent(job))) + "%";
+    progress.appendChild(fill);
+    text.append(label, sub, progress);
+    const actions = document.createElement("div");
+    actions.className = "row-actions";
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "job-cancel";
+    cancel.textContent = "Cancel";
+    cancel.setAttribute("aria-label", `Cancel background download ${job.title || "item"}`);
+    cancel.addEventListener("click", (event) => {
+      event.stopPropagation();
+      cancelJob(job.id, cancel);
+    });
+    actions.appendChild(cancel);
+    el.append(head, text, actions);
+    return el;
+  }
+
+  function renderJobRows() {
+    if (!listEl) return;
+    listEl.querySelectorAll(".job-row").forEach((row) => row.remove());
+    if (state.path !== "/api/downloads") return;
+    const active = JOB_POLL.jobs.filter(activeJob);
+    if (!active.length) return;
+    const fragment = document.createDocumentFragment();
+    active.forEach((job) => fragment.appendChild(jobRow(job)));
+    listEl.prepend(fragment);
+    emptyEl.hidden = true;
+  }
+
+  function scheduleJobPoll(active) {
+    clearTimeout(JOB_POLL.timer);
+    JOB_POLL.timer = 0;
+    if (active) JOB_POLL.timer = setTimeout(() => refreshDownloadJobs(), 1600);
+  }
+
+  async function refreshDownloadJobs() {
+    if (JOB_POLL.refreshing) return;
+    JOB_POLL.refreshing = true;
+    const completedBefore = new Set(JOB_POLL.jobs.filter((job) => job.state === "completed").map((job) => job.id));
+    try {
+      const data = await api("/api/downloads/jobs", { timeout: 12000 });
+      const jobs = Array.isArray(data.jobs) ? data.jobs : [];
+      const completed = jobs.filter((job) => job.state === "completed");
+      const fresh = completed.filter((job) => JOB_POLL.initialized
+        && !completedBefore.has(job.id) && !JOB_POLL.seen.has(job.id));
+      jobs.forEach((job) => {
+        if (!activeJob(job)) JOB_POLL.seen.add(job.id);
+      });
+      JOB_POLL.jobs = jobs;
+      JOB_POLL.initialized = true;
+      updateJobChip();
+      if (state.path === "/api/downloads") {
+        if (fresh.length) navigate("/api/downloads", { push: false });
+        else renderJobRows();
+      }
+      if (state.path !== "/api/downloads") {
+        fresh.forEach((job) => toast(`Saved to Downloads: ${job.title || "download"}`));
+      }
+      scheduleJobPoll(jobs.some(activeJob));
+    } catch (_) {
+      scheduleJobPoll(JOB_POLL.jobs.some(activeJob));
+    } finally {
+      JOB_POLL.refreshing = false;
+    }
+  }
+
+  async function cancelJob(jobId, button) {
+    if (!jobId) return;
+    if (button) { button.disabled = true; button.textContent = "Cancelling…"; }
+    try {
+      await api(`/api/downloads/jobs/${encodeURIComponent(jobId)}/cancel`, { method: "POST" });
+      toast("Background download cancelled");
+      await refreshDownloadJobs();
+    } catch (error) {
+      if (button) { button.disabled = false; button.textContent = "Cancel"; }
+      toast(`Could not cancel: ${messageFor(error)}`, 4000);
+    }
+  }
+
+  async function startBackgroundDownload() {
+    if (!DOWNLOAD.active || !DOWNLOAD.payload) return;
+    const button = $("dl-background");
+    if (button) { button.disabled = true; button.textContent = "Starting…"; }
+    const payload = DOWNLOAD.payload;
+    const foregroundId = DOWNLOAD.id;
+    const controller = DOWNLOAD.controller;
+    try {
+      const data = await api("/api/downloads/jobs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        timeout: 15000,
+      });
+      DOWNLOAD.active = false;
+      try { if (controller) controller.abort(); } catch (_) { /* ignore */ }
+      try {
+        await api(`/api/downloads/cancel/${encodeURIComponent(foregroundId)}`,
+                  { method: "POST", timeout: 5000 });
+      } catch (_) { /* foreground request may already be gone */ }
+      closeDownloadPanel();
+      toast(data.already ? "Already saved in Downloads" : "Downloading in background");
+      await refreshDownloadJobs();
+    } catch (error) {
+      if (button) { button.disabled = false; button.textContent = "Download in background"; }
+      toast(`Could not start background download: ${messageFor(error)}`, 4000);
+    }
+  }
+
   function showDownloadPanel(item) {
     const panel = $("download-panel");
     if (!panel) return;
@@ -1413,6 +1578,8 @@
     const cancel = $("dl-cancel");
     cancel.disabled = false;
     cancel.textContent = "Cancel";
+    const background = $("dl-background");
+    if (background) { background.disabled = false; background.textContent = "Download in background"; }
     panel.hidden = false;
   }
 
@@ -1559,6 +1726,11 @@
       DOWNLOAD.id = downloadClientId();
       DOWNLOAD.startedAt = performance.now();
       DOWNLOAD.controller = new AbortController();
+      DOWNLOAD.payload = {
+        url,
+        title: item.label || "Download",
+        source: item.download.source,
+      };
       showDownloadPanel(item);
       let response;
       try {
@@ -1893,6 +2065,9 @@
 
   $("surprise").addEventListener("click", surpriseMe);
   $("dl-cancel").addEventListener("click", cancelDownload);
+  $("dl-background").addEventListener("click", startBackgroundDownload);
+  $("job-chip").addEventListener("click", () => navigate("/api/downloads"));
+  refreshDownloadJobs();
 
   moreEl.addEventListener("click", loadMore);
 

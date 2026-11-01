@@ -45,6 +45,20 @@ def isolated_audit_store(tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def isolated_download_jobs():
+    """Fresh background-job state per test (no worker leaks between cases)."""
+    with app_module._DOWNLOAD_JOBS_LOCK:
+        app_module._DOWNLOAD_JOB_STATE["base"] = None
+        app_module._DOWNLOAD_JOB_STATE["jobs"].clear()
+    yield
+    with app_module._DOWNLOAD_JOBS_LOCK:
+        for job in app_module._DOWNLOAD_JOB_STATE["jobs"].values():
+            job["cancel_requested"] = True
+        app_module._DOWNLOAD_JOB_STATE["base"] = None
+        app_module._DOWNLOAD_JOB_STATE["jobs"].clear()
+
+
+@pytest.fixture(autouse=True)
 def clear_process_caches():
     """Keep the in-process cache layer from leaking between tests."""
     from core import cache, moxser

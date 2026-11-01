@@ -62,6 +62,11 @@
       <span class="spinner-head small" aria-hidden="true"></span>
       <span id="loading-pill-text">Loading</span>
     </div>
+    <button class="job-chip" id="job-chip" type="button" hidden
+            aria-label="Background downloads" title="Background downloads — open Downloads">
+      <span class="spinner-head small" id="job-chip-head" aria-hidden="true"></span>
+      <span id="job-chip-text">Queued</span>
+    </button>
     <div class="status" id="status" role="status" aria-live="polite">READY</div>
     <form class="logout" id="logout-form" method="post" action="/logout">
       <button class="logout-btn" id="logout" type="submit"
@@ -159,6 +164,9 @@
         <span class="download-hint" id="dl-hint">Downloading…</span>
       </div>
       <div class="download-actions">
+        <button id="dl-background" type="button" class="dl-background">
+          Download in background
+        </button>
         <button id="dl-cancel" type="button" class="dl-cancel">Cancel</button>
       </div>
     </div>

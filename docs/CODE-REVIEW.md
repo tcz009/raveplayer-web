@@ -1,7 +1,7 @@
 # Independent code review — brief
 
 **Project:** Rave Player — web app (`raveplayer-web`)
-**Version under review:** 1.6.23 (`fix/1.6.23-session-mask`, based on 1.6.22 stats)
+**Version under review:** 1.6.23 (`feature/1.6.23-background-downloads`, based on session-mask fix / 1.6.22 stats)
 **Reviewer target:** `app.py`, `core/`, `static/`, `templates/`, `test/`; ignore `data/`, `__pycache__/`, `.venv/`.
 
 ## What it is
@@ -118,7 +118,12 @@ A prepared `.venv` exists in this checkout.
 - **1.6.23 security fix**: `/api/admin/stats` no longer returns raw session
   ids; `sessions.items[].session_id_masked` is a short non-reversible SHA-256
   prefix for display. Tests assert the raw sid is absent from the JSON.
-- Tests: `205 → 335` offline (`pytest -q test`) and **19 browser e2e**
+- **1.6.23 background downloads** (`docs/DOWNLOADS.md`): persisted
+  `POST/GET /api/downloads/jobs`, per-job cancel, in-process workers capped at
+  1–2, ownership (owner all / friends own), restart recovery, completion into the
+  normal index; UI background action, topbar chip, live Downloads rows/cancel and
+  completion toast. Same direct-source/host/cap guards as foreground saves.
+- Tests: `205 → 342` offline (`pytest -q test`) and **20 browser e2e**
   (`pytest test_e2e`, see `docs/E2E.md`).
 
 ## Areas worth scrutiny
