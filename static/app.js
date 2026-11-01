@@ -808,11 +808,6 @@
     return (label ? label.textContent : button.textContent).trim();
   }
 
-  function railGroup(path) {
-    if (!Array.isArray(state.rail)) return null;
-    return state.rail.find((group) => group.path === path) || null;
-  }
-
   function railGroupActive(group, path) {
     if (group.path === path) return true;
     return (group.children || []).some((child) =>
@@ -1322,6 +1317,10 @@
       $("p-fav").setAttribute("aria-pressed", String(on));
       $("p-fav").setAttribute("aria-label", `${on ? "Remove" : "Add"} current track ${on ? "from" : "to"} favourites`);
     }
+  }
+
+  function syncAllFavButtons() {
+    state.faved.forEach((key) => syncFavButtons(key));
   }
 
   async function toggleFav(fav, button) {
@@ -2183,7 +2182,9 @@
       showBanner(`Could not load the section menu (${messageFor(error)}).`);
     }
 
-    await loadFavedKeys();
+    // Start favourites in parallel with the first section; await it only to
+    // sync the hearts after rows exist (it used to delay the first API call).
+    const faved = loadFavedKeys();
     const initial = pathFromHash() || sectionPath("latest");
     const initialScroll = Math.max(0, Math.round(window.scrollY));
     state.depth = 0;
@@ -2192,6 +2193,7 @@
       history.replaceState({ path: initial, depth: 0, scrollY: initialScroll }, "", "#" + initial);
     } catch (_) { /* ignore */ }
     await navigate(initial, { push: false, scrollY: initialScroll });
+    faved.then(() => syncAllFavButtons()).catch(() => {});
   }
 
   boot();

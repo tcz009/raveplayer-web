@@ -3,3 +3,7 @@ __pycache__/
 *.pyc
 data/
 .pytest_cache/
+
+# benchmark output from scripts/bench_api.py / bench_ui.py
+bench-api.json
+bench-ui.json

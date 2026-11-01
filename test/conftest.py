@@ -28,6 +28,18 @@ import app as app_module  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
+def clear_process_caches():
+    """Keep the in-process cache layer from leaking between tests."""
+    from core import cache, moxser
+
+    cache.clear_memory()
+    moxser.clear_memory()
+    yield
+    cache.clear_memory()
+    moxser.clear_memory()
+
+
+@pytest.fixture(autouse=True)
 def isolated_slots():
     """Give every test a full stream-slot semaphore."""
     original = app_module._STREAM_SLOTS

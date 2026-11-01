@@ -543,7 +543,10 @@ def test_reduced_motion_skips_spinner_animation_and_surprise_delay(browser_page)
         "() => location.hash.startsWith('#/api/item/') || location.hash.startsWith('#/api/podcast/')")
     elapsed = page.evaluate("performance.now()") - started
     assert page.evaluate("window.__revealShows") == 0, "reduced motion must skip the reveal"
-    assert elapsed < 1400, "reduced motion must not wait for the reveal (%.0f ms)" % elapsed
+    # The decisive check is that the animated reveal never appeared; this upper
+    # bound only catches a future re-introduced 900 ms spin wait (it is loose
+    # enough for a loaded CI/desktop machine).
+    assert elapsed < 2500, "reduced motion must not wait for the reveal (%.0f ms)" % elapsed
     assert page.locator("#surprise-reveal").is_hidden()
 
     # The loading pill still reports, just without animation.

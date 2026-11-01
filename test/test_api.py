@@ -46,6 +46,24 @@ def test_menu_shape(web):
         assert section["path"].startswith("/api/")
 
 
+
+def test_json_is_gzipped_for_clients_that_accept_it(web):
+    import gzip
+
+    plain = web.get("/api/latest")
+    assert "Content-Encoding" not in (plain.headers.get("Content-Encoding") or "")
+
+    compressed = web.get("/api/latest", headers={"Accept-Encoding": "gzip"})
+    assert compressed.headers.get("Content-Encoding") == "gzip"
+    assert "Accept-Encoding" in compressed.headers.get("Vary", "")
+    body = gzip.decompress(compressed.data)
+    assert json.loads(body.decode("utf-8"))["title"] == "Latest"
+
+    # Tiny bodies are not worth compressing.
+    small = web.get("/healthz", headers={"Accept-Encoding": "gzip"})
+    assert small.headers.get("Content-Encoding") is None
+
+
 def test_manifest(web):
     response = web.get("/manifest.webmanifest")
     assert response.status_code == 200

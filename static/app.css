@@ -23,9 +23,6 @@
   --magenta: #ff2d8f;
   --cyan: #22e6ff;
   --orange: #ff6a1a;
-  --acid-wash: rgba(232, 255, 0, 0.10);
-  --magenta-wash: rgba(255, 45, 143, 0.10);
-  --cyan-wash: rgba(34, 230, 255, 0.10);
 
   /* type ------------------------------------------------------------------- */
   --font-display: Impact, Haettenschweiler, "Arial Narrow Bold", "Oswald", sans-serif;
@@ -1254,47 +1251,6 @@ kbd {
 }
 .embed-frame { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; border: 0; }
 .embed-note { margin: 10px 0 0; font-family: var(--font-mono); font-size: 9px; color: var(--faint); }
-
-/* Optional loading label over the fallback tile. Add `is-loading` to
-   .embed-frame-wrap and a .embed-placeholder child; swap to `is-loaded` on the
-   iframe's load event. The tile itself is already there without any markup. */
-.embed-placeholder {
-  position: absolute;
-  inset: 0;
-  z-index: 2;
-  display: none;
-  place-content: center;
-  justify-items: center;
-  gap: 10px;
-  padding: 16px;
-  text-align: center;
-  pointer-events: none;
-  color: var(--faint);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  background:
-    radial-gradient(60% 60% at 50% 42%, rgba(232, 255, 0, 0.06), transparent 70%),
-    repeating-linear-gradient(135deg, transparent 0 9px, rgba(242, 238, 227, 0.025) 9px 10px),
-    var(--panel-2);
-}
-.embed-frame-wrap.is-loading .embed-placeholder { display: grid; }
-.embed-frame-wrap.is-loaded .embed-placeholder { display: none; }
-.embed-placeholder::before {
-  content: "";
-  width: 42px;
-  height: 10px;
-  opacity: 0.7;
-  background: linear-gradient(90deg,
-    var(--acid) 0 3px, transparent 3px 7px,
-    var(--acid) 7px 10px, transparent 10px 14px,
-    var(--acid) 14px 17px, transparent 17px 21px,
-    var(--acid) 21px 24px, transparent 24px 28px,
-    var(--acid) 28px 31px, transparent 31px 35px,
-    var(--acid) 35px 38px, transparent 38px 42px);
-}
-.embed-placeholder span { max-width: 28ch; line-height: 1.5; }
 
 body.has-embed { overflow: hidden; }
 

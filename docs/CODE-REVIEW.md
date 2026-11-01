@@ -1,7 +1,7 @@
 # Independent code review — brief
 
 **Project:** Rave Player — web app (`raveplayer-web`)
-**Version under review:** 1.6.17 (`feature/1.6.17`, based on `main` @ `645f22a` / 1.6.16)
+**Version under review:** 1.6.18 (`feature/1.6.18`, based on `main` @ `3fbd488` / 1.6.17)
 **Reviewer target:** `app.py`, `core/`, `static/`, `templates/`, `test/`; ignore `data/`, `__pycache__/`, `.venv/`.
 
 ## What it is
@@ -85,7 +85,14 @@ A prepared `.venv` exists in this checkout.
   spins then stamps its pick. Reduced motion disables every animation and skips
   the reveal wait. No innerHTML/CSP change; no new fetch path (the progress
   stream reuses the same guarded download helper).
-- Tests: `205 → 302` offline (`pytest -q test`) and **17 browser e2e**
+- **1.6.18 performance + cleanup** (`docs/PERFORMANCE.md`): bounded in-process
+  cache layer in front of the disk cache; Moxser sitemap entries cached with
+  pagination skipped when unnecessary; favourites load in parallel with the
+  first section; gzip for API JSON ≥1 KiB (≈90–93% smaller); downloads index
+  read once; dead `.embed-placeholder` CSS, `railGroup()` and unused tokens
+  removed. Warm API p95 ≤3.2 ms, Moxser warm ~1 ms, rail <1 s, CLS ≤0.024.
+  No URL/label/behaviour change.
+- Tests: `205 → 306` offline (`pytest -q test`) and **17 browser e2e**
   (`pytest test_e2e`, see `docs/E2E.md`).
 
 ## Areas worth scrutiny

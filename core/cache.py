@@ -11,10 +11,13 @@ read-only profile, a full disk or a corrupt file must never stop playback.
 values are stored; callers keep JSON text or parsed JSON in the cache.
 """
 
+import collections
+import copy
 import hashlib
 import json
 import os
 import tempfile
+import threading
 import time
 
 from . import kodi
@@ -24,6 +27,37 @@ CACHE_DIR_ENV = "RAVEPLAYER_CACHE_DIR"
 # A cache file is JSON we wrote ourselves; anything larger is either corrupt or
 # was placed there deliberately, and must not be loaded into memory.
 MAX_ENTRY_BYTES = 8 * 1024 * 1024
+# Small in-process layer in front of the disk cache: warm API calls (feeds,
+# archive metadata/search, Moxser pages) otherwise pay a file read + JSON parse
+# on every request.  Values are deep-copied on the way in/out so callers cannot
+# corrupt the shared entry.  The disk cache remains the source of truth across
+# processes/workers; this is a bounded, best-effort speedup only.
+MAX_MEMORY_ENTRIES = 256
+_MEMORY = collections.OrderedDict()
+_MEMORY_LOCK = threading.RLock()
+
+
+def clear_memory():
+    """Drop the in-process layer (tests/benchmarks; disk cache is untouched)."""
+    with _MEMORY_LOCK:
+        _MEMORY.clear()
+
+
+def _memory_get(key):
+    with _MEMORY_LOCK:
+        record = _MEMORY.get(key)
+        if record is None:
+            return None
+        _MEMORY.move_to_end(key)
+        return record
+
+
+def _memory_put(key, timestamp, value):
+    with _MEMORY_LOCK:
+        _MEMORY[key] = (timestamp, copy.deepcopy(value))
+        _MEMORY.move_to_end(key)
+        while len(_MEMORY) > MAX_MEMORY_ENTRIES:
+            _MEMORY.popitem(last=False)
 
 
 class _Missing(object):
@@ -119,21 +153,35 @@ def _read(key):
     return timestamp, payload["value"]
 
 
+def _fresh(timestamp, ttl, now):
+    age = now - timestamp
+    if ttl is None:
+        return True
+    return ttl > 0 and 0 <= age <= ttl
+
+
 def get(key, ttl, now=None):
     """Return a cached value, or :data:`MISSING` when absent/stale.
 
     ``ttl`` may be ``None`` for an entry that never expires.  Any disk or
     decode problem is logged at debug level and reported as a miss.
     """
+    now = time.time() if now is None else now
+    record = _memory_get(key)
+    if record is not None:
+        timestamp, value = record
+        if _fresh(timestamp, ttl, now):
+            return copy.deepcopy(value)
+        with _MEMORY_LOCK:
+            _MEMORY.pop(key, None)
     result = _read(key)
     if result is MISSING:
         return MISSING
     timestamp, value = result
-    now = time.time() if now is None else now
-    age = now - timestamp
-    if ttl is not None and (ttl <= 0 or age < 0 or age > ttl):
+    if not _fresh(timestamp, ttl, now):
         return MISSING
-    return value
+    _memory_put(key, timestamp, value)
+    return copy.deepcopy(value)
 
 
 def put(key, value):
@@ -156,6 +204,7 @@ def put(key, value):
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
+        _memory_put(key, time.time(), value)
         return True
     except (OSError, TypeError, ValueError) as exc:
         _log("could not write %s (%s)" % (key, exc))

@@ -63,6 +63,10 @@ The sections behind the groups:
   automatically. See [`docs/DOWNLOADS.md`](docs/DOWNLOADS.md).
 
 
+Performance notes and the 1.6.18 before/after numbers live in
+[`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) (warm API p95 ≤3.2 ms, Moxser warm
+~1 ms, JSON gzip). Benchmarks: `scripts/bench_api.py`, `scripts/bench_ui.py`.
+
 Downloads, section loads and Surprise Me share the Kodi spinning-head art
 (`static/art/spinner/`, 10 frames): a progress panel with filename, lime bar,
 %, MB done/total, ETA and Cancel; a topbar loading pill that only appears after

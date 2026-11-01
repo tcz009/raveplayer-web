@@ -34,6 +34,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import urllib.parse
 
+import gzip
+
 from flask import Flask, Response, jsonify, render_template, request, send_file, stream_with_context
 from werkzeug.exceptions import HTTPException
 
@@ -43,6 +45,34 @@ from core import (archive, cache, dnbradio, downloads, favourites, feeds, getdar
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.config["JSON_SORT_KEYS"] = False
+
+
+@app.after_request
+def _gzip_json(response):
+    """Compress JSON for browsers that accept gzip (cold payloads get smaller).
+
+    Streaming responses (the download NDJSON panel) are left alone so progress
+    lines are not buffered by a compressor; tiny bodies are not worth it.
+    """
+    try:
+        if request.method == "HEAD" or response.direct_passthrough or response.is_streamed:
+            return response
+        if response.headers.get("Content-Encoding"):
+            return response
+        if response.status_code != 200 or response.mimetype != "application/json":
+            return response
+        if "gzip" not in (request.headers.get("Accept-Encoding") or "").lower():
+            return response
+        body = response.get_data()
+        if len(body) < 1024:
+            return response
+        response.set_data(gzip.compress(body, 6))
+        response.headers["Content-Encoding"] = "gzip"
+        response.headers["Content-Length"] = str(len(response.get_data()))
+        response.headers.add("Vary", "Accept-Encoding")
+    except Exception:  # noqa: BLE001 - compression is optional
+        pass
+    return response
 
 
 def _read_version():
@@ -2139,11 +2169,12 @@ def api_downloads():
     """Local Downloads library (server-side copy under RAVEWEB_DATA)."""
     entries = downloads.list_entries(DATA_DIR)
     items = [_download_item(entry) for entry in entries]
+    used = sum(entry["size"] for entry in entries)
     return jsonify({
         "title": "Downloads",
         "items": items,
         "storage": {
-            "used": downloads.used(DATA_DIR),
+            "used": used,
             "limit": DOWNLOAD_MAX_TOTAL,
             "items": len(items),
             "max_items": DOWNLOAD_MAX_ITEMS,

@@ -44,6 +44,19 @@ _DATE_IN_TITLE = re.compile(r"\(([0-9]{1,2}\s+[A-Za-z]+\s+[0-9]{4})\)")
 _THROTTLE = {"at": 0.0}
 _THROTTLE_LOCK = threading.Lock()
 
+# In-process copy of the parsed sitemap entries.  Without it every section
+# load re-read the cached sitemaps, re-parsed 500+ URLs and still paid the
+# 1 req/s throttle; this is the difference between a warm /api/moxser costing
+# ~3 s and ~0.2 ms.  The TTL is short and the disk/fetch caches remain beneath.
+ENTRIES_TTL = 600
+_ENTRIES = {"at": 0.0, "entries": [], "complete": False}
+_ENTRIES_LOCK = threading.Lock()
+
+
+def clear_memory():
+    with _ENTRIES_LOCK:
+        _ENTRIES.update({"at": 0.0, "entries": [], "complete": False})
+
 
 def _throttle():
     """Space out Moxser requests to <= 1/s."""
@@ -134,27 +147,77 @@ def _sitemap_entries(body):
     return entries
 
 
-def mixes(limit=48):
-    """Newest mixes first, from the mixes sitemaps.  Fail-soft: [] on error."""
-    try:
-        limit = max(1, min(int(limit), 200))
-    except (TypeError, ValueError):
-        limit = 48
+def _load_entries(limit, sitemap_urls=None):
+    """Fetch mixes sitemaps until ``limit`` entries exist (or all are read)."""
+    urls = sitemap_urls if sitemap_urls is not None else _sitemap_urls()
     entries = []
-    try:
-        for sitemap in _sitemap_urls():
-            body = _get(sitemap, SITEMAP_TTL)
-            if body:
-                entries.extend(_sitemap_entries(body))
-    except Exception:  # noqa: BLE001 - one dead source must not break the section
-        return []
+    complete = True
+    for position, sitemap in enumerate(urls):
+        body = _get(sitemap, SITEMAP_TTL)
+        if body:
+            entries.extend(_sitemap_entries(body))
+        if len(entries) >= limit:
+            complete = position == len(urls) - 1
+            break
     deduped = {}
     for entry in entries:
         deduped.setdefault(entry["url"], entry)
     ordered = sorted(deduped.values(),
                      key=lambda entry: (entry.get("lastmod") or "", entry.get("slug") or ""),
                      reverse=True)
-    return ordered[:limit]
+    return ordered, complete
+
+
+def mixes(limit=48):
+    """Newest mixes first, from the mixes sitemaps.  Fail-soft: [] on error."""
+    try:
+        limit = max(1, min(int(limit), 200))
+    except (TypeError, ValueError):
+        limit = 48
+    try:
+        now = time.monotonic()
+        with _ENTRIES_LOCK:
+            cached = list(_ENTRIES["entries"])
+            fresh = (now - _ENTRIES["at"]) < ENTRIES_TTL
+            complete = _ENTRIES["complete"]
+        if fresh and (complete or len(cached) >= limit):
+            return cached[:limit]
+        # 48 rows always come from the first mixes sitemap (500 URLs); the
+        # second page is only fetched when the caller needs more than it holds.
+        urls = _sitemap_urls()
+        ordered, complete = _load_entries(limit, urls)
+        if not ordered and not complete:
+            return []
+        with _ENTRIES_LOCK:
+            known = {entry["url"]: entry for entry in cached}
+            known.update({entry["url"]: entry for entry in ordered})
+            merged = sorted(known.values(),
+                            key=lambda entry: (entry.get("lastmod") or "",
+                                               entry.get("slug") or ""),
+                            reverse=True)
+            _ENTRIES.update({"at": time.monotonic(), "entries": merged,
+                             "complete": complete})
+        return merged[:limit]
+    except Exception:  # noqa: BLE001 - one dead source must not break the section
+        return []
+
+
+def _all_entries():
+    """Load every mixes sitemap (used by detail fallback for older mixes)."""
+    urls = _sitemap_urls()
+    ordered, _complete = _load_entries(10 ** 9, urls)
+    with _ENTRIES_LOCK:
+        known = {entry["url"]: entry for entry in _ENTRIES["entries"]}
+        known.update({entry["url"]: entry for entry in ordered})
+        _ENTRIES.update({
+            "at": time.monotonic(),
+            "entries": sorted(known.values(),
+                              key=lambda entry: (entry.get("lastmod") or "",
+                                                 entry.get("slug") or ""),
+                              reverse=True),
+            "complete": True,
+        })
+        return list(_ENTRIES["entries"])
 
 
 def detail(slug):
@@ -164,6 +227,14 @@ def detail(slug):
         return None
     try:
         entry = next((item for item in mixes(limit=200) if item["slug"] == wanted), None)
+        if not entry:
+            # Older mixes live on later sitemap pages; load them only when a
+            # detail lookup misses (keeps the list endpoint cheap).
+            with _ENTRIES_LOCK:
+                complete = _ENTRIES["complete"]
+            if not complete:
+                entry = next((item for item in _all_entries()
+                              if item["slug"] == wanted), None)
         if not entry:
             return None
         body = _get(entry["url"], PAGE_TTL)

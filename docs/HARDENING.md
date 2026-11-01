@@ -1,10 +1,10 @@
-# Hardening pass — Rave Player web (`raveplayer-web` 1.6.17)
+# Hardening pass — Rave Player web (`raveplayer-web` 1.6.18)
 
-**Branch:** `feature/1.6.17` (not pushed) · **Base:** `main` @ `645f22a` (1.6.16)
+**Branch:** `feature/1.6.18` (not pushed) · **Base:** `main` @ `3fbd488` (1.6.17)
 **Scope:** `app.py`, `core/`, `static/app.js`, `scripts/deploy.sh`, `docs/`, `test/`,
 `test_e2e/`, `VERSION`. No UX or content changes. No `data/` or advert files touched.
 
-**Result:** `205 → 302 passed` (`.venv/bin/python -m pytest -q test`), all
+**Result:** `205 → 306 passed` (`.venv/bin/python -m pytest -q test`), all
 offline; browser suite `test_e2e` **17 passed** (system Chrome, Playwright 1.60);
 `node --check static/app.js` and `sh -n scripts/deploy.sh` clean.
 
@@ -12,6 +12,19 @@ Inputs folded in: the internal task-22 brief and the adversarial pre-review
 (`docs/ADVERSARIAL-REVIEW.md`, web findings W1–W8). The review's "what is solid" list
 (stream SSRF guard, SPA escaping, CSP, content-type gate, atomic writes) was kept intact.
 
+
+## 1.6.18 — performance + cleanup pass
+
+No security-surface change; numbers/method in `docs/PERFORMANCE.md`:
+
+- In-process bounded cache (`core/cache.py`) ahead of the disk cache; Moxser
+  parsed-sitemap memory cache and lazy second sitemap; favourites no longer
+  block the first section; downloads list reads the index once.
+- API JSON ≥1 KiB is gzip-compressed when accepted (`Vary: Accept-Encoding`;
+  NDJSON progress streams excluded). Payloads cut ~90–93%.
+- Removed dead `.embed-placeholder` CSS, unused `railGroup()` and three unused
+  colour tokens.
+- Tests: 306 offline (+4 cache/gzip) and 17 e2e.
 
 ## 1.6.17 — spinner pass (progress panel, loading pill, Surprise reveal)
 
@@ -361,10 +374,10 @@ that the module layout matches.
 
 ```sh
 cd "Rave Player"
-.venv/bin/python -m pytest -q test        # 302 passed
+.venv/bin/python -m pytest -q test        # 306 passed
 node --check static/app.js
 sh -n scripts/deploy.sh
-git diff --stat main..feature/1.6.17
+git diff --stat main..feature/1.6.18
 ```
 
 ## Post-merge fix — deploy.sh heredoc escaping (found on first real deploy)
