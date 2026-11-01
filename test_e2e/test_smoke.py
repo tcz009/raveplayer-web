@@ -558,3 +558,36 @@ def test_reduced_motion_skips_spinner_animation_and_surprise_delay(browser_page)
     assert pill_animation == "none"
     page.wait_for_function("() => document.querySelector('#title').textContent === 'Curated Gems'")
     page.wait_for_selector("#loading-pill", state="hidden", timeout=4000)
+
+def test_pwa_installs_and_any_same_origin_link_opens_the_app(browser_page, live_server):
+    """1.6.19: manifest identity + SW navigation fallback for home-screen use."""
+    page = browser_page.page
+    manifest = page.evaluate(
+        "async () => (await (await fetch('/manifest.webmanifest')).json())")
+    assert manifest["id"] == "/"
+    assert manifest["start_url"] == "/"
+    assert manifest["scope"] == "/"
+    assert manifest["display"] == "standalone"
+    assert page.evaluate(
+        "() => document.querySelector('meta[name=\"apple-mobile-web-app-capable\"]').content") == "yes"
+
+    assert page.evaluate("() => 'serviceWorker' in navigator && window.isSecureContext")
+    scope = page.evaluate(
+        "async () => { const reg = await navigator.serviceWorker.ready; return reg.scope; }")
+    assert scope.rstrip("/") == live_server.url.rstrip("/")
+
+    # The worker must be controlling the page before we test the fallback.
+    page.reload(wait_until="domcontentloaded")
+    page.wait_for_function(
+        "() => navigator.serviceWorker.controller !== null", timeout=15000)
+
+    # A stale/foreign-looking same-origin link (what an old bookmark may hold)
+    # still boots the app shell instead of a server 404 or a stale page.
+    page.goto(live_server.url + "/stale-ad-or-any-link", wait_until="domcontentloaded")
+    page.wait_for_selector("#nav button", timeout=15000)
+    assert page.evaluate("location.pathname") == "/stale-ad-or-any-link"
+    assert page.locator("#title").is_visible()
+
+    # Live data is never served from the worker cache.
+    assert page.evaluate("fetch('/api/menu').then((response) => response.status)") == 200
+    assert browser_page.page_errors == []

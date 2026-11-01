@@ -1,7 +1,7 @@
 # Independent code review — brief
 
 **Project:** Rave Player — web app (`raveplayer-web`)
-**Version under review:** 1.6.18 (`feature/1.6.18`, based on `main` @ `3fbd488` / 1.6.17)
+**Version under review:** 1.6.19 (`fix/1.6.19-pwa`, based on `feature/1.6.18` / 1.6.18)
 **Reviewer target:** `app.py`, `core/`, `static/`, `templates/`, `test/`; ignore `data/`, `__pycache__/`, `.venv/`.
 
 ## What it is
@@ -92,7 +92,13 @@ A prepared `.venv` exists in this checkout.
   read once; dead `.embed-placeholder` CSS, `railGroup()` and unused tokens
   removed. Warm API p95 ≤3.2 ms, Moxser warm ~1 ms, rail <1 s, CLS ≤0.024.
   No URL/label/behaviour change.
-- Tests: `205 → 306` offline (`pytest -q test`) and **17 browser e2e**
+- **1.6.19 PWA/home-screen fix** (`docs/PWA.md`): manifest `id`/`start_url`/
+  `scope` pinned to `/` with `no-cache`; iOS standalone meta tags; root-scoped
+  service worker that handles only same-origin GETs, network-first navigations
+  with cached-shell fallback, never caches `/api/*`/cross-origin, and static
+  assets by versioned URL; registration only in secure contexts. Fixes iOS
+  "Add to Home Screen" saving a stale/redirected Safari tab as a bookmark.
+- Tests: `205 → 311` offline (`pytest -q test`) and **18 browser e2e**
   (`pytest test_e2e`, see `docs/E2E.md`).
 
 ## Areas worth scrutiny

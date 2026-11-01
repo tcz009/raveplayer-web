@@ -319,7 +319,17 @@ search-submit paste wiring, the deploy script's version pinning/labels
 (parsed with `sh -n`), and static checks that every element id used by
 `app.js` exists in the template and that the JavaScript parses.
 
-### Browser smoke tests (17 cases)
+### Install on a phone (PWA)
+
+The web app is installable: Safari → Share → **Add to Home Screen**. The
+manifest pins `id`/`start_url`/`scope` to `/`, the iOS standalone meta tags are
+present, and a root-scoped service worker (secure origins only) falls back to
+the cached app shell for any same-origin navigation, never caching
+`/api/*` or cross-origin requests. Existing home-screen icons are old Safari
+bookmarks — remove and re-add once, as described in [`docs/PWA.md`](docs/PWA.md)
+(which also covers the plain-HTTP LAN limitation and what Cockney Player needs).
+
+### Browser smoke tests (18 cases)
 
 `test_e2e/` drives the real app in headless Chromium through Playwright. It
 covers what the offline suite cannot: boot with the grouped 9-button rail and

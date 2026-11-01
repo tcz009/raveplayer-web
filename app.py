@@ -1838,16 +1838,46 @@ def index():
 
 @app.get("/manifest.webmanifest")
 def manifest():
+    """Installable PWA identity: `id`/`start_url`/`scope` are all the root.
+
+    Without an explicit `id` and the apple-mobile-web-app meta tags in the
+    template, iOS Safari's "Add to Home Screen" falls back to saving the
+    current Safari tab as a bookmark — which is how a redirected ad page could
+    become the home-screen target.
+    """
     return jsonify({
+        "id": "/",
         "name": "Rave Player",
         "short_name": "Rave Player",
+        "description": ("Jungle, hardcore and rave tape packs, live radio and "
+                        "podcasts from the Internet Archive."),
         "start_url": "/",
         "scope": "/",
         "display": "standalone",
-        "background_color": "#0a0a0f",
-        "theme_color": "#e8ff00",
-        "icons": [{"src": ART + "icon.png", "sizes": "512x512", "type": "image/png"}],
-    }), 200, {"Content-Type": "application/manifest+json"}
+        "display_override": ["standalone", "minimal-ui"],
+        "orientation": "any",
+        "background_color": "#07070b",
+        "theme_color": "#0a0a0f",
+        "lang": "en-GB",
+        "icons": [
+            {"src": ART + "icon-180.png", "sizes": "180x180", "type": "image/png"},
+            {"src": ART + "icon.png", "sizes": "512x512", "type": "image/png",
+             "purpose": "any"},
+        ],
+    }), 200, {"Content-Type": "application/manifest+json",
+              "Cache-Control": "no-cache"}
+
+
+@app.get("/sw.js")
+def service_worker():
+    """Serve the app-shell service worker at the root so scope is "/"."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "static", "sw.js")
+    response = send_file(path, mimetype="application/javascript",
+                         conditional=False, max_age=0)
+    response.headers["Service-Worker-Allowed"] = "/"
+    response.headers["Cache-Control"] = "no-cache"
+    return response
 
 
 # --------------------------------------------------------------------------- headers / errors

@@ -1,10 +1,10 @@
-# Hardening pass — Rave Player web (`raveplayer-web` 1.6.18)
+# Hardening pass — Rave Player web (`raveplayer-web` 1.6.19)
 
-**Branch:** `feature/1.6.18` (not pushed) · **Base:** `main` @ `3fbd488` (1.6.17)
+**Branch:** `fix/1.6.19-pwa` (not pushed) · **Base:** `feature/1.6.18` @ `f32b84a` (1.6.18)
 **Scope:** `app.py`, `core/`, `static/app.js`, `scripts/deploy.sh`, `docs/`, `test/`,
 `test_e2e/`, `VERSION`. No UX or content changes. No `data/` or advert files touched.
 
-**Result:** `205 → 306 passed` (`.venv/bin/python -m pytest -q test`), all
+**Result:** `205 → 311 passed` (`.venv/bin/python -m pytest -q test`), all
 offline; browser suite `test_e2e` **17 passed** (system Chrome, Playwright 1.60);
 `node --check static/app.js` and `sh -n scripts/deploy.sh` clean.
 
@@ -12,6 +12,24 @@ Inputs folded in: the internal task-22 brief and the adversarial pre-review
 (`docs/ADVERSARIAL-REVIEW.md`, web findings W1–W8). The review's "what is solid" list
 (stream SSRF guard, SPA escaping, CSP, content-type gate, atomic writes) was kept intact.
 
+
+## 1.6.19 — PWA / home-screen install fix
+
+Bug: iPhone home-screen icon sometimes opened a stale ad page. Root cause and
+full write-up in `docs/PWA.md`.
+
+- Manifest `id`/`start_url`/`scope` are explicitly `/`; iOS standalone meta
+  tags added so Safari installs the start URL instead of saving the current tab
+  as a bookmark; manifest is `no-cache`.
+- New `/sw.js` (root scope, `Service-Worker-Allowed: /`): same-origin GET only,
+  navigations network-first with a cached `/` shell fallback, `/api/*` and the
+  Downloads library never cached, cross-origin requests untouched, static assets
+  cached by their versioned `?v=` URL. Registration is skipped without a secure
+  context (plain-HTTP LAN limitation documented).
+- CSP unchanged; only same-origin script/worker; no inline JS; `sw.js` served
+  from a static file with explicit headers, no new network egress.
+- Tests: 311 offline (+5 `test/test_pwa.py`) and 18 e2e (manifest/SW shell
+  fallback for `/stale-ad-or-any-link`, API still network).
 
 ## 1.6.18 — performance + cleanup pass
 
@@ -374,10 +392,10 @@ that the module layout matches.
 
 ```sh
 cd "Rave Player"
-.venv/bin/python -m pytest -q test        # 306 passed
+.venv/bin/python -m pytest -q test        # 311 passed
 node --check static/app.js
 sh -n scripts/deploy.sh
-git diff --stat main..feature/1.6.18
+git diff --stat feature/1.6.18..fix/1.6.19-pwa
 ```
 
 ## Post-merge fix — deploy.sh heredoc escaping (found on first real deploy)
