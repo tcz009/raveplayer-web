@@ -7,17 +7,25 @@ directly. New feeds are added as data in resources/feeds.json.
 """
 
 import json
+import math
 import os
 import re
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from . import cache, fetch as http
+from . import cache, fetch as http, kodi
 
 ITUNES = "{http://www.itunes.com/dtds/podcast-1.0.0}"
 MEDIA = "{http://search.yahoo.com/mrss/}"
 ATOM = "{http://www.w3.org/2005/Atom}"
 
 FEED_TTL = 900
+# /api/podcasts only needs episode counts.  A cold cache used to fetch every
+# feed one after another (5 x 25 s) on the request thread; counts are
+# independent, so run them in a small bounded pool with a shorter per-feed
+# timeout.  Worst case is now ceil(feeds / COUNT_WORKERS) x COUNT_TIMEOUT.
+COUNT_WORKERS = 4
+COUNT_TIMEOUT = 12
 
 
 def registry():
@@ -105,13 +113,34 @@ def _duration(item):
             seconds = seconds * 60 + part
         return seconds
     try:
-        return int(float(raw))
+        # Third-party feeds: "inf"/"1e400"/"nan" must not raise OverflowError
+        # (mirrors the Kodi add-on's duration parsing fix).
+        seconds = float(raw)
     except (TypeError, ValueError):
+        return None
+    if not math.isfinite(seconds):
+        return None
+    try:
+        return int(seconds)
+    except (OverflowError, ValueError):
         return None
 
 
+_ENTITY_RE = re.compile(r"<!ENTITY", re.IGNORECASE)
+
+
 def parse(xml_text):
-    """Parse an RSS/Atom document into episode dicts (no I/O)."""
+    """Parse an RSS/Atom document into episode dicts (no I/O).
+
+    Entity declarations are refused before parsing: ElementTree expands
+    internal entities, so a hostile feed could otherwise do a billion-laughs
+    memory bomb on the request thread (mirrors the add-on's K5 fix).
+    """
+    if not isinstance(xml_text, str):
+        return []
+    if _ENTITY_RE.search(xml_text[:65536]):
+        kodi.log("refusing feed with entity declarations", level=30)
+        return []
     try:
         root = ET.fromstring(xml_text)
     except (ET.ParseError, ValueError, TypeError):
@@ -146,7 +175,7 @@ def episodes(feed_id, limit=60):
 
 def _count_from_body(entry):
     """Parse one feed and return its episode count, or None on a fetch miss."""
-    body = http.fetch(entry["url"], timeout=25, ttl=FEED_TTL)
+    body = http.fetch(entry["url"], timeout=COUNT_TIMEOUT, ttl=FEED_TTL)
     if not body:
         return None
     return len(parse(body))
@@ -168,3 +197,35 @@ def count(feed_id):
         "feeds:count:%s" % entry["url"], FEED_TTL, lambda: _count_from_body(entry)
     )
     return cached if isinstance(cached, int) and cached >= 0 else 0
+
+def counts(feed_ids):
+    """Return ``{feed_id: count}``, fetching independent feeds in parallel.
+
+    Kept separate from :func:`count` so ``/api/podcasts`` can bound its cold
+    latency: the feeds are independent, and a dead feed contributes 0 instead
+    of adding its timeout to the next one.  Falls back to sequential counts if
+    the worker threads cannot be started.
+    """
+    unique = []
+    for feed_id in feed_ids or []:
+        if isinstance(feed_id, str) and feed_id not in unique:
+            unique.append(feed_id)
+    if not unique:
+        return {}
+    results = {}
+    try:
+        with ThreadPoolExecutor(max_workers=min(COUNT_WORKERS, len(unique))) as pool:
+            futures = {pool.submit(count, feed_id): feed_id for feed_id in unique}
+            for future in as_completed(futures):
+                feed_id = futures[future]
+                try:
+                    value = future.result()
+                except Exception as exc:  # one broken feed must not hide the rest
+                    kodi.log("feed count failed for %s (%s)" % (feed_id, exc), level=30)
+                    value = 0
+                results[feed_id] = value if isinstance(value, int) and value >= 0 else 0
+    except RuntimeError:  # pragma: no cover - thread pool unavailable
+        return {feed_id: count(feed_id) for feed_id in unique}
+    for feed_id in unique:
+        results.setdefault(feed_id, 0)
+    return results

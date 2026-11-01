@@ -414,3 +414,43 @@ def test_stream_slot_is_released_after_success(web, upstream):
     upstream([FakeResponse(headers={"Content-Type": "audio/mpeg"}, chunks=[b"x"])])
     for _ in range(app_module.MAX_STREAMS + 1):
         assert stream(web, "https://example.com/a.mp3").status_code == 200
+
+# --------------------------------------------------------------------------- hardening (W1/W8)
+
+
+def test_stream_route_does_not_send_a_wildcard_cors_header(web, upstream):
+    """W1: audio is same-origin through this route; a wildcard ACAO only ever
+    let other web pages read the proxy's responses."""
+    upstream([FakeResponse(headers={"Content-Type": "audio/mpeg"}, chunks=[b"abc"])])
+    response = stream(web, "https://example.com/a.mp3")
+    assert response.status_code == 200
+    assert "Access-Control-Allow-Origin" not in response.headers
+    assert response.headers["Cross-Origin-Resource-Policy"] == "same-origin"
+
+
+def test_stream_host_allowlist_is_optional_and_scoped(web, dns, monkeypatch):
+    """W1: RAVEWEB_STREAM_HOSTS pins the proxy when an operator opts in."""
+    import app as app_module
+
+    assert app_module.STREAM_HOST_ALLOWLIST == (), "default must keep live radio working"
+    monkeypatch.setattr(app_module, "STREAM_HOST_ALLOWLIST", ("archive.org", "rinse.fm"))
+    assert app_module._host_allowed("https://ia801.us.archive.org/x.mp3") is True
+    assert app_module._host_allowed("https://admin.stream.rinse.fm/proxy/kool/stream") is True
+    assert app_module._host_allowed("https://example.com/x.mp3") is False
+    # Rejected before any DNS lookup happens.
+    assert app_module._parse_target("https://archive.org/x.mp3")[1] == "archive.org"
+
+
+def test_truncated_stream_does_not_carry_a_stale_content_length(web, upstream):
+    """W8: generate() can stop early (stall/byte cap/deadline); forwarding the
+    upstream Content-Length would leave clients waiting for missing bytes."""
+    upstream([FakeResponse(
+        status=200,
+        headers={"Content-Type": "audio/mpeg", "Content-Length": "999999"},
+        chunks=[b"abc"],
+        read_error=socket.timeout("stalled"),
+    )])
+    response = stream(web, "https://example.com/a.mp3")
+    assert response.status_code == 200
+    assert response.data == b"abc"
+    assert "Content-Length" not in response.headers

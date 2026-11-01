@@ -22,6 +22,7 @@ import datetime
 import http.client
 import ipaddress
 import json
+import math
 import os
 import re
 import socket
@@ -29,6 +30,7 @@ import ssl
 import tempfile
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import urllib.parse
 
 from flask import Flask, Response, jsonify, render_template, request, stream_with_context
@@ -65,6 +67,15 @@ except OSError as exc:  # pragma: no cover - depends on the host
     app.logger.warning("data dir %s is not writable at startup: %s", DATA_DIR, exc)
 
 ALLOW_PRIVATE = os.environ.get("RAVEWEB_ALLOW_PRIVATE", "") == "1"
+# Optional extra restriction for /api/stream: a comma-separated list of host
+# suffixes. Empty (the default) keeps live radio working — the directory lists
+# stations on arbitrary public hosts — while an operator can pin the proxy to
+# the hosts the app actually uses (archive.org, rinse.fm, podcast CDNs, ...).
+STREAM_HOST_ALLOWLIST = tuple(
+    host.strip().lower().lstrip(".")
+    for host in os.environ.get("RAVEWEB_STREAM_HOSTS", "").split(",")
+    if host.strip()
+)
 USER_AGENT = "RavePlayer-Web/1.0 (+https://github.com/tcz009/plugin.audio.raveplayer)"
 ART = "/static/art/"
 CSP = (
@@ -210,8 +221,14 @@ def _year_label(doc):
 
 def _human_duration(value):
     try:
-        seconds = int(float(value))
+        number = float(value)
     except (TypeError, ValueError):
+        return ""
+    if not math.isfinite(number):
+        return ""
+    try:
+        seconds = int(number)
+    except (OverflowError, ValueError):  # pragma: no cover - covered by isfinite
         return ""
     if seconds < 0:
         return ""
@@ -243,6 +260,44 @@ def _next_link(base, page, total):
         return None
     separator = "&" if "?" in base else "?"
     return "%s%spage=%d" % (base, separator, page + 1)
+
+
+# Independent provider calls (archive widen, SoundCloud, Mixcloud) run together
+# so a cold /api/search costs the slowest, not their sum.
+SEARCH_WORKERS = 3
+
+
+def _gather(calls):
+    """Run zero-argument callables concurrently; failures come back as None.
+
+    Kept tiny on purpose: the caller knows which results it needs and merges
+    them in the old order, so output stays identical to the sequential code.
+    """
+    if not calls:
+        return []
+    results = [None] * len(calls)
+    if len(calls) == 1:
+        try:
+            results[0] = calls[0]()
+        except Exception:
+            results[0] = None
+        return results
+    try:
+        with ThreadPoolExecutor(max_workers=min(SEARCH_WORKERS, len(calls))) as pool:
+            futures = {pool.submit(call): index for index, call in enumerate(calls)}
+            for future in as_completed(futures):
+                index = futures[future]
+                try:
+                    results[index] = future.result()
+                except Exception:
+                    results[index] = None
+    except RuntimeError:  # pragma: no cover - thread pool unavailable
+        for index, call in enumerate(calls):
+            try:
+                results[index] = call()
+            except Exception:
+                results[index] = None
+    return results
 
 
 def _pack_items(docs):
@@ -576,17 +631,18 @@ def api_item(identifier):
 
 @app.get("/api/podcasts")
 def api_podcasts():
-    items = []
-    for entry in feeds.registry():
-        try:
-            # Cached body + count: this list only needs the number, not the
-            # full 200-episode document for every feed on every load.
-            count = feeds.count(entry["id"])
-        except Exception:
-            count = 0
-        items.append(_folder(entry["name"], "%d episodes" % count,
-                             "/api/podcast/%s" % urllib.parse.quote(entry["id"]),
-                             ART + "radio.png"))
+    entries = feeds.registry()
+    # Cached body + count: this list only needs the number, not the full
+    # 200-episode document for every feed on every load.  Counts are
+    # independent, so they are fetched in a bounded pool rather than one
+    # after another (a cold /api/podcasts used to add five feed timeouts).
+    counts = feeds.counts([entry["id"] for entry in entries])
+    items = [
+        _folder(entry["name"], "%d episodes" % counts.get(entry["id"], 0),
+                "/api/podcast/%s" % urllib.parse.quote(entry["id"]),
+                ART + "radio.png")
+        for entry in entries
+    ]
     return jsonify({"title": "Podcasts & Mixes", "items": items})
 
 
@@ -734,6 +790,28 @@ def api_legacy_toronto():
     return jsonify({"title": "Toronto Rave Mixtape Archive", "items": items})
 
 
+def _embed_items(entries, provider, art):
+    """Turn provider search results into embed rows (host validated upstream)."""
+    items = []
+    for entry in entries or []:
+        item = _track(entry["title"], "%s · %s" % (provider, entry["user"]), None,
+                      entry.get("thumb") or art)
+        item["embed"] = entry["embed"]
+        item["external"] = entry["url"]
+        items.append(item)
+    return items
+
+
+def _search_soundcloud(query):
+    return _embed_items(soundcloud.search(query, limit=10), "SoundCloud",
+                        ART + "pirate.png")
+
+
+def _search_mixcloud(query):
+    return _embed_items(mixcloud.search(query, limit=12), "Mixcloud",
+                        ART + "djez.png")
+
+
 @app.get("/api/search")
 def api_search():
     query = _clean_text(request.args.get("q", ""), MAX_QUERY)
@@ -742,35 +820,36 @@ def api_search():
     page = _page_arg()
     docs, total = archive.search("%s AND %s" % (query, latest.RAVE_COLLECTION),
                                  page=page, rows=ROWS)
-    widened = False
+    page_one = page == 1
     # Full-text Archive search is noisy; widen to all audio only on the first
-    # page when the curated collection has almost nothing.
-    if total < 10 and page == 1:
-        wider, _ = archive.search("%s AND mediatype:audio" % query, rows=ROWS)
+    # page when the curated collection has almost nothing.  The widen query,
+    # SoundCloud and Mixcloud are independent, so they run in the bounded pool
+    # (a cold search used to pay each timeout one after another).
+    widen_needed = page_one and total < 10
+    calls, names = [], []
+    if page_one and soundcloud.configured():
+        calls.append(lambda: _search_soundcloud(query))
+        names.append("soundcloud")
+    if page_one:
+        calls.append(lambda: _search_mixcloud(query))
+        names.append("mixcloud")
+    if widen_needed:
+        calls.append(lambda: archive.search("%s AND mediatype:audio" % query,
+                                            rows=ROWS)[0])
+        names.append("widen")
+    results = dict(zip(names, _gather(calls)))
+    if widen_needed:
         seen = {doc.get("identifier") for doc in docs if isinstance(doc, dict)}
-        docs += [doc for doc in wider
+        docs += [doc for doc in (results.get("widen") or [])
                  if isinstance(doc, dict) and doc.get("identifier") not in seen]
-        widened = True
     items = _pack_items(docs)
-    # Mixcloud sets live only behind their widget, but they belong in a search
-    # for a DJ or a club night — append them as embed items on page one.
-    if page == 1 and soundcloud.configured():
-        for entry in soundcloud.search(query, limit=10):
-            item = _track(entry["title"], "SoundCloud · %s" % entry["user"], None,
-                          entry.get("thumb") or ART + "pirate.png")
-            item["embed"] = entry["embed"]
-            item["external"] = entry["url"]
-            items.append(item)
-    if page == 1:
-        for entry in mixcloud.search(query, limit=12):
-            item = _track(entry["title"], "Mixcloud · %s" % entry["user"], None,
-                          entry.get("thumb") or ART + "djez.png")
-            item["embed"] = entry["embed"]
-            item["external"] = entry["url"]
-            items.append(item)
+    # Mixcloud/SoundCloud sets live only behind their widget, but they belong in
+    # a search for a DJ or a club night — append them as embed items on page one.
+    items += list(results.get("soundcloud") or [])
+    items += list(results.get("mixcloud") or [])
     payload = {"title": "Search: %s" % query, "items": items}
-    nxt = None if widened else _next_link("/api/search?q=%s" % urllib.parse.quote(query),
-                                          page, total)
+    nxt = None if widen_needed else _next_link(
+        "/api/search?q=%s" % urllib.parse.quote(query), page, total)
     if nxt:
         payload["next"] = nxt
     return jsonify(payload)
@@ -947,6 +1026,20 @@ def _request_target(url):
     return path + ("?" + query if query else "")
 
 
+def _stream_host_allowed(host):
+    """True when /api/stream may fetch ``host``.
+
+    The default is to allow any public host (live radio streams live on
+    arbitrary hosts).  RAVEWEB_STREAM_HOSTS turns /api/stream into a
+    destination-scoped proxy instead of an open one.
+    """
+    if not STREAM_HOST_ALLOWLIST:
+        return True
+    host = str(host or "").lower().rstrip(".")
+    return any(host == allowed or host.endswith("." + allowed)
+               for allowed in STREAM_HOST_ALLOWLIST)
+
+
 def _check_port(port):
     if port < 1 or port > 65535:
         raise BlockedURL("bad port")
@@ -988,6 +1081,8 @@ def _parse_target(url):
             encoded = host.encode("idna").decode("ascii")
         except (UnicodeError, UnicodeDecodeError):
             raise BlockedURL("bad host")
+    if not _stream_host_allowed(encoded):
+        raise BlockedURL("host not allow-listed")
     return parsed.scheme, encoded, port
 
 
@@ -1226,7 +1321,9 @@ def api_stream():
     headers_out.setdefault("Content-Type", content_type or "audio/mpeg")
     headers_out.setdefault("Cache-Control", "no-store")
     headers_out["Cache-Control"] = "no-store"
-    headers_out["Access-Control-Allow-Origin"] = "*"
+    # Audio is same-origin through this route, so a wildcard CORS header only
+    # let other web pages read the proxy's responses; CORP closes that too.
+    headers_out["Cross-Origin-Resource-Policy"] = "same-origin"
     headers_out["X-Content-Type-Options"] = "nosniff"
 
     def generate():
@@ -1263,8 +1360,12 @@ def api_stream():
 
 
 def _passthrough_headers(resp):
+    # Content-Length is deliberately not forwarded: generate() can stop early
+    # (byte cap, deadline, upstream stall), and a stale length makes clients
+    # wait for bytes that never arrive instead of retrying.  The response is
+    # chunked, which clients handle for both 200 and 206 bodies.
     headers = {}
-    for name in ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges",
+    for name in ("Content-Type", "Content-Range", "Accept-Ranges",
                  "Last-Modified", "ETag"):
         value = resp.getheader(name)
         if value:
@@ -1380,11 +1481,18 @@ def _http_error(exc):
     return exc
 
 
+PRUNE_INTERVAL = 3600
+PRUNE_MAX_REMOVALS = 400
+PRUNE_MAX_SCAN = 20000
+_PRUNE_STATE = {"at": 0.0}
+
+
 def _prune_cache():
     """Drop stale cache files so a long-lived /data volume cannot fill up.
 
     The shared cache never deletes expired entries; searches create one file
-    per query.  This is best-effort and must never raise at import time.
+    per query.  Work per run is bounded (scan and removal counters), and this
+    must never raise into a request.
     """
     try:
         directory = os.path.dirname(cache.path_for("prune-probe"))
@@ -1393,12 +1501,14 @@ def _prune_cache():
     now = time.time()
     limit = now - 14 * 24 * 3600
     removed = 0
+    scanned = 0
     try:
         names = os.listdir(directory)
     except OSError:
         return
-    for name in names[:5000]:
-        if removed >= 400:
+    for name in names:
+        scanned += 1
+        if scanned > PRUNE_MAX_SCAN or removed >= PRUNE_MAX_REMOVALS:
             break
         path = os.path.join(directory, name)
         try:
@@ -1418,7 +1528,25 @@ def _prune_cache():
         app.logger.info("pruned %d stale cache files from %s", removed, directory)
 
 
-_prune_cache()
+def _maybe_prune_cache():
+    """Run _prune_cache at most once an hour, from the request path.
+
+    It used to run only at worker import, so a long-lived gunicorn worker never
+    pruned and the volume could grow without bound between restarts.
+    """
+    now = time.time()
+    if now - _PRUNE_STATE["at"] < PRUNE_INTERVAL:
+        return
+    _PRUNE_STATE["at"] = now
+    _prune_cache()
+
+
+@app.before_request
+def _request_cache_prune():
+    try:
+        _maybe_prune_cache()
+    except Exception:  # maintenance must never break a request
+        pass
 
 
 if __name__ == "__main__":

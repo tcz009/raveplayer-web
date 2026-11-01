@@ -332,7 +332,8 @@
     const isSoundCloud = /soundcloud\.com/i.test(String(item.external || item.embed || ""));
     const provider = isSoundCloud ? "SoundCloud" : "Mixcloud";
     title.textContent = item.label || provider;
-    external.href = item.external || (isSoundCloud ? "https://soundcloud.com/" : "https://www.mixcloud.com/");
+    external.href = safeExternalHref(item.external,
+      isSoundCloud ? "https://soundcloud.com/" : "https://www.mixcloud.com/");
     external.textContent = `Open on ${provider} ↗`;
     frame.title = `${provider} player`;
     const wrap = panel.querySelector(".embed-frame-wrap");
@@ -379,6 +380,17 @@
 
   function absolutize(src) {
     try { return new URL(src, window.location.href).href; } catch (_) { return src; }
+  }
+
+  // Provider results are third-party input. Only http(s) may become an anchor
+  // href, so a future CSP loosening cannot turn a returned URL into script
+  // execution in the app origin. Anything else falls back to the provider home.
+  function safeExternalHref(value, fallback) {
+    try {
+      const url = new URL(String(value || ""), window.location.href);
+      if (url.protocol === "http:" || url.protocol === "https:") return url.href;
+    } catch (_) { /* fall through to the trusted fallback */ }
+    return fallback;
   }
 
   /* ------------------------------------------------------------ data */

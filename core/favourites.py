@@ -8,12 +8,25 @@ it just means favourites are not saved.
 import json
 import os
 import tempfile
+import threading
+
+try:  # POSIX only; the container is Linux, macOS dev boxes too
+    import fcntl
+except ImportError:  # pragma: no cover - Windows
+    fcntl = None
 
 from . import kodi
 
 FILENAME = "favourites.json"
+LOCKNAME = ".favourites.lock"
 MAX_ENTRIES = 300
 FAV_DIR_ENV = "RAVEPLAYER_FAV_DIR"
+
+# A process-wide lock serialises read-modify-write cycles inside one worker;
+# the advisory file lock does the same across gunicorn workers.  Without this,
+# concurrent POST/DELETE requests can each read the same list and the last save
+# silently discards the other change.
+_LOCK = threading.RLock()
 
 
 def _translate(path):
@@ -42,6 +55,48 @@ def _path():
     except OSError:
         pass
     return os.path.join(directory, FILENAME)
+
+
+class _StoreLock(object):
+    """Re-entrant thread lock plus a best-effort exclusive file lock.
+
+    Locking must never turn a read-only data dir into an error: if the lock
+    file cannot be created or locked, the caller still runs (same best-effort
+    policy as the rest of this module) under the process lock only.
+    """
+
+    def __init__(self):
+        self._handle = None
+
+    def __enter__(self):
+        _LOCK.acquire()
+        directory = os.path.dirname(_path())
+        try:
+            os.makedirs(directory, exist_ok=True)
+            self._handle = open(os.path.join(directory, LOCKNAME), "a+")
+        except OSError:
+            self._handle = None
+        if self._handle is not None and fcntl is not None:
+            try:
+                fcntl.flock(self._handle.fileno(), fcntl.LOCK_EX)
+            except OSError:
+                pass
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        handle, self._handle = self._handle, None
+        if handle is not None:
+            if fcntl is not None:
+                try:
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                except OSError:
+                    pass
+            try:
+                handle.close()
+            except OSError:
+                pass
+        _LOCK.release()
+        return False
 
 
 def load():
@@ -96,19 +151,21 @@ def add(entry):
     """Add or refresh an entry; returns True when the list changed."""
     if not entry.get("title") or not entry.get("target"):
         return False
-    entries = [item for item in load() if key(item) != key(entry)]
-    entries.insert(0, {
-        "kind": entry["kind"],
-        "target": entry["target"],
-        "title": entry["title"][:200],
-        "source": entry.get("source", ""),
-    })
-    return save(entries)
+    with _StoreLock():
+        entries = [item for item in load() if key(item) != key(entry)]
+        entries.insert(0, {
+            "kind": entry["kind"],
+            "target": entry["target"],
+            "title": entry["title"][:200],
+            "source": entry.get("source", ""),
+        })
+        return save(entries)
 
 
 def remove(entry_key):
-    entries = [item for item in load() if key(item) != entry_key]
-    return save(entries)
+    with _StoreLock():
+        entries = [item for item in load() if key(item) != entry_key]
+        return save(entries)
 
 
 def has(entry):

@@ -75,6 +75,12 @@ def test_duration_parser_handles_archive_shapes():
     assert archive._duration(None) is None
     assert archive._duration("0") is None
     assert archive._duration("soon") is None
+    # Third-party metadata: non-finite values must not raise OverflowError.
+    assert archive._duration("inf") is None
+    assert archive._duration("1e400") is None
+    assert archive._duration("nan") is None
+    assert archive._duration(float("inf")) is None
+    assert archive._duration(float("nan")) is None
 
 
 def test_search_rows_and_page_are_clamped(monkeypatch):

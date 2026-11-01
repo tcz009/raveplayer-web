@@ -6,6 +6,7 @@ need no key, which makes them a much better backbone than scraping the dead
 fan sites the 2014 add-on relied on.
 """
 
+import math
 import re
 import urllib.parse
 
@@ -157,9 +158,22 @@ def _file_key(name):
 
 
 def _duration(value):
-    """Return seconds from the Archive's ``length`` field, or None."""
+    """Return seconds from the Archive's ``length`` field, or None.
+
+    Archive metadata is third-party: ``inf``/``1e400``/``nan`` must not raise
+    (``int(float("inf"))`` is an OverflowError, which used to make
+    ``/api/item`` answer 500 for the whole item).
+    """
+    if isinstance(value, bool):
+        return None
     if isinstance(value, (int, float)):
-        return int(value) if value > 0 else None
+        try:
+            if not math.isfinite(value):
+                return None
+            seconds = int(value)
+        except (OverflowError, ValueError):
+            return None
+        return seconds if seconds > 0 else None
     text = _as_text(value)
     if not text:
         return None
@@ -173,7 +187,7 @@ def _duration(value):
         return seconds or None
     try:
         seconds = int(float(text))
-    except ValueError:
+    except (TypeError, ValueError, OverflowError):
         return None
     return seconds if seconds > 0 else None
 
