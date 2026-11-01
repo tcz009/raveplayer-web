@@ -1,6 +1,6 @@
-# Hardening pass — Rave Player web (`raveplayer-web` 1.6.22)
+# Hardening pass — Rave Player web (`raveplayer-web` 1.6.23)
 
-**Branch:** `feature/1.6.22-stats` (not pushed) · **Base:** `feature/1.6.21-roles` @ `645dff9` (1.6.21)
+**Branch:** `fix/1.6.23-session-mask` (not pushed) · **Base:** `main` @ `b5cacae` (1.6.22)
 **Scope:** `app.py`, `core/`, `static/app.js`, `scripts/deploy.sh`, `docs/`, `test/`,
 `test_e2e/`, `VERSION`. No UX or content changes. No `data/` or advert files touched.
 
@@ -12,6 +12,21 @@ Inputs folded in: the internal task-22 brief and the adversarial pre-review
 (`docs/ADVERSARIAL-REVIEW.md`, web findings W1–W8). The review's "what is solid" list
 (stream SSRF guard, SPA escaping, CSP, content-type gate, atomic writes) was kept intact.
 
+
+## 1.6.23 — mask session IDs in stats
+
+Security fix: `/api/admin/stats` exposed raw server session IDs under
+`sessions.items[].id`; those values must never leave the server.
+
+- Stats now returns only `sessions.items[].session_id_masked` (short
+  non-reversible SHA-256 prefix + ellipsis); the full id/token is not in the
+  JSON. Owners can still see counts/identity/role/IP/timestamps.
+- `audit.revoke_all_sessions()` added as internal compromised-session cleanup
+  (no HTTP route); deploy rotates `SECRET_KEY` and clears current session rows.
+- Tests assert the raw sid from the live test session is absent from the stats
+  payload and that only the masked field is present.
+- Fix prepared for the 1.6.23 release; Control Centre must bind to
+  `session_id_masked` and label it “Session (masked)”. Deploy pending sign-off.
 
 ## 1.6.22 — read-only owner stats
 
@@ -456,7 +471,7 @@ cd "Rave Player"
 .venv/bin/python -m pytest -q test        # 335 passed
 node --check static/app.js
 sh -n scripts/deploy.sh
-git diff --stat feature/1.6.21-roles..feature/1.6.22-stats
+git diff --stat main..fix/1.6.23-session-mask
 ```
 
 ## Post-merge fix — deploy.sh heredoc escaping (found on first real deploy)

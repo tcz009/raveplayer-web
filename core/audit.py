@@ -11,6 +11,7 @@ silently allowing a session.
 """
 
 import calendar
+import hashlib
 import ipaddress
 import os
 import secrets
@@ -157,6 +158,12 @@ def revoke_session(sid):
     return _write(
         "UPDATE sessions SET revoked_at=? WHERE id=? AND revoked_at IS NULL",
         (time.time(), str(sid))) > 0
+
+
+def revoke_all_sessions():
+    """Invalidate every session row (owner-compromise response; no HTTP route)."""
+    return _write("UPDATE sessions SET revoked_at=? WHERE revoked_at IS NULL",
+                  (time.time(),))
 
 
 def revoke_sessions(identity=None, ip=None):
@@ -307,7 +314,11 @@ def stats(window_hours=24, top_limit=10):
         "FROM events e WHERE e.ts>=? AND e.ip<>'' "
         "GROUP BY e.ip ORDER BY last_seen DESC LIMIT 20", (start,))
     session_items = [
-        {"id": item["id"], "identity": item["identity"], "role": item["role"],
+        # Never expose the raw session id: it is a bearer-equivalent secret.
+        # A short SHA-256 prefix is stable for the UI but not reversible.
+        {"session_id_masked":
+             hashlib.sha256(item["id"].encode("utf-8")).hexdigest()[:10] + "…",
+         "identity": item["identity"], "role": item["role"],
          "ip": item["ip"], "created": _iso(item["created_at"]),
          "last_seen": _iso(item["last_seen"]),
          "expires_at": _iso(item["expires_at"])}

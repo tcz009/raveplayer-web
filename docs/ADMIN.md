@@ -39,7 +39,7 @@ Environment:
     "online_friends": 1,
     "items": [
       {
-        "id": "server-session-id",
+        "session_id_masked": "3f2a9c1d8e…",
         "identity": "owner",
         "role": "admin",
         "ip": "192.168.1.10",
@@ -95,7 +95,9 @@ Semantics:
   `by_day` always has seven UTC date buckets (today last).
 - `top_endpoints` is the top 10 request paths by request count in 24 h.
 - `last_ips` is up to 20 distinct IPs seen in 24 h, newest first.
-- `sessions.items[].id` is the server session id, not the cookie value.
+- `sessions.items[].session_id_masked` is a short non-reversible SHA-256
+  prefix for display only; the raw session id/token is **never** returned.
+  (1.6.23 security fix: earlier builds exposed the raw id.)
 - On an audit-DB failure the route returns `503` with
   `{"status": "down", "error": "stats unavailable"}`; the widget should show
   degraded/down rather than fabricate numbers.
@@ -135,7 +137,8 @@ they have no HTTP routes in 1.6.22.
 
 ## Tests
 
-`test/test_stats.py` (6): owner access; widget bearer read-only; wrong token
+`test/test_stats.py` (6, now asserting the raw
+session id is absent and only `session_id_masked` is returned): owner access; widget bearer read-only; wrong token
 401; friends/no-auth rejection; 24h/today window aggregation (logins, failures,
 lockouts, unique IPs, bytes, top endpoints, last IPs, seven-day buckets); login
 event/session recording; live request byte/endpoint growth. Full suites: 335

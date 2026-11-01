@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Owner read-only stats endpoint (1.6.22)."""
 
+import json
 import logging
 import time
 
@@ -39,8 +40,15 @@ def test_owner_can_read_stats(web):
     assert payload["sessions"]["online_owner"] == 1
     assert payload["sessions"]["online_friends"] == 0
     assert len(payload["sessions"]["items"]) == 1
-    assert payload["sessions"]["items"][0]["identity"] == "owner"
-    assert payload["sessions"]["items"][0]["role"] == "admin"
+    item = payload["sessions"]["items"][0]
+    assert item["identity"] == "owner"
+    assert item["role"] == "admin"
+    assert "id" not in item and "session" not in item
+    assert item["session_id_masked"].endswith("…")
+    with web.session_transaction() as sess:
+        raw_sid = sess["sid"]
+    assert raw_sid not in json.dumps(payload)
+    assert item["session_id_masked"] != raw_sid
     assert payload["bandwidth"]["bytes_in"] == 0
     assert payload["bandwidth"]["window"] == "24h"
 

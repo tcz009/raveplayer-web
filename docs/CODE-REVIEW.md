@@ -1,7 +1,7 @@
 # Independent code review — brief
 
 **Project:** Rave Player — web app (`raveplayer-web`)
-**Version under review:** 1.6.22 (`feature/1.6.22-stats`, based on 1.6.21 roles / 1.6.20 auth)
+**Version under review:** 1.6.23 (`fix/1.6.23-session-mask`, based on 1.6.22 stats)
 **Reviewer target:** `app.py`, `core/`, `static/`, `templates/`, `test/`; ignore `data/`, `__pycache__/`, `.venv/`.
 
 ## What it is
@@ -115,6 +115,9 @@ A prepared `.venv` exists in this checkout.
   (friends 403): sessions now, 24 h logins/failures/lockouts/unique IPs/
   requests/bytes, 7-day bandwidth, top endpoints, last IPs. Revoke/block/
   friends-actions intentionally deferred, no UI.
+- **1.6.23 security fix**: `/api/admin/stats` no longer returns raw session
+  ids; `sessions.items[].session_id_masked` is a short non-reversible SHA-256
+  prefix for display. Tests assert the raw sid is absent from the JSON.
 - Tests: `205 → 335` offline (`pytest -q test`) and **19 browser e2e**
   (`pytest test_e2e`, see `docs/E2E.md`).
 
