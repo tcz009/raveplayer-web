@@ -301,6 +301,11 @@ server.
   `webkitCurrentPlaybackTargetIsWireless` is true.
 - Both the iPhone and the Apple TV / HomePod must be on the same Wi-Fi without
   client isolation. `/api/stream` is Range-capable, which AirPlay needs.
+- **Tailscale/VPN and AirPlay:** AirPlay discovery is local multicast. If
+  Tailscale or another VPN is active on the iPhone, the AirPlay button can show
+  no devices even though the Apple TV is on the same Wi-Fi. Turn Tailscale/the
+  VPN off for local AirPlay (or put the TV on the tailnet), then open the LAN
+  address. This is a network condition, not an authentication failure.
 - There is deliberately no volume slider: iOS ignores `HTMLMediaElement.volume`
   and the hardware buttons (or the receiver) own the level.
 - Background/lock-screen playback and lock-screen transport controls use the
@@ -308,6 +313,16 @@ server.
 - Layout uses `100dvh` plus safe-area insets, the fixed player height is
   measured rather than hard-coded, and pull-to-refresh is suppressed so a swipe
   cannot reload the app and kill playback.
+
+### AirPlay finds no device
+
+1. Check the Apple TV / HomePod is awake and on the same Wi-Fi.
+2. **Turn Tailscale or any VPN off on the iPhone**, then reopen the AirPlay
+   picker. Discovery does not cross the tunnel.
+3. Open the server's LAN address, not `localhost` or a `100.x`/`*.ts.net`
+   address, so the receiver can fetch `/api/stream`.
+4. Retry once the route is available; the button explains absence instead of
+   silently doing nothing.
 
 Full notes, including what was verified without a device, are in
 [`docs/IOS-AIRPLAY.md`](docs/IOS-AIRPLAY.md).

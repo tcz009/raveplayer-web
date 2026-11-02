@@ -189,10 +189,22 @@ the button; waking the Apple TV normally re-fires the event.
    skip for finite tape packs, not for live radio). AirPlay volume is controlled
    by the receiver / hardware buttons.
 
+### Tailscale/VPN and AirPlay discovery
+
+AirPlay discovery uses local multicast/Bonjour. **Tailscale or another VPN on
+the iPhone can hide the local AirPlay route even when the Apple TV is on the
+same Wi-Fi.** The LAN address can still serve audio, but the route picker will
+be empty or dimmed. Turn Tailscale/the VPN off for local AirPlay, then reopen
+the picker. If the TV itself is on the tailnet, keep the page/tailnet setup
+consistent; otherwise use the LAN address for both. VPN-on/off cannot be
+detected reliably from JavaScript, so the UI gives this as a hint rather than
+trying to guess.
+
 ### Failure modes the UI now explains
 
-- **No route**: dimmed button + "No Apple TV or HomePod found…" toast. The
-  system picker is not opened just to show an empty list.
+- **No route**: dimmed button + "No Apple TV or HomePod found…" toast, including
+  the Tailscale/VPN hint. The system picker is not opened just to show an empty
+  list.
 - **Page opened at `localhost` / `127.0.0.1`**: warning that the TV cannot fetch
   from the phone's localhost; use the LAN address.
 - **Page opened over Tailscale (`100.64/10`, `*.ts.net`)**: warning that the TV

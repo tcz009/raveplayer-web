@@ -124,7 +124,7 @@
       return `The TV can't fetch audio from "${host}". Open the app from the server's LAN address on the iPhone instead.`;
     }
     if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(host) || /\.ts\.net$/i.test(host)) {
-      return "This page is open over Tailscale. AirPlay only works if the TV is on the tailnet too — otherwise use the server's LAN address.";
+      return "This page is open over Tailscale/VPN. AirPlay discovery is local: turn Tailscale or the VPN off for local AirPlay, or put the TV on the tailnet too, otherwise use the server's LAN address.";
     }
     return "";
   }
@@ -178,7 +178,7 @@
     if (noRoute) {
       toast(hint
         ? `${hint} No ${airplayDeviceLabel()} found.`
-        : `No ${airplayDeviceLabel()} found. Check it is awake and on the same Wi-Fi.`, 6500);
+        : `No ${airplayDeviceLabel()} found. Check it is awake and on the same Wi-Fi. If Tailscale or a VPN is active, turn it off and try again — AirPlay discovery is local.`, 6500);
       return;
     }
     if (hint) toast(hint, 6500);
@@ -2195,7 +2195,7 @@
       : "Playback failed";
     if (airplayIsWireless()) {
       message = "The AirPlay device couldn't load this stream";
-      toast("AirPlay device couldn't load the stream — it must be able to reach this server (same Wi-Fi, no client isolation).", 6500);
+      toast("AirPlay device couldn't load the stream — it must be able to reach this server (same Wi-Fi, no client isolation). If Tailscale or a VPN is active, turn it off and retry.", 6500);
     } else {
       toast(message, 4000);
     }

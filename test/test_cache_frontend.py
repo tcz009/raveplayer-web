@@ -187,6 +187,7 @@ def test_airplay_degrades_for_non_lan_origins():
     assert "100\\." in js and "ts\\.net" in js
     assert "localhost" in js
     assert "same Wi-Fi" in js
+    assert "VPN" in js and "turn it off" in js
 
 
 def test_airplay_picker_call_stays_inside_the_gesture():
