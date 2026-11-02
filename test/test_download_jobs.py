@@ -112,7 +112,7 @@ def test_cancel_mid_stream_discards_partial(web, monkeypatch):
     assert response.status_code == 200
     job = _wait_job(web, job_id, state="cancelled")
     assert job["state"] == "cancelled"
-    job_state = app_module._DOWNLOAD_JOB_STATE["jobs"][job_id]
+    job_state = jobs_store.get(job_id)
     assert not os.path.exists(jobs_store.temp_path(app_module.DATA_DIR, job_state))
 
 
@@ -149,15 +149,15 @@ def test_concurrency_cap_queues_third_job(web, monkeypatch):
 def test_restart_recovery_marks_interrupted_job_failed():
     base = app_module.DATA_DIR
     entry = downloads.entry_for(base, "Interrupted", URL, "archive")
-    job = jobs_store.new("owner", "admin", "Interrupted", "archive", URL, entry)
-    job["state"] = "downloading"
-    job["bytes_done"] = 10
-    assert jobs_store.save(base, [job])
-    with app_module._DOWNLOAD_JOBS_LOCK:
-        app_module._DOWNLOAD_JOB_STATE["base"] = None
-        app_module._DOWNLOAD_JOB_STATE["jobs"].clear()
-    recovered = app_module._jobs_ensure() or app_module._DOWNLOAD_JOB_STATE["jobs"]
-    stored = app_module._DOWNLOAD_JOB_STATE["jobs"][job["id"]]
+    job = jobs_store.create("owner", "admin", "Interrupted", "archive", URL, entry)
+    jobs_store.update(job["id"], state="downloading", bytes_done=10)
+    # Simulate a worker process that has died: no live pid on the row.
+    with jobs_store.audit._connect() as conn:
+        conn.execute("UPDATE download_jobs SET worker_pid=? WHERE id=?",
+                     (999999, job["id"]))
+        conn.commit()
+    app_module._jobs_ensure()
+    stored = jobs_store.get(job["id"])
     assert stored["state"] == "failed"
     assert "restart" in stored["error"]
 
@@ -192,11 +192,52 @@ def test_friends_see_only_their_own_jobs(anon):
 
 def test_owner_sees_all_users_jobs(web):
     entry = downloads.entry_for(app_module.DATA_DIR, "Friend job", URL, "archive")
-    job = jobs_store.new("friends", "viewer", "Friend job", "archive", URL, entry)
-    with app_module._DOWNLOAD_JOBS_LOCK:
-        app_module._DOWNLOAD_JOB_STATE["base"] = app_module.DATA_DIR
-        app_module._DOWNLOAD_JOB_STATE["jobs"][job["id"]] = job
+    job = jobs_store.create("friends", "viewer", "Friend job", "archive", URL, entry)
     listed = web.get("/api/downloads/jobs").get_json()["jobs"]
     assert [item["id"] for item in listed] == [job["id"]]
     assert listed[0]["identity"] == "friends"
     assert web.get("/api/downloads/jobs/%s" % job["id"]).status_code == 200
+
+
+def _spawn_job(db_path, title, url):
+    code = (
+        "from core import audit, download_jobs, downloads\n"
+        "audit.configure(%r)\n"
+        "entry = downloads.entry_for('.', %r, %r, 'archive')\n"
+        "job = download_jobs.create('owner', 'admin', %r, 'archive', %r, entry)\n"
+        "print(job['id'])\n" % (db_path, title, url, title, url)
+    )
+    import subprocess
+    import sys
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return subprocess.Popen([sys.executable, "-c", code], cwd=env["PYTHONPATH"],
+                            env=env, stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE, text=True)
+
+
+def test_shared_store_across_processes_no_clobber():
+    from core import audit
+    db_path = audit.db_path()
+    # Initialise the schema before the two writers race.
+    assert jobs_store.list_for("owner", "admin") == []
+    one = _spawn_job(db_path, "process one", "https://archive.org/download/a/one.mp3")
+    two = _spawn_job(db_path, "process two", "https://archive.org/download/a/two.mp3")
+    out_one, err_one = one.communicate(timeout=120)
+    out_two, err_two = two.communicate(timeout=120)
+    assert one.returncode == 0, err_one
+    assert two.returncode == 0, err_two
+    ids = {out_one.strip(), out_two.strip()}
+    assert len(ids) == 2
+    jobs = jobs_store.list_for("owner", "admin")
+    assert {job["id"] for job in jobs} == ids
+    # A claim/complete in this process is visible to the same shared rows, and
+    # cancelling the other job leaves it intact.
+    claimed = jobs_store.claim_next(2)
+    assert claimed and claimed["id"] in ids
+    assert jobs_store.complete(claimed["id"], 4, "download-" + claimed["id"])
+    other = next(job for job in jobs if job["id"] != claimed["id"])
+    cancelled = jobs_store.cancel(other["id"], "owner", "admin")
+    assert cancelled["state"] == "cancelled"
+    assert jobs_store.get(claimed["id"])["state"] == "completed"
+    assert jobs_store.get(other["id"])["state"] == "cancelled"

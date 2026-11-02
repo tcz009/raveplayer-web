@@ -69,6 +69,28 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS download_jobs (
+    id TEXT PRIMARY KEY,
+    identity TEXT NOT NULL,
+    role TEXT NOT NULL,
+    title TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT '',
+    state TEXT NOT NULL,
+    bytes_done INTEGER NOT NULL DEFAULT 0,
+    bytes_total INTEGER,
+    progress INTEGER NOT NULL DEFAULT 0,
+    error TEXT NOT NULL DEFAULT '',
+    created REAL NOT NULL,
+    updated REAL NOT NULL,
+    started REAL,
+    finished REAL,
+    download_id TEXT NOT NULL DEFAULT '',
+    cancel_requested INTEGER NOT NULL DEFAULT 0,
+    worker_pid INTEGER,
+    heartbeat REAL,
+    entry_json TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_download_jobs_state ON download_jobs(state, created);
 CREATE TABLE IF NOT EXISTS login_failures (
     key TEXT PRIMARY KEY,
     window_start REAL NOT NULL,

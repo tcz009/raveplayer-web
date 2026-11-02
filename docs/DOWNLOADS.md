@@ -47,7 +47,11 @@ Rows shown in the player get a Download icon only when the server attached
 `POST /api/downloads/jobs` creates a persisted job and returns before any bytes
 move. A daemon worker writes the same atomic `<safe-title>-<8hex>.mp3` file
 under `RAVEWEB_DATA/downloads`; closing the tab does not cancel it. Jobs are
-stored in `downloads/jobs.json` (atomic replace), separate from `index.json`.
+stored in the shared auth SQLite database (`download_jobs` table, WAL) so both
+gunicorn workers see the same job; the old `downloads/jobs.json` is migrated
+once. Workers claim rows transactionally with `BEGIN IMMEDIATE`; the global
+concurrency cap is enforced in that transaction. `worker_pid`/heartbeat rows let
+a restart fail interrupted jobs without touching a live worker.
 
 States: `queued` → `downloading` → `completed` / `failed` / `cancelled`.
 Each public job carries `id`, `identity`, `role`, `title`, `source`, `state`,
@@ -59,9 +63,9 @@ completed `download_id`; the URL and internal entry are never returned.
 - **Ownership**: a job belongs to the signed-in `owner` or `friends` identity.
   Friends see only their own jobs; the owner/admin sees everyone's and may
   inspect or cancel them. Each user has their own Downloads library; jobs and files are scoped by identity (1.6.26).
-- **Restart/failure cleanup**: on the first jobs request after a process
-  restart, any `queued`/`downloading` row is marked `failed`
-  (“interrupted by server restart”) and its unique `.part` file is removed.
+- **Restart/failure cleanup**: orphan `downloading` rows whose `worker_pid` is
+  no longer alive are marked `failed` (“interrupted by server restart”) and their
+  unique `.part` files removed; queued rows remain claimable by any worker.
   Failures, cancellation and storage-cap errors also discard the partial file.
 - **Limits** are the phase-1 guards in the next section (per-file, total,
   free-space, item count); a job that would exceed them fails with a sanitized
@@ -92,9 +96,9 @@ completion toast when you are elsewhere.
 ## Scope / later phases
 
 Direct-file eligibility is exactly the four sources above; background jobs use
-the same predicate. Background jobs are in-process workers with persisted
-metadata (no external queue/broker); a restart marks interrupted jobs failed
-rather than resuming them. Multi-user accounting is only the owner/friends
+the same predicate. Background jobs are in-process workers whose state lives in the shared auth
+SQLite `download_jobs` table (WAL; no external queue/broker). A restart/worker
+death marks interrupted rows failed rather than resuming them. Multi-user accounting is only the owner/friends
 identity split, not arbitrary accounts. Podcast/RSS enclosures, Legacy direct
 files and GetDarker could be added later with the same predicate; they are
 deliberately excluded now to match the Kodi add-on's context-menu eligibility.

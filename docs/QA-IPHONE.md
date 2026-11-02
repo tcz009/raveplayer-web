@@ -31,3 +31,14 @@ Notes:
   not resumed after a server restart (interrupted jobs show failed).
 - API errors stay JSON; browser navigations to unknown pages show the themed
   “LOST THE TAPE” page with a home link.
+
+## 1.6.28 additions
+
+- Background jobs must show the same queued/downloading/completed state after a
+  reload and when polls land on either gunicorn worker; cancel must reach the
+  shared row (no 404 on a second worker).
+- Mobile search at 390 px: the field fits the topbar (document width ≤ viewport)
+  and the 44 px submit button is visible/tappable, not covered by the input.
+- `/manifest.json` returns the same JSON as `/manifest.webmanifest`; the new
+  service-worker cache (`raveplayer-shell-v1.6.28`) activates after one reload.
+- Full evidence for the two HIGH fixes: `docs/QA-IPHONE-2026-11-02.md`.

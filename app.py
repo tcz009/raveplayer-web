@@ -637,7 +637,8 @@ def _widget_authorized():
 
 
 PUBLIC_PATHS = frozenset((
-    "/login", "/logout", "/healthz", "/manifest.webmanifest", "/sw.js",
+    "/login", "/logout", "/healthz", "/manifest.webmanifest",
+    "/manifest.json", "/sw.js",
     "/static/auth.css", "/static/login.js", "/static/sw-register.js",
     "/api/csp-report",
     "/static/art/icon.png", "/static/art/icon-180.png",
@@ -1009,7 +1010,8 @@ def _record_request_audit(response):
     try:
         path = request.path
         if (path.startswith("/static/")
-                or path in ("/healthz", "/manifest.webmanifest", "/sw.js")):
+                or path in ("/healthz", "/manifest.webmanifest",
+                            "/manifest.json", "/sw.js")):
             return response
         if not (path.startswith("/api/") or path in ("/", "/login")
                 or path.startswith("/downloads")):
@@ -2439,6 +2441,7 @@ def index():
 
 
 @app.get("/manifest.webmanifest")
+@app.get("/manifest.json")
 def manifest():
     """Installable PWA identity: `id`/`start_url`/`scope` are all the root.
 
@@ -2774,53 +2777,63 @@ def _download_to_file(url, destination, max_bytes, seconds):
 # background jobs: persisted metadata + in-process worker, so closing the tab
 # does not cancel the save.  The HTTP request only creates the job.
 _DOWNLOAD_JOBS_LOCK = threading.RLock()
-_DOWNLOAD_JOB_STATE = {"base": None, "jobs": {}}
-_DOWNLOAD_JOB_SLOTS = threading.BoundedSemaphore(DOWNLOAD_JOB_CONCURRENCY)
+_JOB_SCHEDULER = {"started": False, "migrated": None}
+_JOB_SCHEDULER_LOCK = threading.Lock()
 
 
 def _jobs_ensure():
+    """Start this process's dispatcher and clean up jobs from dead workers."""
     base = DATA_DIR
     with _DOWNLOAD_JOBS_LOCK:
-        if _DOWNLOAD_JOB_STATE["base"] == base:
+        if _JOB_SCHEDULER["migrated"] != base:
+            try:
+                download_jobs.migrate_from_legacy_json(base)
+            except Exception:
+                app.logger.exception("jobs: legacy migration failed")
+            _JOB_SCHEDULER["migrated"] = base
+    try:
+        download_jobs.recover_orphans()
+    except Exception:
+        app.logger.exception("jobs: orphan recovery failed")
+    with _JOB_SCHEDULER_LOCK:
+        if _JOB_SCHEDULER["started"]:
             return
-        recovered = download_jobs.recover(base)
-        _DOWNLOAD_JOB_STATE["base"] = base
-        _DOWNLOAD_JOB_STATE["jobs"] = {job["id"]: job for job in recovered}
+        _JOB_SCHEDULER["started"] = True
+    thread = threading.Thread(target=_job_scheduler, name="download-job-scheduler",
+                              daemon=True)
+    thread.start()
 
 
-def _jobs_save_locked():
-    download_jobs.save(DATA_DIR, list(_DOWNLOAD_JOB_STATE["jobs"].values()))
+def _job_scheduler():
+    """Claim shared queued rows; the DB transaction enforces the global cap."""
+    while True:
+        try:
+            while True:
+                job = download_jobs.claim_next(DOWNLOAD_JOB_CONCURRENCY)
+                if not job:
+                    break
+                threading.Thread(target=_job_worker, args=(job,),
+                                 name="download-job-%s" % job["id"][:8],
+                                 daemon=True).start()
+        except Exception:
+            app.logger.exception("jobs: scheduler tick failed")
+        time.sleep(0.4)
 
 
 def _job_get(job_id):
     _jobs_ensure()
-    with _DOWNLOAD_JOBS_LOCK:
-        return _DOWNLOAD_JOB_STATE["jobs"].get(job_id)
+    return download_jobs.get(job_id)
 
 
 def _job_visible(job):
     if not job:
         return False
-    return (session.get("role") == "admin"
-            or job.get("identity") == session.get("identity"))
-
-
-def _job_update(job_id, save=True, **fields):
-    with _DOWNLOAD_JOBS_LOCK:
-        job = _DOWNLOAD_JOB_STATE["jobs"].get(job_id)
-        if job is None:
-            return None
-        job.update(fields)
-        job["updated"] = time.time()
-        if save:
-            _jobs_save_locked()
-        return job
+    return (job.get("identity") == (session.get("identity") or "")
+            or session.get("role") == "admin")
 
 
 def _job_cancel_requested(job_id):
-    job = _job_get(job_id)
-    return bool(job and (job.get("cancel_requested")
-                         or job.get("state") in ("cancelled",)))
+    return download_jobs.cancel_requested(job_id)
 
 
 def _job_cleanup_partial(job):
@@ -2832,72 +2845,59 @@ def _job_cleanup_partial(job):
         pass
 
 
-def _job_worker(job_id):
-    with _DOWNLOAD_JOB_SLOTS:
-        job = _job_get(job_id)
-        if not job or job.get("state") != "queued" or job.get("cancel_requested"):
-            if job and job.get("cancel_requested"):
-                _job_update(job_id, state="cancelled", finished=time.time())
-                _job_cleanup_partial(job)
-            return
-        entry = job["entry"]
-        identity = job.get("identity") or "owner"
-        temp_name = download_jobs.temp_path(DATA_DIR, job)
-        _job_update(job_id, state="downloading", started=time.time(), progress=0,
-                    bytes_done=0, bytes_total=None, error="")
-        completed = False
-        try:
-            used = downloads.used(DATA_DIR, identity)
-            max_bytes = min(DOWNLOAD_MAX_BYTES, max(0, DOWNLOAD_MAX_TOTAL - used))
-            if max_bytes <= 0:
-                raise DownloadError("the Downloads library is full", 413)
-            last_save = time.monotonic()
-            for event in _download_chunks(
-                    entry["url"], temp_name, max_bytes, DOWNLOAD_DEADLINE,
-                    lambda: _job_cancel_requested(job_id)):
-                if _job_cancel_requested(job_id):
+def _job_worker(job):
+    job_id = job["id"]
+    identity = job.get("identity") or "owner"
+    entry = job.get("entry") or {}
+    temp_name = download_jobs.temp_path(DATA_DIR, job)
+    completed = False
+    try:
+        used = downloads.used(DATA_DIR, identity)
+        max_bytes = min(DOWNLOAD_MAX_BYTES, max(0, DOWNLOAD_MAX_TOTAL - used))
+        if max_bytes <= 0:
+            raise DownloadError("the Downloads library is full", 413)
+        last_save = time.monotonic()
+        for event in _download_chunks(
+                entry["url"], temp_name, max_bytes, DOWNLOAD_DEADLINE,
+                lambda: _job_cancel_requested(job_id)):
+            if _job_cancel_requested(job_id):
+                raise DownloadCancelled()
+            if event.get("started"):
+                download_jobs.heartbeat(job_id, bytes_total=event.get("total"),
+                                        progress=0)
+            elif event.get("received") is not None:
+                total = event.get("total")
+                done = max(0, int(event.get("received") or 0))
+                percent = int(done * 100 / total) if total else 0
+                now = time.monotonic()
+                if now - last_save >= 0.5:
+                    download_jobs.heartbeat(job_id, bytes_done=done,
+                                            bytes_total=total,
+                                            progress=max(0, min(100, percent)))
+                    last_save = now
+            elif event.get("done"):
+                if download_jobs.cancel_requested(job_id):
                     raise DownloadCancelled()
-                if event.get("started"):
-                    _job_update(job_id, bytes_total=event.get("total"),
-                                progress=0)
-                elif event.get("received") is not None:
-                    total = event.get("total")
-                    done = max(0, int(event.get("received") or 0))
-                    percent = int(done * 100 / total) if total else 0
-                    now = time.monotonic()
-                    _job_update(job_id, save=(now - last_save >= 0.5),
-                                bytes_done=done, bytes_total=total,
-                                progress=max(0, min(100, percent)))
-                    if now - last_save >= 0.5:
-                        last_save = now
-                elif event.get("done"):
-                    entry["size"] = int(event.get("size") or 0)
-                    downloads.register(DATA_DIR, entry, temp_name,
-                                       DOWNLOAD_MAX_TOTAL, DOWNLOAD_MAX_ITEMS,
-                                       identity)
-                    _job_update(job_id, state="completed",
-                                bytes_done=entry["size"],
-                                bytes_total=entry["size"], progress=100,
-                                finished=time.time(),
-                                download_id=entry["id"], error="")
+                entry["size"] = int(event.get("size") or 0)
+                downloads.register(DATA_DIR, entry, temp_name,
+                                   DOWNLOAD_MAX_TOTAL, DOWNLOAD_MAX_ITEMS,
+                                   identity)
+                if download_jobs.complete(job_id, entry["size"], entry["id"]):
                     completed = True
-        except DownloadCancelled:
-            _job_update(job_id, state="cancelled", finished=time.time(),
-                        error="cancelled")
-        except DownloadError as exc:
-            _job_update(job_id, state="failed", finished=time.time(),
-                        error=exc.message)
-        except downloads.StorageError as exc:
-            _job_update(job_id, state="failed", finished=time.time(),
-                        error=str(exc))
-        except Exception as exc:  # noqa: BLE001 - never kill the worker silently
-            app.logger.warning("background download %s failed: %s",
-                               job_id, exc)
-            _job_update(job_id, state="failed", finished=time.time(),
-                        error="could not save that download")
-        finally:
-            if not completed:
-                _job_cleanup_partial(job)
+                else:
+                    downloads.remove(DATA_DIR, entry["id"], identity)
+    except DownloadCancelled:
+        download_jobs.fail(job_id, "cancelled", state="cancelled")
+    except DownloadError as exc:
+        download_jobs.fail(job_id, exc.message)
+    except downloads.StorageError as exc:
+        download_jobs.fail(job_id, str(exc))
+    except Exception as exc:  # noqa: BLE001 - never kill the worker silently
+        app.logger.warning("background download %s failed: %s", job_id, exc)
+        download_jobs.fail(job_id, "could not save that download")
+    finally:
+        if not completed:
+            _job_cleanup_partial(job)
 
 
 @app.post("/api/downloads/jobs")
@@ -2920,17 +2920,16 @@ def api_download_job_create():
     if existing:
         return jsonify({"id": existing["id"], "already": True,
                         "state": "completed", "job": None})
-    with _DOWNLOAD_JOBS_LOCK:
-        active = [job for job in _DOWNLOAD_JOB_STATE["jobs"].values()
-                  if job.get("state") in ("queued", "downloading")]
-        for job in active:
-            if (job.get("identity") == identity
-                    and (job.get("entry") or {}).get("url") == url):
-                return jsonify({"id": job["id"], "already": True,
-                                "state": job["state"],
-                                "job": download_jobs.public(job)}), 200
-        if len(active) >= DOWNLOAD_JOB_MAX:
-            return _json_error("too many background downloads", 429)
+    active = [job for job in download_jobs.list_for(identity, role)
+              if job.get("state") in ("queued", "downloading")]
+    for job in active:
+        if (job.get("identity") == identity
+                and (job.get("entry") or {}).get("url") == url):
+            return jsonify({"id": job["id"], "already": True,
+                            "state": job["state"],
+                            "job": download_jobs.public(job)}), 200
+    if len(active) >= DOWNLOAD_JOB_MAX:
+        return _json_error("too many background downloads", 429)
     try:
         downloads.reserve(DATA_DIR, DOWNLOAD_MAX_ITEMS, identity)
     except downloads.StorageError as exc:
@@ -2938,24 +2937,19 @@ def api_download_job_create():
     if not title:
         title = urllib.parse.unquote(url.rsplit("/", 1)[-1]) or "Download"
     entry = downloads.entry_for(DATA_DIR, title, url, source)
-    job = download_jobs.new(identity, role, title, source, url, entry)
-    with _DOWNLOAD_JOBS_LOCK:
-        _DOWNLOAD_JOB_STATE["jobs"][job["id"]] = job
-        _jobs_save_locked()
-    threading.Thread(target=_job_worker, args=(job["id"],),
-                     name="download-job-%s" % job["id"][:8],
-                     daemon=True).start()
+    job = download_jobs.create(identity, role, title, source, url, entry)
+    _jobs_ensure()
     return jsonify({"id": job["id"], "job": download_jobs.public(job)}), 202
 
 
 @app.get("/api/downloads/jobs")
 def api_download_jobs():
     _jobs_ensure()
-    with _DOWNLOAD_JOBS_LOCK:
-        jobs = [download_jobs.public(job)
-                for job in _DOWNLOAD_JOB_STATE["jobs"].values()
-                if _job_visible(job)]
-    jobs.sort(key=lambda item: item.get("created") or 0, reverse=True)
+    role = session.get("role") or ""
+    identity = session.get("identity") or ""
+    jobs = [download_jobs.public(job)
+            for job in download_jobs.list_for(identity, role)
+            if _job_visible(job)]
     return jsonify({"jobs": jobs, "concurrency": DOWNLOAD_JOB_CONCURRENCY})
 
 
@@ -2976,11 +2970,15 @@ def api_download_job_cancel(job_id):
         return _json_error("unknown download job", 404)
     if job.get("state") in ("completed", "failed", "cancelled"):
         return _json_error("download job is already finished", 409)
-    _job_update(identifier, state="cancelled", cancel_requested=True,
-                finished=time.time(), error="cancelled")
-    _job_cleanup_partial(job)
+    updated = download_jobs.cancel(identifier, session.get("identity"),
+                                   session.get("role"))
+    if updated is None:
+        return _json_error("unknown download job", 404)
+    if updated.get("state") != "cancelled":
+        return _json_error("download job is already finished", 409)
+    _job_cleanup_partial(updated)
     return jsonify({"id": identifier, "state": "cancelled",
-                    "job": download_jobs.public(_job_get(identifier))})
+                    "job": download_jobs.public(updated)})
 
 
 def _download_stream(url, entry, client_id, identity="owner"):

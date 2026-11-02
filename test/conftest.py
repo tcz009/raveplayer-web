@@ -33,7 +33,7 @@ os.environ["RAVEWEB_FRIENDS_PASSWORD"] = "friends-password"
 os.environ["RAVEWEB_ENV"] = "test"
 
 import app as app_module  # noqa: E402
-from core import audit  # noqa: E402
+from core import audit, download_jobs  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -46,16 +46,16 @@ def isolated_audit_store(tmp_path):
 
 @pytest.fixture(autouse=True)
 def isolated_download_jobs():
-    """Fresh background-job state per test (no worker leaks between cases)."""
-    with app_module._DOWNLOAD_JOBS_LOCK:
-        app_module._DOWNLOAD_JOB_STATE["base"] = None
-        app_module._DOWNLOAD_JOB_STATE["jobs"].clear()
+    """Fresh shared background-job table per test."""
+    try:
+        download_jobs.clear_all()
+    except Exception:
+        pass
     yield
-    with app_module._DOWNLOAD_JOBS_LOCK:
-        for job in app_module._DOWNLOAD_JOB_STATE["jobs"].values():
-            job["cancel_requested"] = True
-        app_module._DOWNLOAD_JOB_STATE["base"] = None
-        app_module._DOWNLOAD_JOB_STATE["jobs"].clear()
+    try:
+        download_jobs.clear_all()
+    except Exception:
+        pass
 
 
 @pytest.fixture(autouse=True)

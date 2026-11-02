@@ -22,6 +22,10 @@ def _read(name):
 
 def test_manifest_has_a_root_identity_and_standalone_display(web):
     response = web.get("/manifest.webmanifest")
+    alias = web.get("/manifest.json")
+    assert alias.status_code == 200
+    assert alias.headers["Content-Type"].startswith("application/manifest+json")
+    assert alias.get_json() == response.get_json()
     assert response.status_code == 200
     assert response.headers["Content-Type"].startswith("application/manifest+json")
     assert response.headers["Cache-Control"] == "no-cache"
@@ -83,3 +87,9 @@ def test_service_worker_registration_is_secure_context_only(web):
     assert "window.isSecureContext" in script
     assert 'navigator.serviceWorker.register("/sw.js", { scope: "/" })' in script
     assert "if (!(\"serviceWorker\" in navigator)) return;" in script
+
+
+def test_service_worker_cache_version_is_current():
+    worker = _read("static/sw.js")
+    assert 'raveplayer-shell-v1.6.28' in worker
+    assert "raveplayer-shell-v1.6.19" not in worker

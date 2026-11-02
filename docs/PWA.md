@@ -24,7 +24,7 @@ tab was never normalised back to the app.
   `mobile-web-app-capable=yes`, `apple-mobile-web-app-title`,
   `apple-mobile-web-app-status-bar-style`, plus the existing
   `apple-touch-icon`/`manifest`/`theme-color`.
-- `/manifest.webmanifest`: explicit **`id: "/"`**, **`start_url: "/"`**,
+- `/manifest.webmanifest` (and the `/manifest.json` alias added in 1.6.28): explicit **`id: "/"`**, **`start_url: "/"`**,
   **`scope: "/"`**, `display: standalone` (+ `display_override`), 180/512 icons,
   `lang`, `no-cache` so iOS re-reads it.
 - `/sw.js` + `static/sw.js` served at the **root** with

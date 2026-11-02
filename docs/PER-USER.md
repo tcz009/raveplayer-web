@@ -16,9 +16,9 @@ LAN app no longer overwrite each other's lists.
 - `core/favourites.migrate_legacy()` / `core/downloads.migrate_legacy()` are
   idempotent validation/count helpers; running them repeatedly does not move or
   duplicate data. Friends start with an empty library/favourites list.
-- `downloads/jobs.json` remains the shared job-metadata file, but every job
-  records its identity and a completed job registers its file into that
-  identity's index only. Job temp names include job + identity so two users
+- Background jobs live in the shared auth SQLite `download_jobs` table (1.6.28);
+  every row records its identity and a completed job registers its file into
+  that identity's index only. Job temp names include job + identity so two users
   downloading the same URL cannot overwrite each other's partial file.
 
 ## API behaviour

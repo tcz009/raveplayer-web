@@ -726,3 +726,39 @@ def test_themed_404_and_csp_reporting(browser_page, live_server):
     }""")
     assert status == 204
     assert browser_page.page_errors == []
+
+
+def test_mobile_search_field_fits_and_submit_is_tappable(browser_page):
+    """1.6.28: 390px iPhone search row must not overflow or cover submit."""
+    page = browser_page.page
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.reload(wait_until="domcontentloaded")
+    page.wait_for_selector("#nav button")
+    box = page.evaluate("""() => {
+        const search = document.querySelector('.search').getBoundingClientRect();
+        const field = document.querySelector('.search-field').getBoundingClientRect();
+        const input = document.querySelector('#search-input').getBoundingClientRect();
+        const button = document.querySelector('.search button').getBoundingClientRect();
+        const hit = document.elementFromPoint(button.left + button.width / 2,
+                                              button.top + button.height / 2);
+        return {
+            innerWidth: window.innerWidth,
+            docWidth: document.documentElement.scrollWidth,
+            search: {left: search.left, right: search.right, width: search.width},
+            field: {left: field.left, right: field.right, width: field.width},
+            input: {left: input.left, right: input.right, width: input.width},
+            button: {left: button.left, right: button.right, width: button.width,
+                     height: button.height},
+            hit: hit ? hit.closest('button') ? 'button' : hit.tagName : 'none',
+        };
+    }""")
+    assert box["docWidth"] <= box["innerWidth"] + 1, box
+    assert box["input"]["right"] <= box["field"]["right"] + 1, box
+    assert box["input"]["left"] >= box["field"]["left"] - 1, box
+    assert box["input"]["width"] >= 120, box
+    assert box["button"]["width"] >= 44 and box["button"]["height"] >= 44, box
+    assert box["button"]["left"] >= box["field"]["right"] - 1, box
+    assert box["button"]["right"] <= box["search"]["right"] + 1, box
+    assert box["hit"] == "button", box
+    assert page.locator("#search-input").is_visible()
+    assert browser_page.page_errors == []

@@ -1595,3 +1595,41 @@ body.loading-active .status { opacity: 0; }
   .download-actions { justify-content: stretch; }
   .download-actions .dl-cancel { margin-left: auto; }
 }
+
+/* 1.6.28 — mobile search row: keep the field inside the topbar and the
+   submit button visible/tappable at 390px. */
+@media (max-width: 620px) {
+  .topbar { max-width: 100%; overflow-x: clip; }
+  .search {
+    flex: 1 1 100%;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    margin-left: 0;
+    gap: 6px;
+    box-sizing: border-box;
+  }
+  .search-field {
+    flex: 1 1 auto;
+    width: auto;
+    max-width: 100%;
+    min-width: 0;
+  }
+  .search input {
+    flex: 1 1 auto;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+  .search button {
+    flex: 0 0 44px;
+    width: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
+    position: relative;
+    z-index: 2;
+  }
+  .search-icon { pointer-events: none; }
+}

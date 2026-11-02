@@ -1,17 +1,29 @@
-# Hardening pass — Rave Player web (`raveplayer-web` 1.6.26)
+# Hardening pass — Rave Player web (`raveplayer-web` 1.6.28)
 
-**Branch:** `feature/1.6.26-per-user` (not pushed) · **Base:** `main` @ `b58e010` (1.6.25)
+**Branch:** `feature/1.6.28-iphone-fixes` (not pushed) · **Base:** `main` @ `b025a47` (1.6.27)
 **Scope:** `app.py`, `core/`, `static/app.js`, `scripts/deploy.sh`, `docs/`, `test/`,
 `test_e2e/`, `VERSION`. No UX or content changes. No `data/` or advert files touched.
 
-**Result:** `205 → 360 passed` (`.venv/bin/python -m pytest -q test`), all
-offline; browser suite `test_e2e` **21 passed** (system Chrome, Playwright 1.60);
+**Result:** `205 → 362 passed` (`.venv/bin/python -m pytest -q test`), all
+offline; browser suite `test_e2e` **22 passed** (system Chrome, Playwright 1.60);
 `node --check static/app.js` and `sh -n scripts/deploy.sh` clean.
 
 Inputs folded in: the internal task-22 brief and the adversarial pre-review
 (`docs/ADVERSARIAL-REVIEW.md`, web findings W1–W8). The review's "what is solid" list
 (stream SSRF guard, SPA escaping, CSP, content-type gate, atomic writes) was kept intact.
 
+
+## 1.6.28 — iPhone/PWA HIGH fixes
+
+- Background jobs moved from per-worker memory/`jobs.json` to a shared SQLite
+  `download_jobs` table in the auth DB (WAL, transactional claim/complete/
+  cancel, global cap, dead-worker recovery, legacy JSON migration). Fixes
+  worker-dependent 200/404 and list omission; multi-process test.
+- Mobile search row fixed at ≤620px: min-width/box-sizing on field+input, 44px
+  fixed/tappable submit, no document overflow; Playwright 390px assertion.
+- `/manifest.json` alias added; SW cache off 1.6.19 → v1.6.28; cookie Secure
+  remains HTTPS-only. QA report/checklist docs updated.
+- Tests: 362 offline, 22 e2e.
 
 ## 1.6.26 — per-identity favourites/Downloads
 
@@ -532,10 +544,10 @@ that the module layout matches.
 
 ```sh
 cd "Rave Player"
-.venv/bin/python -m pytest -q test        # 360 passed
+.venv/bin/python -m pytest -q test        # 362 passed
 node --check static/app.js
 sh -n scripts/deploy.sh
-git diff --stat main..feature/1.6.26-per-user
+git diff --stat main..feature/1.6.28-iphone-fixes
 ```
 
 ## Post-merge fix — deploy.sh heredoc escaping (found on first real deploy)

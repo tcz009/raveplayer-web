@@ -1,4 +1,4 @@
-/* Rave Player service worker (1.6.19).
+/* Rave Player service worker (1.6.28).
  *
  * Purpose: the home-screen app must always boot the local app shell, never a
  * stale Safari tab or a page from another origin.  The worker therefore:
@@ -10,7 +10,7 @@
  *   - never caches /api/* or /api/downloads/* (live data/local library),
  *   - ignores cross-origin requests entirely (ads/third-party pages).
  */
-const CACHE_NAME = "raveplayer-shell-v1.6.19";
+const CACHE_NAME = "raveplayer-shell-v1.6.28";
 const SHELL = "/";
 
 self.addEventListener("install", (event) => {
