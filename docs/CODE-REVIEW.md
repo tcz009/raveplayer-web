@@ -1,7 +1,7 @@
 # Independent code review — brief
 
 **Project:** Rave Player — web app (`raveplayer-web`)
-**Version under review:** 1.6.28 (`feature/1.6.28-iphone-fixes`, based on `main` @ `b025a47` / 1.6.27)
+**Version under review:** 1.6.29 (`feature/1.6.29-job-retention`, based on 1.6.28)
 **Reviewer target:** `app.py`, `core/`, `static/`, `templates/`, `test/`; ignore `data/`, `__pycache__/`, `.venv/`.
 
 ## What it is
@@ -143,7 +143,11 @@ A prepared `.venv` exists in this checkout.
   made overflow-proof (input/field min-width, 44px submit, mobile e2e); manifest
   `/manifest.json` alias; service-worker cache bump. Report:
   `docs/QA-IPHONE-2026-11-02.md`.
-- Tests: `205 → 362` offline (`pytest -q test`) and **22 browser e2e**
+- **1.6.29 job hygiene**: bounded terminal job history per identity
+  (`RAVEWEB_JOB_HISTORY_LIMIT`, default 30; active rows never pruned; atomic
+  create/list pruning) and library deletes clear the matching completed job's
+  `download_id` so history cannot point at a dead item.
+- Tests: `205 → 365` offline (`pytest -q test`) and **22 browser e2e**
   (`pytest test_e2e`, see `docs/E2E.md`).
 
 ## Areas worth scrutiny

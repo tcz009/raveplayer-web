@@ -122,6 +122,7 @@ def create(identity, role, title, source, url, entry):
              job["source"], "queued", 0, None, 0, "", now, now, None, None,
              "", 0, None, now, _json_entry(job["entry"])))
         conn.commit()
+    prune_history(identity, role)
     return job
 
 
@@ -134,7 +135,58 @@ def get(job_id):
     return _row_to_job(row)
 
 
+DEFAULT_JOB_HISTORY = 30
+
+
+def history_limit():
+    override = (os.environ.get("RAVEWEB_JOB_HISTORY_LIMIT") or "").strip()
+    try:
+        value = int(override) if override else DEFAULT_JOB_HISTORY
+    except (TypeError, ValueError):
+        value = DEFAULT_JOB_HISTORY
+    return max(1, min(value, 500))
+
+
+def prune_history(identity=None, role=None, limit=None):
+    """Atomically trim terminal rows to the newest ``limit`` per identity.
+
+    Active (queued/downloading) rows are never removed.  The transaction is
+    independent of the read that follows, so two workers cannot race a delete
+    into a half-applied state.
+    """
+    cap = history_limit() if limit is None else max(1, int(limit))
+    conn = audit._connect()
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        if role == "admin":
+            identities = [row["identity"] for row in conn.execute(
+                "SELECT DISTINCT identity FROM download_jobs")]
+        else:
+            identities = [identity or ""]
+        for ident in identities:
+            rows = conn.execute(
+                "SELECT id FROM download_jobs WHERE identity=? "
+                "AND state IN ('completed','failed','cancelled') "
+                "ORDER BY COALESCE(finished,updated,created) DESC, id DESC",
+                (ident,)).fetchall()
+            stale = [row["id"] for row in rows[cap:]]
+            if stale:
+                conn.executemany("DELETE FROM download_jobs WHERE id=?",
+                                 [(item,) for item in stale])
+        conn.commit()
+        return True
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        conn.close()
+
+
 def list_jobs(identity=None, role=None):
+    prune_history(identity, role)
     with audit._connect() as conn:
         if role == "admin":
             rows = conn.execute(
@@ -295,6 +347,24 @@ def complete(job_id, size, download_id):
         ).rowcount
         conn.commit()
     return changed > 0
+
+
+def clear_download_reference(download_id, identity=None):
+    """Forget a library id after the user deletes that Downloads entry."""
+    if not download_id:
+        return 0
+    with audit._connect() as conn:
+        if identity is None:
+            changed = conn.execute(
+                "UPDATE download_jobs SET download_id='', updated=? "
+                "WHERE download_id=?", (time.time(), str(download_id))).rowcount
+        else:
+            changed = conn.execute(
+                "UPDATE download_jobs SET download_id='', updated=? "
+                "WHERE download_id=? AND identity=?",
+                (time.time(), str(download_id), identity)).rowcount
+        conn.commit()
+    return changed
 
 
 def fail(job_id, error, state="failed"):

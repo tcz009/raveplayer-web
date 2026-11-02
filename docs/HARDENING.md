@@ -1,10 +1,10 @@
-# Hardening pass — Rave Player web (`raveplayer-web` 1.6.28)
+# Hardening pass — Rave Player web (`raveplayer-web` 1.6.29)
 
-**Branch:** `feature/1.6.28-iphone-fixes` (not pushed) · **Base:** `main` @ `b025a47` (1.6.27)
+**Branch:** `feature/1.6.29-job-retention` (not pushed) · **Base:** `feature/1.6.28-iphone-fixes` @ `eadcf0a` (1.6.28)
 **Scope:** `app.py`, `core/`, `static/app.js`, `scripts/deploy.sh`, `docs/`, `test/`,
 `test_e2e/`, `VERSION`. No UX or content changes. No `data/` or advert files touched.
 
-**Result:** `205 → 362 passed` (`.venv/bin/python -m pytest -q test`), all
+**Result:** `205 → 365 passed` (`.venv/bin/python -m pytest -q test`), all
 offline; browser suite `test_e2e` **22 passed** (system Chrome, Playwright 1.60);
 `node --check static/app.js` and `sh -n scripts/deploy.sh` clean.
 
@@ -12,6 +12,15 @@ Inputs folded in: the internal task-22 brief and the adversarial pre-review
 (`docs/ADVERSARIAL-REVIEW.md`, web findings W1–W8). The review's "what is solid" list
 (stream SSRF guard, SPA escaping, CSP, content-type gate, atomic writes) was kept intact.
 
+
+## 1.6.29 — job-history retention and delete consistency
+
+- Top-level job history is bounded per identity by
+  `RAVEWEB_JOB_HISTORY_LIMIT` (default 30, clamp 1–500); newest terminal rows
+  are kept atomically on create/list, active rows are never pruned.
+- Deleting a library entry clears the matching completed job's `download_id`
+  for that identity; the completed job remains in history without a dead link.
+- Tests: 365 offline (+3 retention/reference), e2e 22 unchanged.
 
 ## 1.6.28 — iPhone/PWA HIGH fixes
 
@@ -544,10 +553,10 @@ that the module layout matches.
 
 ```sh
 cd "Rave Player"
-.venv/bin/python -m pytest -q test        # 362 passed
+.venv/bin/python -m pytest -q test        # 365 passed
 node --check static/app.js
 sh -n scripts/deploy.sh
-git diff --stat main..feature/1.6.28-iphone-fixes
+git diff --stat feature/1.6.28-iphone-fixes..feature/1.6.29-job-retention
 ```
 
 ## Post-merge fix — deploy.sh heredoc escaping (found on first real deploy)

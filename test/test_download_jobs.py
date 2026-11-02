@@ -241,3 +241,55 @@ def test_shared_store_across_processes_no_clobber():
     assert cancelled["state"] == "cancelled"
     assert jobs_store.get(claimed["id"])["state"] == "completed"
     assert jobs_store.get(other["id"])["state"] == "cancelled"
+
+
+def test_terminal_job_history_is_bounded_but_active_rows_survive(web, monkeypatch):
+    from core import download_jobs as store
+    monkeypatch.setenv("RAVEWEB_JOB_HISTORY_LIMIT", "2")
+    base = app_module.DATA_DIR
+    entry = downloads.entry_for(base, "history", URL, "archive")
+    terminal = []
+    for index in range(5):
+        job = store.create("owner", "admin", "done-%d" % index, "archive", URL, entry)
+        store.update(job["id"], state="completed", download_id="dl-%d" % index,
+                     finished=time.time() + index)
+        terminal.append(job["id"])
+    # create/list both prune; a list read is enough.
+    listed = store.list_for("owner", "admin")
+    completed = [job for job in listed if job["state"] == "completed"]
+    assert len(completed) == 2
+    assert {job["id"] for job in completed} == set(terminal[-2:])
+
+    active = store.create("owner", "admin", "active", "archive", URL, entry)
+    store.list_for("owner", "admin")
+    assert store.get(active["id"]) is not None
+    assert store.get(active["id"])["state"] == "queued"
+
+
+def test_history_is_bounded_per_identity(web, monkeypatch):
+    from core import download_jobs as store
+    monkeypatch.setenv("RAVEWEB_JOB_HISTORY_LIMIT", "1")
+    base = app_module.DATA_DIR
+    entry = downloads.entry_for(base, "scope", URL, "archive")
+    for identity in ("owner", "friends"):
+        for index in range(3):
+            job = store.create(identity, "admin" if identity == "owner" else "viewer",
+                               "%s-%d" % (identity, index), "archive", URL, entry)
+            store.update(job["id"], state="completed", finished=time.time() + index)
+    store.prune_history("owner", "admin", limit=1)
+    owner_jobs = store.list_for("owner", "admin")
+    assert len([job for job in owner_jobs if job["identity"] == "owner"]) == 1
+    assert len([job for job in owner_jobs if job["identity"] == "friends"]) == 1
+
+
+def test_deleting_library_entry_clears_completed_job_reference(web, monkeypatch):
+    monkeypatch.setattr(app_module, "_download_chunks", _fast_chunks(33))
+    response = _create(web, title="Reference test")
+    job_id = response.get_json()["id"]
+    job = _wait_job(web, job_id, "completed")
+    assert job["download_id"]
+    deleted = web.delete("/api/downloads/%s" % job["download_id"])
+    assert deleted.status_code == 200 and deleted.get_json()["removed"] is True
+    job_after = web.get("/api/downloads/jobs/%s" % job_id).get_json()["job"]
+    assert job_after["state"] == "completed"
+    assert job_after["download_id"] == ""

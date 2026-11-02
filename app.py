@@ -3152,6 +3152,11 @@ def api_download_delete(download_id):
     except Exception as exc:  # noqa: BLE001 - a broken store is not a 500
         app.logger.warning("download delete failed: %s", exc)
         removed = False
+    if removed:
+        try:
+            download_jobs.clear_download_reference(identifier, identity)
+        except Exception:
+            app.logger.exception("jobs: could not clear deleted download reference")
     return jsonify({"removed": bool(removed)})
 
 

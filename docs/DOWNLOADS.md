@@ -76,6 +76,17 @@ topbar spinner/percent chip linking to Downloads, live queued/downloading rows
 with cancel at the top of the Downloads view, persistence across full page reloads, and a
 completion toast when you are elsewhere.
 
+## Job retention and library deletion
+
+- Terminal job rows are capped per identity by `RAVEWEB_JOB_HISTORY_LIMIT`
+  (default 30, clamped 1–500). The newest N completed/failed/cancelled rows are
+  kept; queued/downloading rows are never pruned. Pruning runs atomically on
+  create/list reads and is per identity, so one user's history cannot evict
+  another's.
+- Deleting a completed download from the library clears the matching job's
+  `download_id` (same identity, same id) so a completed job never points at a
+  deleted item. The job row/state remains for history.
+
 ## Storage and guards
 
 - Files and `index.json` live under `RAVEWEB_DATA/downloads` for the owner
@@ -86,6 +97,7 @@ completion toast when you are elsewhere.
 - Per file `RAVEWEB_DOWNLOAD_BYTES` (default 500 MiB), library total
   `RAVEWEB_DOWNLOAD_TOTAL` (default 2 GiB), 200 items, plus a free-space reserve.
 - Background concurrency `RAVEWEB_DOWNLOAD_JOBS` (default 2, clamped 1–2).
+- Terminal job history `RAVEWEB_JOB_HISTORY_LIMIT` (default 30, clamped 1–500; active jobs excluded).
   `Content-Length` is checked before writing; the byte counter is checked while
   writing; temp file + atomic rename; index writes are locked (thread +
   `fcntl`) and atomic.

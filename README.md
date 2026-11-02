@@ -215,6 +215,7 @@ check without guesswork.
 | `RAVEWEB_ENV` | recommended `production` | Enables strict secret-key checks (`RAVEWEB_PROD=1` also works). |
 | `RAVEWEB_WIDGET_TOKEN` | optional | Read-only bearer token for the Control Centre `GET /api/admin/stats` feed; empty = owner-session only. |
 | `RAVEWEB_CSP_REPORT_ONLY` | `1` | Adds the report-only CSP + `/api/csp-report` collection; set `0` to stop reporting without tightening enforcement. |
+| `RAVEWEB_JOB_HISTORY_LIMIT` | `30` | Terminal background-job rows kept per identity (active rows never pruned). |
 | `RAVEWEB_AUTH_DB` | `$RAVEWEB_DATA/auth.sqlite3` | Persistent SQLite audit/session store, including the shared login-failure/lockout counters. |
 | `RAVEWEB_SESSION_HOURS` / `RAVEWEB_REMEMBER_DAYS` | `12` / `30` | Absolute session lifetimes with/without “remember me”. |
 | `RAVEWEB_LOGIN_MAX_FAILURES` / `_FAILURE_WINDOW` / `_LOCKOUT` | `5` / `600` / `900` | Login throttle and lockout. |
@@ -353,9 +354,9 @@ typography, hero and texture language — is documented in
 
 ## Tests
 
-### Offline suite (362 cases)
+### Offline suite (365 cases)
 
-The offline suite is 362 cases (all providers mocked) and uses the Flask test
+The offline suite is 365 cases (all providers mocked) and uses the Flask test
 client. `pytest` is a test-only dependency:
 
 ```sh
