@@ -50,10 +50,61 @@ REQUIRE_BROWSER = os.environ.get("RAVEWEB_REQUIRE_BROWSER") == "1"
 NO_SANDBOX = os.environ.get("RAVEWEB_PLAYWRIGHT_NO_SANDBOX") == "1"
 CHROMIUM_EXECUTABLE = os.environ.get("RAVEWEB_CHROMIUM_EXECUTABLE") or None
 
-WIDGET_STUB = (
-    "<!doctype html><html><head><title>stub widget</title></head>"
-    "<body><p>stub widget</p></body></html>"
-)
+# Served for every framed widget host. It keeps the document URL (and thus its
+# origin) at the real provider so the parent's postMessage source/origin checks
+# run exactly as they would in production, and it can emit the provider events
+# on demand from a test.  The parent CSP still governs whether the frame loads.
+WIDGET_STUB = """<!doctype html><html><head><title>stub widget</title></head>
+<body>
+<p>stub widget</p>
+<button id="stub-play" type="button">stub play</button>
+<button id="stub-pause" type="button">stub pause</button>
+<button id="stub-ended" type="button">stub ended</button>
+<script>
+(function () {
+  "use strict";
+  var provider = /soundcloud/.test(location.hostname) ? "soundcloud" : "mixcloud";
+  var received = [];
+  window.__stubReceived = received;
+  function send(message) {
+    try { parent.postMessage(JSON.stringify(message), "*"); } catch (e) {}
+  }
+  function ready() {
+    if (provider === "soundcloud") send({ method: "ready" });
+    else send({ mixcloud: "playerWidget", type: "ready" });
+  }
+  window.__stubSend = function (kind) {
+    if (provider === "soundcloud") {
+      var method = kind === "ended" ? "finish" : kind;
+      send({ method: method });
+    } else {
+      send({ mixcloud: "playerWidget", type: "event",
+             data: { eventName: kind, args: [] } });
+    }
+  };
+  window.addEventListener("message", function (event) {
+    if (event.source !== parent) return;
+    var data;
+    try { data = JSON.parse(event.data); } catch (e) { return; }
+    received.push(data);
+    if (provider === "mixcloud" && data.type === "getApi") {
+      send({ mixcloud: "playerWidget", type: "api",
+             data: { methods: ["play", "pause"], events: ["play", "pause", "ended"] } });
+    }
+  });
+  window.addEventListener("load", ready);
+  document.getElementById("stub-play").addEventListener("click", function () {
+    window.__stubSend("play");
+  });
+  document.getElementById("stub-pause").addEventListener("click", function () {
+    window.__stubSend("pause");
+  });
+  document.getElementById("stub-ended").addEventListener("click", function () {
+    window.__stubSend("ended");
+  });
+})();
+</script>
+</body></html>"""
 
 
 # --------------------------------------------------------------------------- stubs

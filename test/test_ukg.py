@@ -192,10 +192,11 @@ def test_search_submit_opens_a_pasted_set_before_archive_search():
     handler = source[start:end]
     assert "const embed = externalEmbed(query);" in handler
     assert "if (embed)" in handler
-    assert "openEmbed(embed)" in handler
+    # 1.6.45: the search box is passed as the focus-return target for the dock.
+    assert "openEmbed(embed, searchInput)" in handler
     # The embed branch must run before the normal Archive navigation.
     assert handler.index("externalEmbed(query)") < handler.index("navigate(`/api/search")
-    assert handler.index("openEmbed(embed)") < handler.index("navigate(`/api/search")
+    assert handler.index("openEmbed(embed, searchInput)") < handler.index("navigate(`/api/search")
     # Normal text search is unchanged.
     assert "navigate(`/api/search?q=${encodeURIComponent(query)}`)" in handler
     assert 'toast("Type something to search")' in handler

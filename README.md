@@ -47,7 +47,7 @@ The sections behind the groups:
   through the existing direct-file path. Genre pages, search and the API are in
   [`docs/TORONTO.md`](docs/TORONTO.md). Credit: the independent TRMA archive.
 - **Rave Archive UK** — rave tape scans from rave-archive.com; each release
-  opens its Mixcloud player in the shared embed panel.
+  opens its Mixcloud player in the shared embed dock.
 - **GetDarker** — dubstep/grime/140 sets from GetDarker's RSS and curated
   `getdarker` Mixcloud account, played in the Mixcloud widget.
 - **Pirate Radio** — Hardscore, Pirate Radio Archives and Kool FM sets are grouped under one root door. Pirate Radio Archives is a small hand-checked archive of pirate recordings
@@ -97,7 +97,7 @@ Download JSON never leave the browser, turning the button off clears the flag
 and buffer, and there is no overhead while off. See
 [`docs/DEBUG.md`](docs/DEBUG.md).
 - **Search** — Archive text search. Paste a Mixcloud or SoundCloud set URL into
-  the search box instead and the embed panel opens that set.
+  the search box instead and the inline embed dock opens that set.
 
 The player also shows an AirPlay button in Safari (and a Cast button in
 Chromium-based browsers) once a track is loaded. It reports the browser's real
@@ -113,9 +113,16 @@ audio: the iframe points at `https://www.mixcloud.com/widget/iframe/?…` or
 `https://player-widget.mixcloud.com/…`, so the page CSP allows exactly those
 three framed hosts (`frame-src`); everything else is still refused by
 `default-src 'self'`. Pasting either kind of set URL into search opens the same
-panel, labelled for the provider, with an "Open on … ↗" link to the original
-page. A provider that moves its widget to a new domain needs the CSP entry
-updated (and a browser check — the offline tests only assert the header).
+**inline dock** in the main player's bottom slot, labelled for the provider,
+with an "Open on … ↗" link and a 44 px Close target. There is no modal, scrim,
+focus trap or page scroll lock; the dock is a labelled region and focus returns
+to the opener on close/back/Escape. The providers' own play/pause events are
+observed through a small postMessage bridge (`static/embed.js`) because the
+unchanged `script-src 'self'` CSP blocks their API scripts; the exact
+cross-origin limits are in
+[`docs/AUDIO-SINGLE-SOURCE.md`](docs/AUDIO-SINGLE-SOURCE.md). A provider that
+moves its widget to a new domain needs the CSP entry updated (and a browser
+check — the offline tests only assert the header).
 
 ## Why a server proxy
 
@@ -336,8 +343,11 @@ Archive forever.
 ## Audio sources
 
 Only one surface plays at a time (1.6.45): opening a SoundCloud/Mixcloud
-widget stops and clears the main player, starting the main player removes the
-widget iframe, and navigation closes active embeds. See
+widget stops and clears the main `<audio>` before the iframe loads; starting
+the main player, navigating or closing the dock removes and replaces the iframe
+so its browsing context is discarded; and the provider's own play/pause events
+are observed through a small postMessage bridge as a second guard. The dock is
+inline, not modal. See
 [`docs/AUDIO-SINGLE-SOURCE.md`](docs/AUDIO-SINGLE-SOURCE.md).
 
 ## iPhone and AirPlay
@@ -438,7 +448,7 @@ the cached app shell for any same-origin navigation, never caching
 bookmarks — remove and re-add once, as described in [`docs/PWA.md`](docs/PWA.md)
 (which also covers the plain-HTTP LAN limitation and what Cockney Player needs).
 
-### Browser smoke tests (32 cases)
+### Browser smoke tests (34 cases)
 
 `test_e2e/` drives the real app in headless Chromium through Playwright. It
 covers what the offline suite cannot: boot with the grouped 9-button rail and
@@ -449,8 +459,10 @@ rail/back layout, the Download action → progress panel (save and cancel) → D
 offline playback → delete round trip (and no Download action on podcast-like
 rows), the 150 ms loading pill (fast and slow requests), the Surprise spin/
 stamp reveal plus its reduced-motion skip, section navigation rendering every
-row, the owner login/logout flow + designed door page, background download → navigate away → completion, the Mixcloud/SoundCloud embed panel (widget
-`src`, provider label, close/backdrop, CSP `frame-src`), normal text search, and
+row, the owner login/logout flow + designed door page, background download → navigate away → completion, the Mixcloud/SoundCloud inline dock (widget
+`src`, provider labels, region/aria/focus, close/Escape, widget play/pause
+events, single-audio in both directions, 390 × 844 and 1280 × 900 layout,
+CSP `frame-src`), normal text search, and
 a favourites add/remove round trip, exactly one top-right spinner while a
 background download polls (and the pill returning for a slow non-download
 load), and the opt-in debug panel (off by default; the Help dialog's
@@ -505,8 +517,14 @@ cap only; see [`docs/LIST-CAPS.md`](docs/LIST-CAPS.md).
   15 minutes (`core/radio.LIVE_TTL`, `core/feeds.FEED_TTL`), so a new station
   or episode can take up to one TTL window to appear.
 - Mixcloud and SoundCloud sets play in the providers' own iframes. The CSP
-  allows exactly the two widget hosts above; a provider domain change breaks
-  the panel until the `frame-src` entry is updated.
+  allows exactly the three widget hosts above; a provider domain change breaks
+  the dock until the `frame-src` entry is updated.
+- Widget play/pause detection is best effort: the cross-origin iframe cannot be
+  inspected, so the app reads the provider's postMessage events and fails soft
+  if that protocol changes. The single-audio rule is enforced at every
+  open/play/navigate/close boundary regardless. `Escape` closes the dock only
+  while focus is in the page, not inside the cross-origin widget; the visible
+  Close button always works.
 - No authentication. This is a LAN app: do not publish port 8097 directly.
 
 ## Layout

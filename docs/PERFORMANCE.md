@@ -62,7 +62,8 @@ a regression; the only actionable shift source is the topbar pill/status swap
 - **Downloads list** reads the index once (computed size from the entries).
 - **Dead code/CSS:** removed the never-wired `.embed-placeholder` block (~40
   lines), the unused `railGroup()` helper and three unused `--*-wash` colour
-  tokens. No behaviour, URL or label changes.
+  tokens. No behaviour, URL or label changes. (1.6.45 later adds a different,
+  wired dock placeholder with its own markup and CSS.)
 
 ## Misses / flags
 

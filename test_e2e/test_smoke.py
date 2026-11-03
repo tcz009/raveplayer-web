@@ -72,6 +72,57 @@ def _wait_for_widget_stub(page):
     page.frame_locator("#embed-frame").get_by_text("stub widget").wait_for()
 
 
+def _widget_frame(page, host):
+    """The framed stub for one provider (its URL keeps the provider's origin)."""
+    deadline = time.time() + 5
+    while time.time() < deadline:
+        for frame in page.frames:
+            if host in (frame.url or ""):
+                return frame
+        page.wait_for_timeout(50)
+    raise AssertionError("no %s widget frame (have %s)" % (
+        host, [frame.url for frame in page.frames]))
+
+
+def _widget_posts(page, host):
+    return _widget_frame(page, host).evaluate(
+        "() => window.__stubReceived || []")
+
+
+def _stub_widget_event(page, host, kind):
+    _widget_frame(page, host).evaluate(
+        "(kind) => window.__stubSend(kind)", kind)
+
+
+def _wait_for_note(page, text):
+    page.wait_for_function(
+        "(text) => document.querySelector('#embed-note').textContent.includes(text)",
+        arg=text,
+    )
+
+
+def _dock_layout(page):
+    return page.evaluate(
+        """() => {
+            const dock = document.querySelector('#embed-panel');
+            const frame = document.querySelector('#embed-frame');
+            const d = dock.getBoundingClientRect();
+            const f = frame.getBoundingClientRect();
+            return {
+                vw: window.innerWidth,
+                vh: window.innerHeight,
+                dock: {x: d.x, y: d.y, width: d.width, height: d.height},
+                frame: {x: f.x, y: f.y, width: f.width, height: f.height},
+                overflowX: document.documentElement.scrollWidth > window.innerWidth,
+                bodyOverflowY: getComputedStyle(document.body).overflowY,
+                role: dock.getAttribute('role'),
+                ariaModal: dock.getAttribute('aria-modal'),
+                dialog: dock.getAttribute('role') === 'dialog',
+            };
+        }"""
+    )
+
+
 def _save_shot(page, name):
     """Save a screenshot when RAVEWEB_ARTIFACTS_DIR is set (report artifacts)."""
     if not ARTIFACTS_DIR:
@@ -166,10 +217,16 @@ def test_section_navigation_renders_rows(browser_page):
     assert browser_page.page_errors == []
 
 
-def test_pasted_mixcloud_url_opens_the_embed_panel(browser_page):
+def test_pasted_mixcloud_url_opens_the_inline_dock(browser_page):
     page = browser_page.page
     _paste(page, MIXCLOUD_URL)
     _wait_for_panel(page)
+
+    # Inline region, not a modal take-over.
+    assert page.locator("#embed-panel").get_attribute("role") == "region"
+    assert page.locator("#embed-panel").get_attribute("aria-modal") is None
+    assert page.evaluate(
+        "() => getComputedStyle(document.body).overflowY") != "hidden"
 
     assert _text(page.locator("#embed-title")) == "Mixcloud set"
     source = page.locator("#embed-frame").get_attribute("src")
@@ -183,29 +240,42 @@ def test_pasted_mixcloud_url_opens_the_embed_panel(browser_page):
     # Pasting a set URL is not a text search.
     assert "#/api/search" not in page.evaluate("location.hash")
 
+    # The Mixcloud API handshake was attempted, so widget events can be seen.
+    mix = _widget_frame(page, "mixcloud.com")
+    mix.wait_for_function(
+        "() => (window.__stubReceived || []).some((m) => m.type === 'getApi')")
+    posts = _widget_posts(page, "mixcloud.com")
+    assert any(post.get("type") == "getApi" for post in posts), posts
+
+    # Focus moves into the dock and returns to the search box on close.
+    assert page.evaluate("() => document.activeElement.id") == "embed-title"
     page.locator("#embed-close").click()
     page.wait_for_selector("#embed-panel", state="hidden")
     assert page.locator("#embed-frame").get_attribute("src") is None
+    assert page.evaluate("() => document.activeElement.id") == "search-input"
 
 
-def test_pasted_soundcloud_url_opens_the_panel_and_backdrop_closes_it(browser_page):
+def test_pasted_soundcloud_url_closes_with_escape_and_restores_focus(browser_page):
     page = browser_page.page
     _paste(page, SOUNDCLOUD_URL)
     _wait_for_panel(page)
 
+    assert page.locator("#embed-panel").get_attribute("role") == "region"
+    assert page.locator("#embed-panel").get_attribute("aria-modal") is None
     assert _text(page.locator("#embed-title")) == "SoundCloud set"
     source = page.locator("#embed-frame").get_attribute("src")
     assert source.startswith("https://w.soundcloud.com/player/?url=")
     assert _text(page.locator("#embed-external")) == "Open on SoundCloud ↗"
     assert page.locator("#embed-external").get_attribute("href") == SOUNDCLOUD_URL
     assert page.locator("#embed-frame").get_attribute("title") == "SoundCloud player"
+    assert page.get_by_role("button", name="Close SoundCloud player").count() == 1
     _wait_for_widget_stub(page)
     assert _widget_violations(page) == []
 
-    # Backdrop: click the panel itself, outside the centred card.
-    page.locator("#embed-panel").click(position={"x": 8, "y": 8})
+    page.keyboard.press("Escape")
     page.wait_for_selector("#embed-panel", state="hidden")
     assert page.locator("#embed-frame").get_attribute("src") is None
+    assert page.evaluate("() => document.activeElement.id") == "search-input"
 
 
 def test_normal_text_search_still_navigates(browser_page):
@@ -1322,11 +1392,7 @@ def test_taxonomy_rail_and_tape_packs_in_both_themes(browser_page):
     page.locator("#help-close").click()
 
 
-def test_single_audio_source_policy_main_and_embeds(browser_page):
-    """1.6.45: opening an embed stops the main player; playing main unloads embeds."""
-    page = browser_page.page
-
-    # Start a main-player track from Latest → Boot Pack → Boot Track.
+def _start_main_track(page):
     page.locator("#list .row", has_text="Boot Pack").click()
     page.wait_for_function("() => location.hash.includes('/api/item/boot-pack')")
     _wait_for_rows(page, 1)
@@ -1334,21 +1400,38 @@ def test_single_audio_source_policy_main_and_embeds(browser_page):
     page.wait_for_selector("#player", state="visible")
     page.wait_for_function("() => !!document.querySelector('#audio').getAttribute('src')")
 
-    # Opening a SoundCloud embed is an unconditional hand-off of audio.
+
+def test_single_audio_source_policy_main_and_embeds(browser_page):
+    """1.6.45: opening an embed stops the main player; playing main unloads embeds."""
+    page = browser_page.page
+
+    _start_main_track(page)
+
+    # Direction 1: opening a SoundCloud embed clears the main <audio> first.
     _paste(page, SOUNDCLOUD_URL)
     _wait_for_panel(page)
-    page.wait_for_function("() => { const a = document.querySelector('#audio'); return a.paused && !a.getAttribute('src'); }")
+    page.wait_for_function(
+        "() => { const a = document.querySelector('#audio');"
+        " return a.paused && !a.getAttribute('src'); }")
     assert page.locator("#embed-frame").get_attribute("src") is not None
     assert page.locator("#player").is_hidden()
+    assert page.evaluate(
+        "() => document.body.classList.contains('has-embed')") is True
+    assert page.evaluate(
+        "() => document.querySelectorAll('#embed-panel iframe').length") == 1
+    assert page.locator("#audio").count() == 1
     ms_state = page.evaluate("() => navigator.mediaSession.playbackState")
     assert ms_state in ("none", "paused")
-    assert page.locator("#audio").count() == 1
 
-    # Starting the main player must tear the embed down completely.
+    # Direction 2: starting main playback replaces the iframe (src none) first.
     page.evaluate("() => document.querySelector('#list .row').click()")
     page.wait_for_selector("#embed-panel", state="hidden")
     page.wait_for_selector("#player", state="visible")
     assert page.locator("#embed-frame").get_attribute("src") is None
+    assert page.evaluate(
+        "() => document.body.classList.contains('has-embed')") is False
+    assert page.evaluate(
+        "() => document.querySelectorAll('#embed-panel iframe').length") == 1
     page.wait_for_function("() => !!document.querySelector('#audio').getAttribute('src')")
 
     # Navigation with an embed open must stop it and start the destination clean.
@@ -1358,5 +1441,97 @@ def test_single_audio_source_policy_main_and_embeds(browser_page):
     page.wait_for_function("() => document.querySelector('#title').textContent === 'Latest'")
     assert page.locator("#embed-panel").is_hidden()
     assert page.locator("#embed-frame").get_attribute("src") is None
+    assert page.evaluate(
+        "() => document.body.classList.contains('has-embed')") is False
     assert page.locator("#audio").evaluate("(el) => el.paused")
+    assert browser_page.page_errors == []
+
+
+def test_embed_widget_api_events_never_start_a_second_stream(browser_page):
+    """The provider postMessage events are observed, but never over main audio."""
+    page = browser_page.page
+
+    _paste(page, SOUNDCLOUD_URL)
+    _wait_for_panel(page)
+    _wait_for_widget_stub(page)
+    frame = _widget_frame(page, "w.soundcloud.com")
+    frame.wait_for_function(
+        "() => (window.__stubReceived || []).some("
+        "(m) => m.method === 'addEventListener' && m.value === 'play')")
+    posts = _widget_posts(page, "w.soundcloud.com")
+    assert {post.get("value") for post in posts if post.get("method") == "addEventListener"} >= {
+        "play", "pause", "finish",
+    }
+
+    _stub_widget_event(page, "w.soundcloud.com", "play")
+    _wait_for_note(page, "Playing through SoundCloud")
+    assert page.locator("#audio").evaluate("(el) => el.paused")
+    assert page.locator("#audio").get_attribute("src") is None
+    assert page.locator("#player").is_hidden()
+    assert page.evaluate("() => document.querySelectorAll('audio').length") == 1
+
+    _stub_widget_event(page, "w.soundcloud.com", "pause")
+    _wait_for_note(page, "Paused in SoundCloud")
+    assert page.locator("#audio").evaluate("(el) => el.paused")
+
+    # Main playback wins: the iframe is discarded and cannot keep playing.
+    page.locator("#list .row", has_text="Boot Episode").click()
+    page.wait_for_selector("#embed-panel", state="hidden")
+    assert page.locator("#embed-frame").get_attribute("src") is None
+    page.wait_for_function("() => !!document.querySelector('#audio').getAttribute('src')")
+
+    # Mixcloud handshake + events follow the same rule.
+    _paste(page, MIXCLOUD_URL)
+    _wait_for_panel(page)
+    _wait_for_widget_stub(page)
+    mix = _widget_frame(page, "mixcloud.com")
+    mix.wait_for_function(
+        "() => (window.__stubReceived || []).some((m) => m.type === 'getApi')")
+    _stub_widget_event(page, "mixcloud.com", "play")
+    _wait_for_note(page, "Playing through Mixcloud")
+    assert page.locator("#audio").evaluate("(el) => el.paused")
+    assert page.locator("#audio").get_attribute("src") is None
+    _stub_widget_event(page, "mixcloud.com", "pause")
+    _wait_for_note(page, "Paused in Mixcloud")
+    assert browser_page.page_errors == []
+
+
+def test_embed_dock_layout_at_390_and_1280(browser_page):
+    """Inline dock: no modal role, no page lock, fits both target widths."""
+    page = browser_page.page
+    _paste(page, SOUNDCLOUD_URL)
+    _wait_for_panel(page)
+    _wait_for_widget_stub(page)
+
+    desktop = _dock_layout(page)
+    assert desktop["role"] == "region"
+    assert desktop["ariaModal"] is None
+    assert desktop["dialog"] is False
+    assert desktop["overflowX"] is False
+    assert desktop["bodyOverflowY"] != "hidden"
+    assert desktop["dock"]["x"] >= -1
+    assert desktop["dock"]["width"] <= desktop["vw"] + 1
+    assert desktop["dock"]["height"] < desktop["vh"], "the dock must not cover the page"
+    assert desktop["frame"]["width"] > 500
+    assert desktop["frame"]["y"] >= desktop["dock"]["y"]
+    _shot(browser_page, "30-embed-dock-1280")
+
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.wait_for_timeout(120)
+    mobile = _dock_layout(page)
+    assert mobile["role"] == "region"
+    assert mobile["ariaModal"] is None
+    assert mobile["dialog"] is False
+    assert mobile["overflowX"] is False
+    assert mobile["bodyOverflowY"] != "hidden"
+    assert mobile["dock"]["x"] >= -1
+    assert mobile["dock"]["width"] <= 391
+    assert mobile["dock"]["height"] < mobile["vh"]
+    assert mobile["frame"]["x"] >= 0
+    assert mobile["frame"]["width"] <= 390
+    assert mobile["frame"]["width"] > 300
+    assert mobile["frame"]["y"] >= mobile["dock"]["y"]
+    assert page.evaluate(
+        "() => document.documentElement.scrollWidth <= window.innerWidth + 1")
+    _shot(browser_page, "31-embed-dock-390")
     assert browser_page.page_errors == []

@@ -1,27 +1,36 @@
 # Hardening pass — Rave Player web (`raveplayer-web` 1.6.45)
 
 **Branch:** `feature/1.6.45-single-audio` (not pushed until review) · **Base:** 1.6.44 / `615fa29`
-**Scope:** `app.py`, `core/`, `static/app.js`, `scripts/deploy.sh`, `docs/`, `test/`,
-`test_e2e/`, `VERSION`. No UX or content changes. No `data/` or advert files touched.
+**Scope:** `app.py`, `core/`, `static/app.js`, `static/embed.js`, `static/app.css`,
+`templates/index.html`, `scripts/deploy.sh`, `docs/`, `test/`, `test_e2e/`,
+`VERSION`. No provider/content changes; no `data/` or advert files touched.
 
-**Result:** `205 → 442 passed` (`.venv/bin/python -m pytest -q test`), all
-offline; browser suite `test_e2e` **32 passed** (system Chrome, Playwright 1.60);
-`node --check static/app.js` and `sh -n scripts/deploy.sh` clean.
+**Result:** `205 → 453 passed` (`.venv/bin/python -m pytest -q test`), all
+offline; browser suite `test_e2e` **34 passed** (system Chrome, Playwright 1.60);
+`node --check static/app.js static/embed.js` and `sh -n scripts/deploy.sh` clean.
 
 Inputs folded in: the internal task-22 brief and the adversarial pre-review
 (`docs/ADVERSARIAL-REVIEW.md`, web findings W1–W8). The review's "what is solid" list
 (stream SSRF guard, SPA escaping, CSP, content-type gate, atomic writes) was kept intact.
 
 
-## 1.6.45 — single audio source
+## 1.6.45 — inline embed dock + single audio source
 
-- Embed selection now stops and clears the main `<audio>` (src, progress,
-  MediaSession, heartbeat) before setting the iframe src; the policy is
-  re-asserted on iframe load for autoplay races.
-- Starting/resuming the main player unloads the embed iframe; navigation closes
-  active embeds; stale iframe load events are guarded.
-- Tests: 442 offline unchanged, 32 e2e (new main↔embed→main→navigation).
-  Docs `AUDIO-SINGLE-SOURCE.md`.
+- The modal embed is replaced by an inline dock in the main player's bottom
+  slot: `role="region"`, no `aria-modal`/scrim/focus trap/scroll lock, wrapped
+  44 px head at 390 px, capped frame at 390/1280. Stage/rail reserve the
+  measured `--embed-dock-h`.
+- Single audio in both directions: opening an embed clears the main `<audio>`
+  before the widget document exists (and re-asserts on load); starting main
+  playback/navigating/closing replaces the iframe element so its browsing
+  context and audio are discarded. Escape/Back/Close restore focus.
+- `static/embed.js` observes the SoundCloud/Mixcloud postMessage protocols
+  (exact source + origin, explicit target origins, never `*`) without widening
+  `script-src 'self'`; protocol and cross-origin limits are documented in
+  `docs/AUDIO-SINGLE-SOURCE.md`. CSP is unchanged.
+- Tests: 453 offline (11 new dock/bridge checks + 13 Node bridge checks),
+  34 e2e (both audio directions, widget events, no modal role, close/Escape,
+  390/1280 layout). Docs `AUDIO-SINGLE-SOURCE.md` + ARTWORK/README/E2E.
 
 ## 1.6.44 — scene taxonomy
 
@@ -646,8 +655,8 @@ that the module layout matches.
 
 ```sh
 cd "Rave Player"
-.venv/bin/python -m pytest -q test        # 442 passed
-node --check static/app.js
+.venv/bin/python -m pytest -q test        # 453 passed
+node --check static/app.js static/embed.js
 sh -n scripts/deploy.sh
 git diff --stat 615fa29..feature/1.6.45-single-audio
 ```

@@ -18,6 +18,7 @@
   const helpEl = $("help");
   const rangeEl = $("p-range");
   const searchInput = $("search-input");
+  const embedDock = $("embed-panel");
 
   const DEFAULT_EMPTY = "Nothing here — try another section.";
   const SEARCH_EMPTY = "Search the archive — type a query above, or press / to jump to the search box.";
@@ -30,6 +31,10 @@
   // 1.6.35 appearance (static/theme.js). THEME is the early boot script that
   // already put data-theme on <html>; the Help dialog only writes the choice.
   const THEME = window.RaveTheme || null;
+  // 1.6.45 provider widget bridge (static/embed.js). It speaks the documented
+  // SoundCloud/Mixcloud postMessage protocols without loading their API
+  // scripts, which the unchanged `script-src 'self'` CSP would block.
+  const EMBED_API = window.RaveEmbed || null;
 
   function debugEvent(kind, data) {
     if (DEBUG && DEBUG.enabled) DEBUG.record(kind, data);
@@ -347,55 +352,185 @@
     return !!(item && item.download && item.download.source && (item.play || item.play_via));
   }
 
-  function openEmbed(item) {
-    const panel = $("embed-panel");
+  /* 1.6.45 embed dock.  The provider widget is a cross-origin iframe: the
+   * parent can only observe it through postMessage, never by reading its DOM
+   * or media element.  The single-audio rule is therefore enforced at every
+   * app-controlled boundary, with the widget events as an extra guard. */
+  const embedState = {
+    provider: "",
+    providerLabel: "",
+    url: "",
+    trigger: null,
+    bridge: null,
+  };
+
+  function isEmbedOpen() {
+    return !!embedDock && !embedDock.hidden;
+  }
+
+  // Replacing the iframe element discards its browsing context, which is the
+  // only reliable cross-origin way to stop whatever it is playing. The fresh
+  // blank frame keeps #embed-frame present with no src for the next open.
+  function freshEmbedFrame() {
+    const wrap = document.querySelector("#embed-panel .embed-frame-wrap");
+    if (!wrap) return null;
+    const old = $("embed-frame");
+    if (old) old.remove();
+    const frame = document.createElement("iframe");
+    frame.id = "embed-frame";
+    frame.className = "embed-frame";
+    frame.title = "Provider player";
+    frame.setAttribute("allow", "autoplay; encrypted-media");
+    frame.setAttribute("loading", "lazy");
+    frame.setAttribute("referrerpolicy", "no-referrer-when-downgrade");
+    frame.addEventListener("load", onEmbedFrameLoad);
+    wrap.appendChild(frame);
+    return frame;
+  }
+
+  function onEmbedFrameLoad() {
     const frame = $("embed-frame");
-    const title = $("embed-title");
-    const external = $("embed-external");
-    if (!panel || !frame) return;
-    // Single-audio policy: the main player must be stopped and cleared before
-    // the widget can start. The cross-origin iframe gives us no reliable
-    // play/pause events, so this is unconditional when an embed is selected.
+    if (!isEmbedOpen() || !frame || !frame.getAttribute("src")) return;
+    markEmbedLoaded();
+    if (embedState.bridge) {
+      try { embedState.bridge.sync(); } catch (_) { /* ignore */ }
+    }
+  }
+
+  function detachEmbedBridge() {
+    if (!embedState.bridge) return;
+    try { embedState.bridge.destroy(); } catch (_) { /* ignore */ }
+    embedState.bridge = null;
+  }
+
+  function setEmbedStatus(text) {
+    const placeholder = $("embed-status");
+    if (placeholder) placeholder.textContent = text;
+    const note = $("embed-note");
+    if (note) note.textContent = text;
+  }
+
+  function onEmbedWidgetEvent(kind) {
+    if (!isEmbedOpen()) return;
+    const provider = embedState.providerLabel || "Provider";
+    if (kind === "play") {
+      // Defence in depth: if a main source somehow survived (an older code
+      // path, a restored element), stop it before the widget is audible.
+      if (!audio.paused || state.current || audio.getAttribute("src")) closePlayer();
+      embedDock.classList.add("is-playing");
+      setEmbedStatus(`Playing through ${provider}'s player — the main player is stopped.`);
+    } else if (kind === "pause") {
+      embedDock.classList.remove("is-playing");
+      setEmbedStatus(`Paused in ${provider}'s player — the main player stays stopped.`);
+    } else if (kind === "ended") {
+      embedDock.classList.remove("is-playing");
+      setEmbedStatus("Set ended — close this dock or pick a track.");
+    } else if (kind === "error") {
+      embedDock.classList.remove("is-playing");
+      setEmbedStatus(`${provider} player reported an error — open it on ${provider}.`);
+    }
+  }
+
+  function openEmbed(item, trigger) {
+    const panel = $("embed-panel");
+    if (!panel || !item) return;
+    detachEmbedBridge();
+    // Single-audio policy direction 1: selecting an embed stops and clears the
+    // main <audio> before the widget document is even created.
     closePlayer();
-    // Route and label the panel from the item itself: a pasted SoundCloud URL
+    // Route and label the dock from the item itself: a pasted SoundCloud URL
     // must not open with "Open on Mixcloud" / "Mixcloud player".
-    const isSoundCloud = /soundcloud\.com/i.test(String(item.external || item.embed || ""));
+    const source = String(item.external || item.embed || "");
+    const isSoundCloud = /soundcloud\.com/i.test(source);
+    const key = isSoundCloud ? "soundcloud" : "mixcloud";
     const provider = isSoundCloud ? "SoundCloud" : "Mixcloud";
-    title.textContent = item.label || provider;
+    embedState.provider = key;
+    embedState.providerLabel = provider;
+    embedState.url = String(item.embed || "");
+    embedState.trigger = trigger
+      || (document.activeElement instanceof Element ? document.activeElement : null);
+    panel.dataset.provider = key;
+    $("embed-kicker").textContent = `${provider} widget`;
+    $("embed-title").textContent = item.label || `${provider} set`;
+    const external = $("embed-external");
     external.href = safeExternalHref(item.external,
       isSoundCloud ? "https://soundcloud.com/" : "https://www.mixcloud.com/");
     external.textContent = `Open on ${provider} ↗`;
-    frame.title = `${provider} player`;
+    const close = $("embed-close");
+    if (close) close.setAttribute("aria-label", `Close ${provider} player`);
     const wrap = panel.querySelector(".embed-frame-wrap");
     if (wrap) { wrap.classList.add("is-loading"); wrap.classList.remove("is-loaded"); }
-    if (frame.getAttribute("src") !== item.embed) frame.setAttribute("src", item.embed);
-    else if (wrap) { wrap.classList.remove("is-loading"); wrap.classList.add("is-loaded"); }
+    setEmbedStatus(`Loading ${provider}…`);
+    const frame = freshEmbedFrame();
+    if (!frame) return;
+    frame.title = `${provider} player`;
+    if (EMBED_API) {
+      try {
+        embedState.bridge = EMBED_API.attach({
+          provider: key,
+          frame: frame,
+          onEvent: onEmbedWidgetEvent,
+          onReady: () => setEmbedStatus(
+            `Ready in ${provider}'s player — the main player is stopped.`),
+        });
+      } catch (_) {
+        // The dock still works: single-source is enforced at the boundaries.
+        embedState.bridge = null;
+      }
+    }
     panel.hidden = false;
     document.body.classList.add("has-embed");
-    $("embed-close").focus();
+    measureEmbedDock();
+    if (frame.getAttribute("src") !== embedState.url) frame.setAttribute("src", embedState.url);
+    // Focus moves with the dock (it is a region, not a modal: no trap).
+    const heading = $("embed-title");
+    if (heading && typeof heading.focus === "function") {
+      try { heading.focus({ preventScroll: true }); } catch (_) { heading.focus(); }
+    }
+    debugEvent("embed", { action: "open", provider: key });
   }
 
   function markEmbedLoaded() {
-    const wrap = document.querySelector("#embed-panel .embed-frame-wrap");
     const panel = $("embed-panel");
     const frame = $("embed-frame");
+    const wrap = document.querySelector("#embed-panel .embed-frame-wrap");
     if (!wrap || !panel || panel.hidden || !frame || !frame.getAttribute("src")) return;
-    // Autoplay race: a widget can start as its document loads. Re-assert the
-    // single-source policy here as well as when the row is selected. The guard
-    // above prevents a stale iframe load event from pausing a newly started
-    // main track after the embed was closed.
-    closePlayer();
+    // A stale load from a previous src must not pause a newly started track.
+    if (embedState.url && frame.getAttribute("src") !== embedState.url) return;
+    // Autoplay race: a provider can start as its document loads. Re-assert the
+    // single-source policy here as well as when the row is selected.
+    if (state.current || audio.getAttribute("src") || !audio.paused) closePlayer();
     wrap.classList.remove("is-loading");
     wrap.classList.add("is-loaded");
   }
 
-  function closeEmbed() {
+  function closeEmbed(options = {}) {
     const panel = $("embed-panel");
-    const frame = $("embed-frame");
     if (!panel || panel.hidden) return;
+    const restore = options.restoreFocus === true;
+    const trigger = embedState.trigger;
+    const focusWasInside = panel.contains(document.activeElement);
+    detachEmbedBridge();
+    freshEmbedFrame();
     panel.hidden = true;
-    if (frame) frame.removeAttribute("src");
+    panel.classList.remove("is-playing");
     document.body.classList.remove("has-embed");
+    document.body.style.removeProperty("--embed-dock-h");
+    embedState.provider = "";
+    embedState.providerLabel = "";
+    embedState.url = "";
+    embedState.trigger = null;
+    if (restore && trigger && trigger.isConnected
+        && typeof trigger.focus === "function") {
+      try { trigger.focus({ preventScroll: true }); } catch (_) { trigger.focus(); }
+    } else if (focusWasInside) {
+      // Never leave focus on a now-hidden element after navigation/playback.
+      const main = $("main");
+      if (main && typeof main.focus === "function") {
+        try { main.focus({ preventScroll: true }); } catch (_) { main.focus(); }
+      }
+    }
+    debugEvent("embed", { action: "close" });
   }
 
   function favKey(fav) {
@@ -611,6 +746,9 @@
   function row(item) {
     const el = document.createElement("div");
     el.className = "row";
+    // Programmatic focus target for an embed dock opened from this row; it is
+    // deliberately not in the tab order (the row's action button is).
+    el.tabIndex = -1;
     el.dataset.key = itemKey(item);
     el.dataset.label = item.label || "item";
     const actionWord = item.play || item.play_via ? "Play" : "Open";
@@ -738,14 +876,19 @@
     action.setAttribute("aria-label", `${actionWord} ${item.label || "item"}`);
     action.addEventListener("click", (event) => {
       event.stopPropagation();
-      activate(item);
+      activate(event);
     });
 
     el.append(art, text, actions);
     actions.appendChild(action);
 
-    function activate() {
-      if (item.embed) { openEmbed(item); return; }
+    function activate(event) {
+      // Return focus to the control that opened an embed, not to <body>.
+      const source = event && event.currentTarget;
+      const trigger = source && typeof source.focus === "function"
+        ? source
+        : (document.activeElement instanceof Element ? document.activeElement : null);
+      if (item.embed) { openEmbed(item, trigger); return; }
       if (item.play_via) {
         if (state.currentKey === itemKey(item) && audio.getAttribute("src")) { togglePlay(); return; }
         resolveAndPlay(item);
@@ -2086,6 +2229,15 @@
       return;
     }
 
+    // The dock is not modal, but Escape still closes it while focus is in the
+    // parent document. Key events inside the cross-origin iframe never reach
+    // this handler; the visible Close button covers that case.
+    if (event.key === "Escape" && isEmbedOpen()) {
+      event.preventDefault();
+      closeEmbed({ restoreFocus: true });
+      return;
+    }
+
     const target = event.target;
     if (event.key === "/" && !isTyping(target) && !event.metaKey && !event.ctrlKey && !event.altKey) {
       event.preventDefault();
@@ -2144,13 +2296,15 @@
     // provider's own player panel instead of sending it to the Archive search.
     const embed = externalEmbed(query);
     if (embed) {
-      openEmbed(embed);
+      openEmbed(embed, searchInput);
       return;
     }
     navigate(`/api/search?q=${encodeURIComponent(query)}`);
   });
 
   $("back").addEventListener("click", () => {
+    // Back closes the dock first, then navigates as usual.
+    if (isEmbedOpen()) { closeEmbed({ restoreFocus: true }); return; }
     if ((Number(history.state && history.state.depth) || 0) > 0) history.back();
     else navigate(sectionPath("latest"), { push: false });
   });
@@ -2221,13 +2375,7 @@
   $("p-prev").addEventListener("click", () => step(-1));
   $("p-next").addEventListener("click", () => step(1));
   $("p-close").addEventListener("click", closePlayer);
-  $("embed-close").addEventListener("click", closeEmbed);
-  $("embed-frame").addEventListener("load", () => {
-    if ($("embed-frame").getAttribute("src")) markEmbedLoaded();
-  });
-  $("embed-panel").addEventListener("click", (event) => {
-    if (event.target === $("embed-panel")) closeEmbed();
-  });
+  $("embed-close").addEventListener("click", () => closeEmbed({ restoreFocus: true }));
   $("p-queue").addEventListener("click", () => toggleQueue());
   $("queue-close").addEventListener("click", () => { toggleQueue(false); $("p-queue").focus(); });
   window.addEventListener("pagehide", () => { sendPlayback("stopped", true); stopPlaybackHeartbeat(); });
@@ -2353,6 +2501,10 @@
   }
 
   audio.addEventListener("play", () => {
+    // Single-audio policy direction 2, defence in depth: any path that starts
+    // the main element (including a lock-screen play action) tears the widget
+    // down before its audio can overlap.
+    if (isEmbedOpen()) closeEmbed();
     setPlayIcon(true);
     mediaSessionState("playing");
     sendPlayback("playing");
@@ -2500,13 +2652,38 @@
     }
   }
 
+  // The dock replaces the player's bottom slot, so the stage/rail padding must
+  // follow its real height (the iframe is capped, the head can wrap at 390 px).
+  function measureEmbedDock() {
+    if (!embedDock || embedDock.hidden) {
+      document.body.style.removeProperty("--embed-dock-h");
+      return;
+    }
+    const height = Math.ceil(embedDock.getBoundingClientRect().height);
+    if (height > 0
+        && document.body.style.getPropertyValue("--embed-dock-h") !== `${height}px`) {
+      document.body.style.setProperty("--embed-dock-h", `${height}px`);
+    }
+  }
+
   function setupPlayerSizing() {
     measurePlayer();
-    if ("ResizeObserver" in window) new ResizeObserver(measurePlayer).observe(player);
-    window.addEventListener("resize", measurePlayer, { passive: true });
-    window.addEventListener("orientationchange", measurePlayer, { passive: true });
+    measureEmbedDock();
+    if ("ResizeObserver" in window) {
+      const observer = new ResizeObserver(() => {
+        measurePlayer();
+        measureEmbedDock();
+      });
+      observer.observe(player);
+      if (embedDock) observer.observe(embedDock);
+    }
+    window.addEventListener("resize", () => { measurePlayer(); measureEmbedDock(); }, { passive: true });
+    window.addEventListener("orientationchange", () => { measurePlayer(); measureEmbedDock(); }, { passive: true });
     if (window.visualViewport) {
-      window.visualViewport.addEventListener("resize", measurePlayer, { passive: true });
+      window.visualViewport.addEventListener("resize", () => {
+        measurePlayer();
+        measureEmbedDock();
+      }, { passive: true });
     }
   }
 

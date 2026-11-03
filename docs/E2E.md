@@ -8,28 +8,30 @@ browser suite"). Branch `hardening/1.6.13` (this e2e change was test+docs only;
 
 | Run | Command | Result |
 |---|---|---|
-| Offline suite (baseline) | `.venv/bin/python -m pytest -q test` | **433 passed** |
+| Offline suite (baseline) | `.venv/bin/python -m pytest -q test` | **453 passed** |
 | Browser suite, no local browser | `.venv/bin/python -m pytest test_e2e -q` | 7 skipped (clean skip, as designed) |
-| Browser suite, system Chrome | see command below | **32 passed** |
+| Browser suite, system Chrome | see command below | **34 passed** |
 
 ```
 $ .venv/bin/python -m pytest -q test
-433 passed
+453 passed
 
 $ RAVEWEB_REQUIRE_BROWSER=1 RAVEWEB_PLAYWRIGHT_NO_SANDBOX=1 \
   RAVEWEB_CHROMIUM_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
   .venv/bin/python -m pytest test_e2e -q
-7 passed
+34 passed
 ```
 
 `RAVEWEB_REQUIRE_BROWSER=1` turns the "no browser" skip into a failure, so a
 broken install cannot pass silently (the CI browser job already sets it). The
-test module covers 32 cases: boot + the grouped 9-button rail, hub and section
+test module covers 34 cases: boot + the grouped 9-button rail, hub and section
 navigation, the rail fitting 1440×900 with Favourites visible, the pinned 48 px
 back button under scroll, Surprise Me opening a random pack/show, the phone
 rail/back layout, the Download action → Downloads library → offline playback → delete
-round trip, Mixcloud paste → embed panel (src/provider/href/title, close),
-SoundCloud paste → panel + backdrop close, plain text search, CSP `frame-src`
+round trip, Mixcloud paste → inline dock (src/provider/href/title, close,
+focus), SoundCloud paste → dock + Escape close, widget play/pause events and
+single-audio in both directions, 390 × 844 / 1280 × 900 dock layout, plain text
+search, CSP `frame-src`
 allowing the widget hosts and refusing anything else, and a favourites
 add/remove round trip.
 The suite is offline: the Flask app runs on a
@@ -136,12 +138,12 @@ RAVEWEB_ARTIFACTS_DIR="$PWD/rave-player-space/reports/web-1.6.17" \
 ```sh
 cd "Rave Player"
 # offline suite (what ships with the image):
-.venv/bin/python -m pytest -q test                       # 433 passed
+.venv/bin/python -m pytest -q test                       # 453 passed
 
 # browser suite here (system Chrome; CI uses `playwright install chromium`):
 RAVEWEB_REQUIRE_BROWSER=1 RAVEWEB_PLAYWRIGHT_NO_SANDBOX=1 \
 RAVEWEB_CHROMIUM_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
-  .venv/bin/python -m pytest test_e2e -q                 # 7 passed
+  .venv/bin/python -m pytest test_e2e -q                 # 34 passed
 ```
 
 ## Addendum — 1.6.31 (`feature/1.6.31-debug`)
@@ -209,3 +211,35 @@ unit path (Node spec is now 13 checks):
 New screenshots: `12-debug-toggle-on.png`, `13-debug-toggle-off.png`,
 `14-debug-toggle-mobile.png` (`rave-player-space/reports/web-1.6.32/`, not
 committed).
+
+## Addendum — 1.6.45 inline embed dock
+
+Run on `feature/1.6.45-single-audio` with system Chrome (Playwright 1.60):
+
+```
+453 passed                       # .venv/bin/python -m pytest -q test
+34 passed                        # pytest test_e2e -q
+```
+
+The embed cases were rebuilt for the inline dock and now cover:
+
+- **No modal role**: `#embed-panel` is `role="region"`, has no `aria-modal`,
+  and `getComputedStyle(document.body).overflowY` is not `hidden`.
+- **Single audio, both directions**: with a main track loaded, opening
+  SoundCloud clears `#audio` (`paused`, no `src`), hides the player and leaves
+  exactly one `<audio>`; starting a main track from a row hides the dock,
+  replaces the iframe (blank, no `src`) and loads the audio. Navigation with a
+  Mixcloud dock open does the same.
+- **Widget API events**: the stubbed widget receives SoundCloud
+  `addEventListener` commands and Mixcloud `getApi`; emitting `play`/`pause`
+  updates the live dock status while the main `<audio>` stays paused. The
+  bridge's source/origin/grammar unit checks run in `test/js/embed_spec.js`
+  (13 checks) and `test_embed_dock.py`.
+- **Close/Escape** stop the widget (iframe replaced, no `src`, `has-embed`
+  removed) and restore focus to the search box; the close button has an
+  accessible name.
+- **Layout at 1280 × 900 and 390 × 844**: the dock fits inside the viewport,
+  has no horizontal overflow, is shorter than the viewport, and the frame is
+  > 500 px / > 300 px wide respectively. Screenshots:
+  `30-embed-dock-1280.png`, `31-embed-dock-390.png` (only with
+  `RAVEWEB_ARTIFACTS_DIR`).

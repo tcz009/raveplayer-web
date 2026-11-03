@@ -178,12 +178,16 @@ A prepared `.venv` exists in this checkout.
   Series, By Rave/Venue, By Year, Every Pack; Pirate Radio root; Mixes & Shows
   four; Live Radio named stations then split genres; duplicate legacy_toronto
   and Legacy Sites bucket removed; Jungle/DnB and Hardcore/Happy Hardcore split.
-- **1.6.45 single audio source**: selecting an embed closes/clears the main
-  player before the iframe src loads (and re-asserts on iframe load); starting
-  the main player removes the embed iframe; navigation closes active embeds;
-  stale iframe load events cannot stop a newly started track. E2E covers
-  main→embed, embed→main and navigation.
-- Tests: `205 → 442` offline (`pytest -q test`) and **32 browser e2e**
+- **1.6.45 inline embed dock + single audio source**: the modal is gone — the
+  provider widget is a bottom dock (`role="region"`, no `aria-modal`, no scrim,
+  no scroll lock, focus returned on close/back/Escape). Selecting an embed
+  clears the main player before the iframe loads; starting the main player,
+  navigating or closing replaces the iframe element so its audio stops. A small
+  `static/embed.js` bridge observes the SoundCloud/Mixcloud postMessage
+  play/pause events under the unchanged `script-src 'self'` CSP, with exact
+  source/origin checks; cross-origin limits are documented. E2E covers both
+  directions, widget events, no modal role, close/Escape and 390/1280 layout.
+- Tests: `205 → 453` offline (`pytest -q test`) and **34 browser e2e**
   (`pytest test_e2e`, see `docs/E2E.md`).
 
 ## Areas worth scrutiny

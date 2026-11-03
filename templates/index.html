@@ -257,25 +257,38 @@
 
   <!-- Opt-in debug log first: it no-ops unless ?debug=1 / localStorage. -->
   <script src="/static/debug.js?v={{ version }}" defer></script>
+  <!-- The provider widget bridge must be installed before app.js boots. -->
+  <script src="/static/embed.js?v={{ version }}" defer></script>
   <script src="/static/app.js?v={{ version }}" defer></script>
 
-  <div id="embed-panel" class="embed-panel" role="dialog" aria-modal="true" aria-labelledby="embed-title" hidden>
-    <div class="embed-card">
+  <!-- 1.6.45: an inline player dock, not a dialog. It occupies the same
+       bottom slot as the main player and leaves the page scrollable. The
+       cross-origin widget cannot be read directly; static/embed.js listens
+       for the providers' postMessage events where they exist. -->
+  <section id="embed-panel" class="embed-dock" role="region"
+           aria-labelledby="embed-title" tabindex="-1" hidden>
+    <div class="embed-dock-inner">
       <div class="embed-head">
-        <h2 id="embed-title" class="embed-title">Mixcloud</h2>
+        <div class="embed-heading">
+          <p class="embed-kicker" id="embed-kicker" aria-hidden="true">WIDGET DECK</p>
+          <h2 id="embed-title" class="embed-title" tabindex="-1">Mixcloud</h2>
+        </div>
         <div class="embed-actions">
           <a id="embed-external" class="embed-link" href="#" target="_blank" rel="noopener">Open on Mixcloud ↗</a>
-          <button id="embed-close" type="button" class="icon-btn" aria-label="Close player">
+          <button id="embed-close" type="button" class="icon-btn embed-close" aria-label="Close embedded player">
             <svg viewBox="0 0 24 24" aria-hidden="true" class="ic"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
           </button>
         </div>
       </div>
-      <div class="embed-frame-wrap">
+      <div class="embed-frame-wrap is-loading">
+        <div class="embed-placeholder" role="status" aria-live="polite">
+          <span id="embed-status">Loading Mixcloud…</span>
+        </div>
         <iframe id="embed-frame" class="embed-frame" title="Mixcloud player" allow="autoplay; encrypted-media" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
       </div>
-      <p class="embed-note">Played through Mixcloud or SoundCloud's own player — the set stays with the provider.</p>
+      <p class="embed-note" id="embed-note" role="status" aria-live="polite">Playing through the provider's own widget — the main player stays stopped.</p>
     </div>
-  </div>
+  </section>
 
 </body>
 </html>

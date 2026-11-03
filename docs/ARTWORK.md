@@ -332,50 +332,52 @@ horizontally, but the sections are now scannable by shape as well as text. The
 bright sticker fields are intentionally the busiest thing on the page; the
 stage, rows and player stay dark and quiet so the archive remains readable.
 
-#### Mixcloud embed card
-The inline Mixcloud dialog is a neutral ink card, not a new colour field. The
-static hooks are:
+#### Embed player dock
+Since 1.6.45 the Mixcloud/SoundCloud widget is an inline dock in the main
+player's bottom slot, not a modal card. It shares the player's ink deck and
+hazard-tape top edge, but there is no scrim and no page scroll lock. Static
+hooks:
 
 | Class | Role |
 |---|---|
-| `.embed-panel` | fixed ink scrim (`rgba(4,4,7,.8)`) with a blur; `[hidden]` closes it |
-| `.embed-card` | `min(560px, 100%)`, `--panel` background, 1 px `--line-bright` border, 2 px acid top rule, `--radius` |
-| `.embed-head`, `.embed-title`, `.embed-actions` | title row and actions |
-| `.embed-link` | mono "Open on Mixcloud" pill; acid hover |
-| `.embed-frame-wrap` | 16:9 frame (`padding-top: 56.25%`), `--radius` clip, panel/hatch fallback tile; 320 × 180 at 320 px wide |
+| `.embed-dock` | fixed bottom deck (`--panel` at 97% ink), 1 px `--line-bright` top border, 2 px acid hazard edge; `[hidden]` closes it |
+| `.embed-dock-inner` | `max-width: 1180px`, centred, 10 px top pad |
+| `.embed-head`, `.embed-heading`, `.embed-kicker`, `.embed-title`, `.embed-actions` | wrapped title row (mono "WIDGET DECK" kicker + display heading) and actions |
+| `.embed-link` | mono "Open on …" pill; acid hover |
+| `.embed-close` | 44 × 44 Close target; `--panel` field, acid focus ring |
+| `.embed-frame-wrap` | capped frame: `height: clamp(156px, 24vh, 210px)` desktop, `clamp(150px, 27vh, 190px)` at ≤620 px; `--radius` clip, panel/hatch fallback |
 | `.embed-frame` | absolutely positioned iframe, 100% × 100%, no border, `z-index: 1` |
-| `.embed-note` | mono footnote, `--faint` |
-| `body.has-embed` | locks page scroll while the dialog is open |
+| `.embed-placeholder` | centred mono loading label with an acid square; `z-index: 2` until `is-loaded` |
+| `.embed-note` | mono live status (`aria-live="polite"`), `--faint` |
+| `body.has-embed` | reserves `--embed-dock-h` in the stage/rail; does **not** lock scrolling |
 
-The wrapper itself is a neutral panel/hatch tile, so a blank or slow iframe is
-never a white flash or a dead black hole, with no markup required. A labelled
-loading state is an opt-in hook on top: add `is-loading` to `.embed-frame-wrap`
-and a `.embed-placeholder` child before the iframe; swap to `is-loaded` on the
-iframe's `load` event (and reset to `is-loading` when a new set is opened).
-Without the class the wrapper shows the fallback tile only — no overlay.
+The wrapper is a neutral panel/hatch tile, so a blank or slow iframe is never a
+white flash or a dead black hole. The labelled loading state is built in: the
+markup ships `is-loading` + `.embed-placeholder`; the iframe's `load` event
+swaps to `is-loaded`, and a new set resets it. The placeholder is a status, not
+a decorative overlay, and covers the frame only while loading.
 
 ```html
 <div class="embed-frame-wrap is-loading">
-  <div class="embed-placeholder" aria-hidden="true"><span>Loading Mixcloud…</span></div>
+  <div class="embed-placeholder" role="status" aria-live="polite">
+    <span id="embed-status">Loading Mixcloud…</span>
+  </div>
   <iframe class="embed-frame" title="Mixcloud player" allow="autoplay; encrypted-media"
           loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
 </div>
 ```
 
-`.embed-placeholder` is a centred mono label over a panel/hatch field with a
-small acid signal bar. It is `pointer-events: none`, decorative
-(`aria-hidden`), and covers the frame only while `is-loading` is present; it
-does not autoplay or restyle the Mixcloud widget. The frame is always 16:9, so
-it lands at 320 × 180 when the frame is 320 px wide (about 292 × 164 on a
-320 px phone) and caps at 532 × 299 inside the 560 px card.
+The frame is wider on desktop and capped rather than 16:9, so a 1280 px window
+gets a 210 px player and a 390 px phone gets a 190 px player without taking over
+the viewport. `docs/AUDIO-SINGLE-SOURCE.md` covers the audio policy and the
+cross-origin widget bridge.
 
 ### HTML
 In this artwork pass only the head icon links, `theme-color`, `color-scheme`
 and the brand mark changed. All IDs, ARIA hooks, form structure and the player
 markup are intact. The app icon is linked as a 512 favicon and a 180
-apple-touch icon. A parallel Mixcloud-embed dialog also lives in the current
-template; its card and frame are styled as above, and the loading shelf is an
-opt-in hook the embed wiring can add without changing the markup contract.
+apple-touch icon. The embed dock sits after the player footer; its loading
+shelf is part of the markup contract above.
 
 ### JS
 The artwork pass itself does not edit `app.js`. The existing code still builds
