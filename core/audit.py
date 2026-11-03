@@ -69,6 +69,32 @@ CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS playback_now (
+    identity TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT '',
+    state TEXT NOT NULL DEFAULT 'stopped',
+    label TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT '',
+    position REAL NOT NULL DEFAULT 0,
+    duration REAL,
+    client_ts REAL,
+    updated REAL NOT NULL,
+    PRIMARY KEY (identity, session_id)
+);
+CREATE INDEX IF NOT EXISTS idx_playback_now_updated ON playback_now(updated);
+CREATE TABLE IF NOT EXISTS playback_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    identity TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    state TEXT NOT NULL,
+    label TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL DEFAULT '',
+    position REAL NOT NULL DEFAULT 0,
+    duration REAL
+);
+CREATE INDEX IF NOT EXISTS idx_playback_events_ts ON playback_events(ts, identity);
 CREATE TABLE IF NOT EXISTS download_jobs (
     id TEXT PRIMARY KEY,
     identity TEXT NOT NULL,

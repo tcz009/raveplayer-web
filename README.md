@@ -228,6 +228,8 @@ check without guesswork.
 | `RAVEWEB_WIDGET_TOKEN` | optional | Read-only bearer token for the Control Centre `GET /api/admin/stats` feed; empty = owner-session only. |
 | `RAVEWEB_CSP_REPORT_ONLY` | `1` | Adds the report-only CSP + `/api/csp-report` collection; set `0` to stop reporting without tightening enforcement. |
 | `RAVEWEB_JOB_HISTORY_LIMIT` | `30` | Terminal background-job rows kept per identity (active rows never pruned). |
+| `RAVEWEB_PLAYBACK_RETENTION_DAYS` | `7` | Drop owner playback-presence events older than this. |
+| `RAVEWEB_PLAYBACK_EVENT_LIMIT` | `5000` | Hard cap on retained playback events. |
 | `RAVEWEB_AUTH_DB` | `$RAVEWEB_DATA/auth.sqlite3` | Persistent SQLite audit/session store, including the shared login-failure/lockout counters. |
 | `RAVEWEB_SESSION_HOURS` / `RAVEWEB_REMEMBER_DAYS` | `12` / `30` | Absolute session lifetimes with/without “remember me”. |
 | `RAVEWEB_LOGIN_MAX_FAILURES` / `_FAILURE_WINDOW` / `_LOCKOUT` | `5` / `600` / `900` | Login throttle and lockout. |
@@ -253,6 +255,14 @@ lockout. Full env vars, hash generation, proxy notes,
 threat model and deferrals: [`docs/AUTH.md`](docs/AUTH.md).
 
 ## API
+
+### Playback presence
+
+The web client sends a best-effort `POST /api/playback` heartbeat (play/pause/
+stop/seek + every 30 s) with only label/source/position/duration/timestamp;
+`GET /api/admin/playback`, `/history` and `/export` are owner-only (friends 403),
+use masked session IDs and never contain URLs or tokens. Retention/rate limits
+and the payload contract are in [`docs/PLAYBACK-TRACKING.md`](docs/PLAYBACK-TRACKING.md).
 
 ### Owner stats
 
@@ -366,9 +376,9 @@ typography, hero and texture language — is documented in
 
 ## Tests
 
-### Offline suite (382 cases)
+### Offline suite (388 cases)
 
-The offline suite is 382 cases (all providers mocked) and uses the Flask test
+The offline suite is 388 cases (all providers mocked) and uses the Flask test
 client. `pytest` is a test-only dependency:
 
 ```sh

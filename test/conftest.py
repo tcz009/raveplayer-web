@@ -45,6 +45,19 @@ def isolated_audit_store(tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def isolated_playback_rate():
+    try:
+        app_module._PLAYBACK_RATE["state"].clear()
+    except Exception:
+        pass
+    yield
+    try:
+        app_module._PLAYBACK_RATE["state"].clear()
+    except Exception:
+        pass
+
+
+@pytest.fixture(autouse=True)
 def isolated_download_jobs():
     """Fresh shared background-job table per test."""
     try:

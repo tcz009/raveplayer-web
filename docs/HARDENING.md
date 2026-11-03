@@ -1,10 +1,10 @@
-# Hardening pass — Rave Player web (`raveplayer-web` 1.6.33)
+# Hardening pass — Rave Player web (`raveplayer-web` 1.6.34)
 
-**Branch:** `feature/1.6.33-theme-cleanup` (not pushed) · **Base:** `main` @ `47761f7` (1.6.32)
+**Branch:** `feature/1.6.34-playback` (not pushed) · **Base:** `main` @ `6188344` (1.6.33)
 **Scope:** `app.py`, `core/`, `static/app.js`, `scripts/deploy.sh`, `docs/`, `test/`,
 `test_e2e/`, `VERSION`. No UX or content changes. No `data/` or advert files touched.
 
-**Result:** `205 → 382 passed` (`.venv/bin/python -m pytest -q test`), all
+**Result:** `205 → 388 passed` (`.venv/bin/python -m pytest -q test`), all
 offline; browser suite `test_e2e` **27 passed** (system Chrome, Playwright 1.60);
 `node --check static/app.js` and `sh -n scripts/deploy.sh` clean.
 
@@ -12,6 +12,21 @@ Inputs folded in: the internal task-22 brief and the adversarial pre-review
 (`docs/ADVERSARIAL-REVIEW.md`, web findings W1–W8). The review's "what is solid" list
 (stream SSRF guard, SPA escaping, CSP, content-type gate, atomic writes) was kept intact.
 
+
+## 1.6.34 — owner playback presence
+
+- Authenticated best-effort heartbeat (`POST /api/playback`) validates enums,
+  label/source sizes, finite positions, 4 KiB body and 60/min/session rate;
+  state/label/source changes write a `play_event` audit row.
+- SQLite `playback_now`/`playback_events` in the auth DB (WAL, per
+  identity+session) with 90 s stale→stopped, 7-day retention, 5000-event cap,
+  no URLs/tokens/media bytes.
+- Owner-only `/api/admin/playback` now view, `/history` window/filter and
+  `/export` JSON attachment; masked session ids, friends 403, widget token 401.
+- Client sends on play/pause/stop/seek, every 30 s while playing, and best-effort
+  stop on pagehide/unload/close; Kodi playback is untouched.
+- Tests: 388 offline (+6 playback), e2e 27 unchanged; docs PLAYBACK-TRACKING and
+  README privacy/config.
 
 ## 1.6.33 — Help dialog theme + cleanup
 
@@ -565,10 +580,10 @@ that the module layout matches.
 
 ```sh
 cd "Rave Player"
-.venv/bin/python -m pytest -q test        # 382 passed
+.venv/bin/python -m pytest -q test        # 388 passed
 node --check static/app.js
 sh -n scripts/deploy.sh
-git diff --stat main..feature/1.6.33-theme-cleanup
+git diff --stat main..feature/1.6.34-playback
 ```
 
 ## Post-merge fix — deploy.sh heredoc escaping (found on first real deploy)

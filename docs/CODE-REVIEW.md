@@ -1,7 +1,7 @@
 # Independent code review — brief
 
 **Project:** Rave Player — web app (`raveplayer-web`)
-**Version under review:** 1.6.29 (`feature/1.6.29-job-retention`, based on 1.6.28)
+**Version under review:** 1.6.34 (`feature/1.6.34-playback`, based on 1.6.33 / `main @ 6188344`)
 **Reviewer target:** `app.py`, `core/`, `static/`, `templates/`, `test/`; ignore `data/`, `__pycache__/`, `.venv/`.
 
 ## What it is
@@ -153,7 +153,13 @@ A prepared `.venv` exists in this checkout.
   reduced-motion and 390px layout; Debugging block/toggle kept readable and
   prominent. Removed dead helpers/imports/CSS and stale comments; no duplicate
   static/test files; docs/test counts aligned.
-- Tests: `205 → 382` offline (`pytest -q test`) and **27 browser e2e**
+- **1.6.34 playback presence**: authenticated best-effort `POST /api/playback`
+  (state/label/source/position/duration/client_ts, validation + rate limit);
+  SQLite `playback_now`/`playback_events` (WAL, per identity+session, 7-day
+  retention, event cap, `play_event` audit); owner-only now/history/export with
+  masked session ids and no URLs/tokens; friends 403. Client sends on
+  play/pause/stop/seek, every 30 s and pagehide/unload.
+- Tests: `205 → 388` offline (`pytest -q test`) and **27 browser e2e**
   (`pytest test_e2e`, see `docs/E2E.md`).
 
 ## Areas worth scrutiny

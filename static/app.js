@@ -1174,6 +1174,8 @@
   }
 
   function closePlayer() {
+    sendPlayback("stopped", true);
+    stopPlaybackHeartbeat();
     state.current = null;
     state.currentKey = "";
     state.index = -1;
@@ -2182,6 +2184,8 @@
   });
   $("p-queue").addEventListener("click", () => toggleQueue());
   $("queue-close").addEventListener("click", () => { toggleQueue(false); $("p-queue").focus(); });
+  window.addEventListener("pagehide", () => { sendPlayback("stopped", true); stopPlaybackHeartbeat(); });
+  window.addEventListener("beforeunload", () => { sendPlayback("stopped", true); stopPlaybackHeartbeat(); });
   $("help-btn").addEventListener("click", () => toggleHelp());
   $("help-close").addEventListener("click", () => toggleHelp(false));
   $("help-close-top").addEventListener("click", () => toggleHelp(false));
@@ -2242,9 +2246,53 @@
     rangeActive = false;
   });
 
+  /* Opt-in-free, owner-visible playback presence.  Best effort: failures
+     never affect playback, and only labels/source/positions are sent. */
+  const PLAYBACK = { timer: 0 };
+  function playbackItem() {
+    return state.current && state.current.item ? state.current.item : null;
+  }
+  function playbackPayload(playState) {
+    const item = playbackItem();
+    if (!item) return null;
+    const duration = Number(audio.duration);
+    return {
+      state: playState,
+      label: String((item && item.label) || "").slice(0, 300),
+      source: String((item && (item.download && item.download.source || item.source)) || "").slice(0, 64),
+      position: Math.max(0, Number(audio.currentTime) || 0),
+      duration: isFinite(duration) && duration > 0 ? duration : null,
+      client_ts: Date.now() / 1000,
+    };
+  }
+  function sendPlayback(playState, keepalive) {
+    const payload = playbackPayload(playState);
+    if (!payload) return;
+    try {
+      fetch("/api/playback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        keepalive: !!keepalive,
+      }).catch(() => {});
+    } catch (_) { /* presence must never break the player */ }
+  }
+  function startPlaybackHeartbeat() {
+    if (PLAYBACK.timer) return;
+    PLAYBACK.timer = setInterval(() => {
+      if (!audio.paused && state.current) sendPlayback("playing");
+    }, 30000);
+  }
+  function stopPlaybackHeartbeat() {
+    clearInterval(PLAYBACK.timer);
+    PLAYBACK.timer = 0;
+  }
+
   audio.addEventListener("play", () => {
     setPlayIcon(true);
     mediaSessionState("playing");
+    sendPlayback("playing");
+    startPlaybackHeartbeat();
     setPlayerStatus("");
     paintNowPlaying();
     updatePositionState(true);
@@ -2252,6 +2300,8 @@
   });
   audio.addEventListener("pause", () => {
     if (!state.current) return;
+    sendPlayback("paused");
+    stopPlaybackHeartbeat();
     setPlayIcon(false);
     mediaSessionState("paused");
     paintNowPlaying();
@@ -2276,9 +2326,14 @@
     updateMediaSessionSeekActions();
     updatePositionState(true);
   });
-  audio.addEventListener("seeked", () => updatePositionState(true));
+  audio.addEventListener("seeked", () => {
+    updatePositionState(true);
+    sendPlayback(audio.paused ? "paused" : "playing");
+  });
   audio.addEventListener("ended", () => {
     if (!state.current) return;
+    sendPlayback("stopped");
+    stopPlaybackHeartbeat();
     if (state.queue.length > 1) step(1);
     else {
       setPlayIcon(false);

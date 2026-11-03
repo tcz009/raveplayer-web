@@ -45,7 +45,7 @@ from flask.sessions import SecureCookieSessionInterface
 
 from core import (archive, audit, auth, cache, dnbradio, download_jobs, downloads,
                   favourites, feeds, getdarker, hardscore, latest, legacy, mixcloud,
-                  moxser, pirate, radio, raves, ravearchive, soundcloud)
+                  moxser, pirate, playback, radio, raves, ravearchive, soundcloud)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.config["JSON_SORT_KEYS"] = False
@@ -135,6 +135,8 @@ LOGIN_LIMITER = auth.SqliteLoginLimiter(max_failures=AUTH.max_failures,
 ADMIN_ACTION_LIMITER = auth.SqliteLoginLimiter(max_failures=30,
                                                failure_window=60.0,
                                                lockout_seconds=60.0)
+_PLAYBACK_RATE = {"lock": threading.Lock(), "state": {}}
+PLAYBACK_RATE_LIMIT = 60  # heartbeats per minute per session
 if AUTH.generated_hash:
     app.logger.warning(
         "auth: owner RAVEWEB_PASSWORD was hashed for this run; persist it with "
@@ -828,6 +830,105 @@ def require_admin(view):
 def admin_whoami():
     return jsonify({"ok": True, "identity": session.get("identity"),
                     "role": session.get("role")})
+
+
+@app.post("/api/playback")
+def api_playback_heartbeat():
+    """Authenticated, best-effort now-playing heartbeat; no URLs are stored."""
+    if request.content_length and request.content_length > 4096:
+        return _json_error("heartbeat is too large", 413)
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return _json_error("expected a JSON object", 400)
+    state = _clean_text(payload.get("state"), 12).lower()
+    if state not in playback.STATES:
+        return _json_error("state must be playing, paused or stopped", 400)
+    raw_label = payload.get("label", "")
+    raw_source = payload.get("source", "")
+    if not isinstance(raw_label, str) or len(raw_label) > 300:
+        return _json_error("label must be a string up to 300 characters", 400)
+    if not isinstance(raw_source, str) or len(raw_source) > 64:
+        return _json_error("source must be a string up to 64 characters", 400)
+    if "://" in raw_label or "://" in raw_source:
+        return _json_error("playback metadata cannot contain URLs", 400)
+    label = _clean_text(raw_label, 300)
+    source = _clean_text(raw_source, 64)
+    try:
+        position = float(payload.get("position") or 0)
+        duration_raw = payload.get("duration")
+        duration = None if duration_raw in (None, "") else float(duration_raw)
+        client_ts = payload.get("client_ts")
+        client_ts = None if client_ts in (None, "") else float(client_ts)
+    except (TypeError, ValueError, OverflowError):
+        return _json_error("position, duration and client_ts must be numbers", 400)
+    if (not math.isfinite(position) or position < 0 or position > 86400
+            or (duration is not None and (not math.isfinite(duration)
+                                          or duration < 0 or duration > 86400))):
+        return _json_error("playback position/duration are out of range", 400)
+    sid = session.get("sid")
+    identity = session.get("identity") or ""
+    role = session.get("role") or ""
+    if not sid or not identity:
+        return _json_error("authentication required", 401)
+    key = "playback:%s" % sid
+    now = time.monotonic()
+    with _PLAYBACK_RATE["lock"]:
+        recent = [stamp for stamp in _PLAYBACK_RATE["state"].get(key, [])
+                  if stamp > now - 60]
+        if len(recent) >= PLAYBACK_RATE_LIMIT:
+            _PLAYBACK_RATE["state"][key] = recent
+            return _json_error("playback heartbeats are too frequent", 429)
+        recent.append(now)
+        _PLAYBACK_RATE["state"][key] = recent
+    try:
+        playback.record(identity, sid, role, state, label, source,
+                        position, duration, client_ts)
+    except Exception:
+        app.logger.exception("playback heartbeat failed")
+        # Best effort: never make the player deal with a tracking failure.
+    return Response("", status=204)
+
+
+@app.get("/api/admin/playback")
+@require_admin
+def admin_playback():
+    return jsonify({"now": playback.now_playing(),
+                    "stale_after_seconds": playback.STALE_AFTER})
+
+
+@app.get("/api/admin/playback/history")
+@require_admin
+def admin_playback_history():
+    try:
+        hours = float(request.args.get("hours", "24"))
+    except (TypeError, ValueError):
+        return _json_error("hours must be a number", 400)
+    if hours < 1 or hours > 168:
+        return _json_error("hours must be between 1 and 168", 400)
+    identity = (request.args.get("identity") or "").strip().lower()
+    if identity and identity not in ("owner", "friends"):
+        return _json_error("unknown identity", 400)
+    return jsonify({"hours": hours, "identity": identity or None,
+                    "items": playback.history(hours, identity or None)})
+
+
+@app.get("/api/admin/playback/export")
+@require_admin
+def admin_playback_export():
+    try:
+        hours = float(request.args.get("hours", "24"))
+    except (TypeError, ValueError):
+        return _json_error("hours must be a number", 400)
+    if hours < 1 or hours > 168:
+        return _json_error("hours must be between 1 and 168", 400)
+    payload = playback.export_payload(hours)
+    response = jsonify(payload)
+    stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
+    response.headers["Content-Disposition"] = (
+        'attachment; filename="rave-playback-%s.json"' % stamp)
+    response.headers["Content-Type"] = "application/json; charset=utf-8"
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.get("/api/admin/stats")
