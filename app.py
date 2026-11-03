@@ -2973,7 +2973,7 @@ def api_download_job_create():
     if existing:
         return jsonify({"id": existing["id"], "already": True,
                         "state": "completed", "job": None})
-    active = [job for job in download_jobs.list_for(identity, role)
+    active = [job for job in download_jobs.list_jobs(identity, role)
               if job.get("state") in ("queued", "downloading")]
     for job in active:
         if (job.get("identity") == identity
@@ -3001,7 +3001,7 @@ def api_download_jobs():
     role = session.get("role") or ""
     identity = session.get("identity") or ""
     jobs = [download_jobs.public(job)
-            for job in download_jobs.list_for(identity, role)
+            for job in download_jobs.list_jobs(identity, role)
             if _job_visible(job)]
     return jsonify({"jobs": jobs, "concurrency": DOWNLOAD_JOB_CONCURRENCY})
 

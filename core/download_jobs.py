@@ -16,7 +16,6 @@ import time
 
 from . import audit, downloads
 
-MAX_JOBS = 20
 STATES = ("queued", "downloading", "completed", "failed", "cancelled")
 JOB_ID_RE = re.compile(r"^[a-f0-9]{24}$")
 TEMP_PREFIX = ".tmp-"
@@ -196,10 +195,6 @@ def list_jobs(identity=None, role=None):
                 "SELECT * FROM download_jobs WHERE identity=? ORDER BY created DESC",
                 (identity or "",)).fetchall()
     return [_row_to_job(row) for row in rows]
-
-
-def list_for(identity, role):
-    return list_jobs(identity, role)
 
 
 def _pid_alive(pid):

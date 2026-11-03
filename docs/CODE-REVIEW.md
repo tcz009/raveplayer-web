@@ -147,7 +147,13 @@ A prepared `.venv` exists in this checkout.
   (`RAVEWEB_JOB_HISTORY_LIMIT`, default 30; active rows never pruned; atomic
   create/list pruning) and library deletes clear the matching completed job's
   `download_id` so history cannot point at a dead item.
-- Tests: `205 → 365` offline (`pytest -q test`) and **22 browser e2e**
+- **1.6.33 Help + theme cleanup**: topbar Help button and dialog restyled with
+  the app's ink/paper/acid/magenta/cyan tokens, Impact headings, mono labels,
+  sticker shadows, halftone/scanline overlay, focus rings, 44px targets,
+  reduced-motion and 390px layout; Debugging block/toggle kept readable and
+  prominent. Removed dead helpers/imports/CSS and stale comments; no duplicate
+  static/test files; docs/test counts aligned.
+- Tests: `205 → 382` offline (`pytest -q test`) and **27 browser e2e**
   (`pytest test_e2e`, see `docs/E2E.md`).
 
 ## Areas worth scrutiny

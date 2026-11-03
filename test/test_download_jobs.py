@@ -220,7 +220,7 @@ def test_shared_store_across_processes_no_clobber():
     from core import audit
     db_path = audit.db_path()
     # Initialise the schema before the two writers race.
-    assert jobs_store.list_for("owner", "admin") == []
+    assert jobs_store.list_jobs("owner", "admin") == []
     one = _spawn_job(db_path, "process one", "https://archive.org/download/a/one.mp3")
     two = _spawn_job(db_path, "process two", "https://archive.org/download/a/two.mp3")
     out_one, err_one = one.communicate(timeout=120)
@@ -229,7 +229,7 @@ def test_shared_store_across_processes_no_clobber():
     assert two.returncode == 0, err_two
     ids = {out_one.strip(), out_two.strip()}
     assert len(ids) == 2
-    jobs = jobs_store.list_for("owner", "admin")
+    jobs = jobs_store.list_jobs("owner", "admin")
     assert {job["id"] for job in jobs} == ids
     # A claim/complete in this process is visible to the same shared rows, and
     # cancelling the other job leaves it intact.
@@ -255,13 +255,13 @@ def test_terminal_job_history_is_bounded_but_active_rows_survive(web, monkeypatc
                      finished=time.time() + index)
         terminal.append(job["id"])
     # create/list both prune; a list read is enough.
-    listed = store.list_for("owner", "admin")
+    listed = store.list_jobs("owner", "admin")
     completed = [job for job in listed if job["state"] == "completed"]
     assert len(completed) == 2
     assert {job["id"] for job in completed} == set(terminal[-2:])
 
     active = store.create("owner", "admin", "active", "archive", URL, entry)
-    store.list_for("owner", "admin")
+    store.list_jobs("owner", "admin")
     assert store.get(active["id"]) is not None
     assert store.get(active["id"])["state"] == "queued"
 
@@ -277,7 +277,7 @@ def test_history_is_bounded_per_identity(web, monkeypatch):
                                "%s-%d" % (identity, index), "archive", URL, entry)
             store.update(job["id"], state="completed", finished=time.time() + index)
     store.prune_history("owner", "admin", limit=1)
-    owner_jobs = store.list_for("owner", "admin")
+    owner_jobs = store.list_jobs("owner", "admin")
     assert len([job for job in owner_jobs if job["identity"] == "owner"]) == 1
     assert len([job for job in owner_jobs if job["identity"] == "friends"]) == 1
 

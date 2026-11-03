@@ -1045,3 +1045,48 @@ def test_debug_menu_toggle_turns_panel_on_and_off(browser_page, live_server):
     assert toggle.get_attribute("aria-pressed") == "true"
     assert page.evaluate("() => localStorage.getItem('raveplayer.debug')") == "1"
     assert browser_page.page_errors == []
+
+
+def test_help_dialog_is_themed_and_mobile_safe(browser_page):
+    """1.6.33: Help button/dialog use the brutalist tokens at phone size."""
+    page = browser_page.page
+    button = page.locator("#help-btn")
+    assert button.is_visible()
+    button.click()
+    page.wait_for_selector("#help", state="visible")
+    assert page.locator(".help-card").is_visible()
+    # The debug block and toggle must stay readable/prominent.
+    assert page.locator(".help-debug").is_visible()
+    toggle = page.locator("#debug-toggle")
+    assert toggle.is_visible()
+    assert toggle.bounding_box()["height"] >= 44
+    style = page.evaluate("""() => {
+        const btn = getComputedStyle(document.querySelector('#help-btn'));
+        const card = getComputedStyle(document.querySelector('.help-card'));
+        const debug = getComputedStyle(document.querySelector('.help-debug'));
+        const toggle = getComputedStyle(document.querySelector('#debug-toggle'));
+        return {
+            btnRadius: btn.borderRadius, btnShadow: btn.boxShadow,
+            btnSize: [btn.width, btn.height],
+            cardRadius: card.borderRadius, cardShadow: card.boxShadow,
+            debugBorder: debug.borderTopColor, toggleRadius: toggle.borderRadius,
+            toggleShadow: toggle.boxShadow,
+        };
+    }""")
+    assert style["btnRadius"] == "0px" and style["cardRadius"] == "0px"
+    assert style["btnShadow"] != "none" and style["cardShadow"] != "none"
+    assert style["toggleRadius"] == "0px" and style["toggleShadow"] != "none"
+    assert "232, 255, 0" in style["debugBorder"] or "34, 230, 255" in style["debugBorder"]
+    _shot(browser_page, "help-desktop")
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.wait_for_timeout(100)
+    help_box = page.locator("#help").bounding_box()
+    assert help_box["x"] >= 0 and help_box["y"] >= 0
+    assert help_box["width"] <= 390 and help_box["height"] <= 844
+    card = page.locator(".help-card").bounding_box()
+    assert card["width"] <= 390 and card["x"] >= 0
+    assert page.locator("#help-close").bounding_box()["height"] >= 44
+    _shot(browser_page, "help-phone")
+    page.locator("#help-close").click()
+    page.wait_for_selector("#help", state="hidden")
+    assert browser_page.page_errors == []

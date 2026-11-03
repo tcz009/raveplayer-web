@@ -1,17 +1,29 @@
-# Hardening pass — Rave Player web (`raveplayer-web` 1.6.29)
+# Hardening pass — Rave Player web (`raveplayer-web` 1.6.33)
 
-**Branch:** `feature/1.6.29-job-retention` (not pushed) · **Base:** `feature/1.6.28-iphone-fixes` @ `eadcf0a` (1.6.28)
+**Branch:** `feature/1.6.33-theme-cleanup` (not pushed) · **Base:** `main` @ `47761f7` (1.6.32)
 **Scope:** `app.py`, `core/`, `static/app.js`, `scripts/deploy.sh`, `docs/`, `test/`,
 `test_e2e/`, `VERSION`. No UX or content changes. No `data/` or advert files touched.
 
-**Result:** `205 → 365 passed` (`.venv/bin/python -m pytest -q test`), all
-offline; browser suite `test_e2e` **22 passed** (system Chrome, Playwright 1.60);
+**Result:** `205 → 382 passed` (`.venv/bin/python -m pytest -q test`), all
+offline; browser suite `test_e2e` **27 passed** (system Chrome, Playwright 1.60);
 `node --check static/app.js` and `sh -n scripts/deploy.sh` clean.
 
 Inputs folded in: the internal task-22 brief and the adversarial pre-review
 (`docs/ADVERSARIAL-REVIEW.md`, web findings W1–W8). The review's "what is solid" list
 (stream SSRF guard, SPA escaping, CSP, content-type gate, atomic writes) was kept intact.
 
+
+## 1.6.33 — Help dialog theme + cleanup
+
+- Topbar `?` Help button and dialog restyled to the brutalist theme (44px acid
+  sticker, Impact/mono, hard magenta/cyan shadows, halftone/scanline overlay,
+  focus rings, reduced motion, single-column 390px layout). Debugging block and
+  toggle remain prominent/readable; bottom Close is a full sticker button.
+- Cleanup: removed the unused in-memory login limiter, duplicate job-list
+  wrapper, unused `MAX_JOBS`/`audit.delete_blocks`, stale auth docstring/comments
+  and dead CSS; all static JS passes `node --check`; no duplicate `* 2.*`
+  files. Docs/test counts aligned with 382 offline / 27 e2e.
+- Tests: full pytest + e2e; CSP/no-innerHTML/auth/downloads behavior untouched.
 
 ## 1.6.29 — job-history retention and delete consistency
 
@@ -553,10 +565,10 @@ that the module layout matches.
 
 ```sh
 cd "Rave Player"
-.venv/bin/python -m pytest -q test        # 365 passed
+.venv/bin/python -m pytest -q test        # 382 passed
 node --check static/app.js
 sh -n scripts/deploy.sh
-git diff --stat feature/1.6.28-iphone-fixes..feature/1.6.29-job-retention
+git diff --stat main..feature/1.6.33-theme-cleanup
 ```
 
 ## Post-merge fix — deploy.sh heredoc escaping (found on first real deploy)

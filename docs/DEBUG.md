@@ -1,4 +1,4 @@
-# Debug log (opt-in) — 1.6.31, menu switch 1.6.32
+# Debug log (opt-in) — 1.6.31, menu switch 1.6.32, themed Help 1.6.33
 
 A client-side ring buffer for chasing browser-only bugs: API requests, download
 jobs, routes, media events, connectivity, service-worker state and uncaught
@@ -7,7 +7,7 @@ never sends anything anywhere.
 
 ## Turn it on
 
-The everyday switch is in the app's existing Help/utility dialog: click **?**
+The everyday switch is in the app's themed Help/utility dialog: click **?**
 in the topbar, then **Debug log: off** under **Debugging**. The same button
 turns it off again and its label always reflects the current state
 (**Debug log: on** / **Debug log: off**, plus `aria-pressed`). It is a normal

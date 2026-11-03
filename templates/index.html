@@ -56,7 +56,7 @@
             aria-label="Surprise me — open a random tape pack or show"
             title="Surprise me — random tape pack or show">Surprise me</button>
     <button class="help-btn" id="help-btn" type="button" aria-label="Help and controls"
-            title="Help and controls (?)">?</button>
+            title="Help and controls (?)"><span aria-hidden="true">?</span></button>
     <div class="loading-pill" id="loading-pill" role="status" aria-live="polite"
          aria-label="Loading" hidden>
       <span class="spinner-head small" aria-hidden="true"></span>
@@ -192,11 +192,17 @@
 
   <div id="help" class="help" role="dialog" aria-modal="true" aria-labelledby="help-title" hidden>
     <div class="help-card" tabindex="-1">
-      <h2 id="help-title">Controls</h2>
-      <p class="help-touch">On a phone: tap a row to play it, tap it again to pause.
-        The AirPlay button in the player sends the audio to an Apple TV or HomePod
-        on the same Wi-Fi. The queue button jumps between tracks. Surprise me rolls
-        a random tape pack or show.</p>
+      <div class="help-head">
+        <div class="help-heading">
+          <p class="help-kicker">RAVE PLAYER · HELP DESK</p>
+          <h2 id="help-title">Controls</h2>
+        </div>
+        <button id="help-close-top" class="help-x" type="button"
+                aria-label="Close help">✕</button>
+      </div>
+      <p class="help-touch">Tap a row to play it, tap it again to pause. The queue
+        jumps between tracks, Surprise Me rolls a tape pack or show, and AirPlay
+        sends audio to an Apple TV or HomePod on the same Wi-Fi.</p>
       <p class="help-sub">Keyboard</p>
       <dl class="help-list">
         <div><dt><kbd>Space</kbd></dt><dd>Play / pause</dd></div>
@@ -208,13 +214,16 @@
         <div><dt><kbd>Esc</kbd></dt><dd>Close this or the queue</dd></div>
       </dl>
       <div class="help-debug">
-        <p class="help-debug-title">Debugging</p>
+        <div class="help-debug-head">
+          <p class="help-debug-title">Debugging</p>
+          <span class="help-debug-badge">LOCAL ONLY</span>
+        </div>
         <button id="debug-toggle" class="debug-toggle" type="button"
                 aria-pressed="false" aria-label="Debug log: off — turn on">Debug log: off</button>
-        <p class="help-debug-note">Local only — shows the same panel as
-          <code>?debug=1</code>. Never uploaded.</p>
+        <p class="help-debug-note">Shows the same panel as <code>?debug=1</code>.
+          Nothing ever leaves this device.</p>
       </div>
-      <button id="help-close" type="button">Close</button>
+      <button id="help-close" class="help-close" type="button">Close the door ↗</button>
     </div>
   </div>
 

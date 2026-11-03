@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Single-operator web login: password hashing, config loading, throttling.
+"""Owner/friends web login: password hashing, config loading, shared throttling.
 
-Accounts/OAuth are deliberately out of scope for 1.6.20.  One operator sets a
-password hash (or a first-run plaintext that is hashed in memory) plus a secret
-key, and every page/API request except the login surface and PWA/health assets
-requires a signed session.
+Two fixed identities (1.6.21+) use Argon2/bcrypt/Werkzeug password hashes; the
+signed session and the SQLite-backed login limiter are shared by both gunicorn
+workers.  Accounts/OAuth remain out of scope.
 
 Supported hash formats:
   * Argon2 (``$argon2id$...``) via the ``argon2-cffi`` package;
@@ -16,8 +15,6 @@ import hmac
 import math
 import os
 import secrets
-import threading
-import time
 from dataclasses import dataclass
 
 try:  # optional, recommended
@@ -241,52 +238,3 @@ class SqliteLoginLimiter(object):
 
     def clear(self):
         self._audit().clear_login_failures()
-
-
-class LoginLimiter(object):
-    """In-process failed-login throttle with a temporary lockout."""
-
-    def __init__(self, max_failures=5, failure_window=600.0, lockout_seconds=900.0):
-        self.max_failures = max(1, int(max_failures))
-        self.failure_window = float(failure_window)
-        self.lockout_seconds = float(lockout_seconds)
-        self._lock = threading.Lock()
-        self._state = {}  # ip -> [window_start, failures, locked_until]
-
-    def _now(self):
-        return time.monotonic()
-
-    def retry_after(self, ip):
-        """Seconds until ``ip`` may try again, or 0 when it is not locked."""
-        now = self._now()
-        with self._lock:
-            state = self._state.get(ip)
-            if not state:
-                return 0
-            window_start, failures, locked_until = state
-            if locked_until and locked_until > now:
-                return max(1, int(math.ceil(locked_until - now)))
-            if now - window_start > self.failure_window:
-                self._state.pop(ip, None)
-            return 0
-
-    def fail(self, ip):
-        now = self._now()
-        with self._lock:
-            window_start, failures, locked_until = self._state.get(
-                ip, [now, 0, 0.0])
-            if now - window_start > self.failure_window:
-                window_start, failures = now, 0
-            failures += 1
-            locked_until = (now + self.lockout_seconds
-                            if failures >= self.max_failures else 0.0)
-            self._state[ip] = [window_start, failures, locked_until]
-            return failures
-
-    def reset(self, ip):
-        with self._lock:
-            self._state.pop(ip, None)
-
-    def clear(self):
-        with self._lock:
-            self._state.clear()

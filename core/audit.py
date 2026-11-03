@@ -290,20 +290,6 @@ def count_active_blocks():
     return int(rows[0]["n"] or 0)
 
 
-def delete_blocks(identity=None, ip=None):
-    if not identity and not ip:
-        return 0
-    clauses = ["until>?"]
-    params = [time.time()]
-    if identity:
-        clauses.append("identity=?")
-        params.append(_text(identity, 64))
-    if ip:
-        clauses.append("ip=?")
-        params.append(_text(ip, 64))
-    return _write("DELETE FROM blocks WHERE " + " AND ".join(clauses), params)
-
-
 def get_setting(key, default=None):
     rows = _read("SELECT value FROM settings WHERE key=?", (str(key),))
     return rows[0]["value"] if rows else default

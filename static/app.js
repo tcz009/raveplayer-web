@@ -2184,6 +2184,7 @@
   $("queue-close").addEventListener("click", () => { toggleQueue(false); $("p-queue").focus(); });
   $("help-btn").addEventListener("click", () => toggleHelp());
   $("help-close").addEventListener("click", () => toggleHelp(false));
+  $("help-close-top").addEventListener("click", () => toggleHelp(false));
   helpEl.addEventListener("click", (event) => { if (event.target === helpEl) toggleHelp(false); });
 
   $("p-fav").addEventListener("click", () => {
