@@ -385,15 +385,17 @@ Session API.
 
 The 1993 pirate-transmission visual system — icon set, wordmark, palette,
 typography, hero and texture language — is documented in
-[`docs/ARTWORK.md`](docs/ARTWORK.md). Rebuild every image with
-`python3 scripts/make-art.py` (Pillow is a build-time tool only; it is not in
-`requirements.txt`).
+[`docs/ARTWORK.md`](docs/ARTWORK.md). Rebuild the original tiles with
+`python3 scripts/make-art.py`; the 1.6.40 duplicate-fix stickers come from the
+companion Kodi repo's `scripts/make-duplicate-art.py`, which writes both the
+Kodi 256 px and web 512 px files and the 64/128/256 proof sheet (Pillow is a
+build-time tool only; it is not in `requirements.txt`).
 
 ## Tests
 
-### Offline suite (405 cases)
+### Offline suite (417 cases)
 
-The offline suite is 405 cases (all providers mocked) and uses the Flask test
+The offline suite is 417 cases (all providers mocked) and uses the Flask test
 client. `pytest` is a test-only dependency:
 
 ```sh

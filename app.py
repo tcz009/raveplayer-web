@@ -234,10 +234,10 @@ DOWNLOAD_SOURCE_LABELS = {
     "toronto": "Toronto Rave Mixtape Archive",
 }
 DOWNLOAD_SOURCE_ART = {
-    "archive": ART + "tapepacks.png",
-    "moxser": ART + "radio.png",
-    "hardscore": ART + "hardcore.png",
-    "pirate": ART + "pirate.png",
+    "archive": ART + "tapepacks-all.png",
+    "moxser": ART + "moxser.png",
+    "hardscore": ART + "hardscore.png",
+    "pirate": ART + "pirate-archive.png",
     "toronto": ART + "toronto.png",
 }
 
@@ -287,29 +287,70 @@ RADIO_SECTIONS = [
 
 SECTIONS = [
     ("latest", "Latest", "rave.png", "Newest of everything"),
-    ("kool", "Kool FM", "radio.png", "Kool FM live plus archive sets"),
-    ("rinse", "Rinse FM", "radio.png", "Rinse FM live plus archive sets"),
-    ("filters", "Quick Filters", "tapepacks.png", "Classic pack series"),
+    ("kool", "Kool FM", "kool.png", "Kool FM live plus archive sets"),
+    ("rinse", "Rinse FM", "rinse.png", "Rinse FM live plus archive sets"),
+    ("filters", "Quick Filters", "series.png", "Classic pack series"),
     ("live", "Live Radio", "radio.png", "Stations streaming now"),
     ("packs", "Tape Packs", "tapepacks.png", "The ravetapes collection"),
-    ("podcasts", "Podcasts & Mixes", "jungle.png", "Present-day shows"),
-    ("dnb", "DNB Radio", "hardcore.png", "Recent jungle/DnB shows"),
+    ("podcasts", "Podcasts & Mixes", "podcasts.png", "Present-day shows"),
+    ("dnb", "DNB Radio", "dnb.png", "Recent jungle/DnB shows"),
     ("ukg", "UK Garage", "garage.png", "DJ EZ, garage sets, live"),
-    ("mixcloud", "Mixcloud Sets", "djez.png", "Live club and rave sets"),
-    ("soundcloud", "SoundCloud Sets", "pirate.png", "Curated live sets"),
-    ("moxser", "Moxser Mixes", "radio.png", "Underground radio mixes, direct MP3"),
-    ("hardscore", "Hardscore", "hardcore.png", "Hardcore/jungle tapes and events"),
+    ("mixcloud", "Mixcloud Sets", "mixcloud.png", "Live club and rave sets"),
+    ("soundcloud", "SoundCloud Sets", "soundcloud.png", "Curated live sets"),
+    ("moxser", "Moxser Mixes", "moxser.png", "Underground radio mixes, direct MP3"),
+    ("hardscore", "Hardscore", "hardscore.png", "Hardcore/jungle tapes and events"),
     ("toronto", "Toronto Rave Mixtape Archive", "toronto.png", "Toronto jungle, house, studio and X-Static direct MP3s"),
-    ("ravearchive", "Rave Archive UK", "tapepacks.png", "Rave tape scans with Mixcloud"),
-    ("getdarker", "GetDarker", "jungle.png", "Dubstep/grime sets on Mixcloud"),
-    ("pirates", "Pirate Radio Archives", "pirate.png", "Curated pirate-radio recordings"),
-    ("raves", "Rave Nights", "rave.png", "Promotions, venues & pirate stations"),
-    ("years", "By Year", "house.png", "Tape packs 1987 onwards"),
-    ("legacy", "Legacy Sites", "pirate.png", "The 2014 survivors"),
-    ("favourites", "Favourites", "about.png", "What you saved"),
-    ("downloads", "Downloads", "tapepacks.png", "Saved for offline"),
+    ("ravearchive", "Rave Archive UK", "rave-archive.png", "Rave tape scans with Mixcloud"),
+    ("getdarker", "GetDarker", "getdarker.png", "Dubstep/grime sets on Mixcloud"),
+    ("pirates", "Pirate Radio Archives", "pirate-archive.png", "Curated pirate-radio recordings"),
+    ("raves", "Rave Nights", "rave-nights.png", "Promotions, venues & pirate stations"),
+    ("years", "By Year", "years.png", "Tape packs 1987 onwards"),
+    ("legacy", "Legacy Sites", "legacy.png", "The 2014 survivors"),
+    ("favourites", "Favourites", "favourites.png", "What you saved"),
+    ("downloads", "Downloads", "downloads.png", "Saved for offline"),
     ("search", "Search", "search.png", "Search the Archive"),
 ]
+
+# One distinct sticker per navigation row.  The duplicate-art test checks that
+# no two rows in a menu borrow the same file; leaf rows (tracks, episodes,
+# years, rave nights, station recordings) reuse their category tile and are the
+# explicit exceptions in test/test_art_duplicates.py.
+PACK_ART = {
+    "rave": "rave-tapes.png",
+    "jungle": "jungle.png",
+    "hardcore": "hardcore.png",
+    "house": "house.png",
+    "pirate": "pirate-radio.png",
+    "tapepacks": "tapepacks-all.png",
+    "garage": "garage.png",
+}
+LIVE_ART = {
+    "oldskool": "oldskool.png",
+    "jungle": "radio-jungle.png",
+    "dnb": "radio-dnb.png",
+    "hardcore": "radio-hardcore.png",
+    "house": "radio-house.png",
+    "ukg": "radio-ukg.png",
+    "breakbeat": "radio-breakbeat.png",
+}
+FILTER_ART = {
+    "kool": "kool.png",
+    "rinse": "rinse.png",
+    "dreamscape": "dreamscape.png",
+    "helter-skelter": "helter-skelter.png",
+    "fantazia": "fantazia.png",
+    "one-nation": "one-nation.png",
+    "centreforce": "centreforce.png",
+    "don-fm": "don-fm.png",
+    "slammin-vinyl": "slammin-vinyl.png",
+    "one-in-the-jungle": "one-in-the-jungle.png",
+    "jungle-fever": "jungle-fever.png",
+    "roast": "roast.png",
+    "telepathy": "telepathy.png",
+    "world-dance": "world-dance.png",
+    "dj-ez": "djez.png",
+    "garage-nation": "garage-nation.png",
+}
 
 # One source of truth for section -> API path; mirrored (and tested) in
 # static/app.js so the grouped 8-button rail and the legacy flat list agree.
@@ -347,20 +388,20 @@ RAIL = [
      "children": ["latest"], "sub": "Newest of everything"},
     {"id": "packs", "label": "Tape Packs", "icon": "tapepacks.png",
      "children": ["packs", "years", "filters"], "sub": "Archive packs, years, classic series"},
-    {"id": "shows", "label": "Mixes & Shows", "icon": "radio.png",
+    {"id": "shows", "label": "Mixes & Shows", "icon": "mixes.png",
      "children": ["podcasts", "dnb", "moxser", "hardscore", "toronto"], "sub": "Shows, mixes and radio archives"},
-    {"id": "sets", "label": "Club & Rave Sets", "icon": "djez.png",
+    {"id": "sets", "label": "Club & Rave Sets", "icon": "sets.png",
      "children": ["mixcloud", "getdarker", "ravearchive", "ukg", "raves"],
      "sub": "Embedded sets and rave nights"},
-    {"id": "soundcloud", "label": "SoundCloud Picks", "icon": "pirate.png",
+    {"id": "soundcloud", "label": "SoundCloud Picks", "icon": "soundcloud.png",
      "path": "/api/soundcloud", "children": ["soundcloud"], "sub": "Curated live sets"},
     {"id": "live", "label": "Live Radio", "icon": "radio.png",
      "children": ["live", "kool", "rinse"], "sub": "Stations on air now"},
-    {"id": "gems", "label": "Curated Gems", "icon": "rave.png",
+    {"id": "gems", "label": "Curated Gems", "icon": "curated.png",
      "children": ["pirates", "legacy"], "sub": "Pirate archives and surviving sites"},
-    {"id": "favourites", "label": "Favourites", "icon": "about.png",
+    {"id": "favourites", "label": "Favourites", "icon": "favourites.png",
      "path": "/api/favourites", "children": ["favourites"], "sub": "What you saved"},
-    {"id": "downloads", "label": "Downloads", "icon": "tapepacks.png",
+    {"id": "downloads", "label": "Downloads", "icon": "downloads.png",
      "path": "/api/downloads", "children": ["downloads"], "sub": "Saved for offline"},
 ]
 
@@ -1326,11 +1367,11 @@ def api_latest():
         elif kind == "episode" and entry.get("url"):
             url = str(entry["url"])
             items.append(_track(title, "%s · %s" % (entry.get("source", ""), stamp), url,
-                                ART + "radio.png",
+                                ART + "podcasts.png",
                                 {"kind": "stream", "target": url, "title": title}))
         elif kind == "dnb" and entry.get("id") is not None:
             item = _track(title, "%s · %s" % (entry.get("source", ""), stamp), None,
-                          ART + "jungle.png")
+                          ART + "dnb.png")
             item["play_via"] = "/api/dnb/%s" % urllib.parse.quote(str(entry["id"]))
             items.append(item)
     return jsonify({"title": "Latest", "items": items})
@@ -1338,11 +1379,10 @@ def api_latest():
 
 @app.get("/api/filters")
 def api_filters():
-    icons = {"dj-ez": "djez.png", "garage-nation": "garage.png"}
     return jsonify({"title": "Quick Filters", "items": [
         _folder(entry["name"], entry.get("plot", ""),
                 "/api/filter/%s" % urllib.parse.quote(entry["id"]),
-                ART + icons.get(entry["id"], "tapepacks.png"))
+                ART + FILTER_ART.get(entry["id"], "series.png"))
         for entry in _filters()
     ]})
 
@@ -1355,7 +1395,8 @@ def api_filter(key):
     page = _page_arg()
     items = []
     if page == 1 and entry.get("live_name"):
-        item = _track("▶ %s — live now" % entry["name"], "Live streams", None, ART + "radio.png")
+        item = _track("▶ %s — live now" % entry["name"], "Live streams", None,
+                      ART + ("kool.png" if entry["id"] == "kool" else "rinse.png"))
         item["play_via"] = "/api/filter/%s/live" % urllib.parse.quote(key)
         items.append(item)
     docs, total = archive.search(entry["query"], page=page, rows=ROWS)
@@ -1390,8 +1431,7 @@ def api_filter_live(key):
 @app.get("/api/live")
 def api_live():
     return jsonify({"title": "Live Radio", "items": [
-        _folder(label, tag, "/api/live/%s" % key,
-                ART + ("garage.png" if key in ("garage", "ukg") else "radio.png"))
+        _folder(label, tag, "/api/live/%s" % key, ART + LIVE_ART[key])
         for key, label, tag in RADIO_SECTIONS
     ]})
 
@@ -1426,7 +1466,7 @@ def api_mixcloud():
         item = _track(entry["title"],
                       "%s%s" % (entry["user"],
                                 (" · " + entry["created"][:10]) if entry.get("created") else ""),
-                      None, entry.get("thumb") or ART + "radio.png")
+                      None, entry.get("thumb") or ART + "mixcloud.png")
         item["embed"] = entry["embed"]
         item["external"] = entry["url"]
         items.append(item)
@@ -1487,7 +1527,7 @@ MIXCLOUD_QUERIES = [
 def api_mixcloud_hub():
     return jsonify({"title": "Mixcloud Sets", "items": [
         _folder(label, sub, "/api/mixcloud?q=%s" % urllib.parse.quote(query),
-                ART + "djez.png") for label, query, sub in MIXCLOUD_QUERIES
+                ART + "mixcloud.png") for label, query, sub in MIXCLOUD_QUERIES
     ]})
 
 
@@ -1498,14 +1538,14 @@ def api_soundcloud():
         items = []
         for entry in soundcloud.search(query):
             item = _track(entry["title"], "SoundCloud · %s" % entry["user"], None,
-                          entry.get("thumb") or ART + "pirate.png")
+                          entry.get("thumb") or ART + "soundcloud.png")
             item["embed"] = entry["embed"]
             item["external"] = entry["url"]
             items.append(item)
         return jsonify({"title": "SoundCloud: %s" % query, "items": items})
     items = []
     for entry in soundcloud.registry():
-        item = _track(entry["title"], "SoundCloud · live set", None, ART + "pirate.png")
+        item = _track(entry["title"], "SoundCloud · live set", None, ART + "soundcloud.png")
         item["embed"] = soundcloud.embed_url(entry["url"])
         item["external"] = entry["url"]
         items.append(item)
@@ -1522,7 +1562,7 @@ def api_raves():
         if entry["mixcloud_count"]:
             bits.append("%d sets" % entry["mixcloud_count"])
         items.append(_folder(entry["name"], " · ".join(bits) or "content",
-                             "/api/rave/%s" % entry["slug"], ART + "rave.png"))
+                             "/api/rave/%s" % entry["slug"], ART + "rave-nights.png"))
     items.sort(key=lambda item: item["label"].lower())
     return jsonify({"title": "Rave Nights", "items": items})
 
@@ -1536,7 +1576,7 @@ def api_rave(key):
     if entry["mixcloud_query"] and entry["mixcloud_count"]:
         for set_entry in mixcloud.search(entry["mixcloud_query"], limit=12):
             item = _track(set_entry["title"], "Mixcloud · %s" % set_entry["user"], None,
-                          set_entry.get("thumb") or ART + "djez.png")
+                          set_entry.get("thumb") or ART + "mixcloud.png")
             item["embed"] = set_entry["embed"]
             item["external"] = set_entry["url"]
             items.append(item)
@@ -1564,7 +1604,7 @@ def api_moxser():
         if not title or not slug:
             continue
         item = _track(title, _source_sub("Moxser", entry.get("date")), None,
-                      _http_url(entry.get("flyer")) or ART + "radio.png")
+                      _http_url(entry.get("flyer")) or ART + "moxser.png")
         item["play_via"] = "/api/moxser/%s" % urllib.parse.quote(slug, safe="")
         item["download"] = {"source": "moxser"}
         items.append(item)
@@ -1583,7 +1623,7 @@ def api_moxser_resolve(slug):
         "url": url,
         "title": _clean_text(mix.get("title"), MAX_TITLE),
         "sub": _source_sub("Moxser", mix.get("date")),
-        "art": _http_url(mix.get("flyer")) or ART + "radio.png",
+        "art": _http_url(mix.get("flyer")) or ART + "moxser.png",
     })
 
 
@@ -1598,19 +1638,19 @@ def api_hardscore():
         sub = _source_sub("Hardscore", entry.get("date"))
         media = _http_url(entry.get("media"))
         if media:
-            item = _track(title, sub, media, ART + "hardcore.png")
+            item = _track(title, sub, media, ART + "hardscore.png")
             _mark_download(item, "hardscore", media)
             items.append(item)
         else:
             link = _http_url(entry.get("link"))
             if link:
-                items.append(_external_row(title, sub, link, ART + "hardcore.png"))
+                items.append(_external_row(title, sub, link, ART + "hardscore.png"))
     for entry in hardscore.events(limit=10):
         title = _clean_text(entry.get("title"), MAX_TITLE)
         link = _http_url(entry.get("link"))
         if title and link:
             items.append(_external_row(title, _source_sub("Event", entry.get("date")),
-                                       link, ART + "hardcore.png"))
+                                       link, ART + "hardscore.png"))
     return jsonify({"title": "Hardscore", "items": items})
 
 
@@ -1670,7 +1710,7 @@ def api_ravearchive():
         djs = ", ".join(entry.get("djs") or [])[:90]
         items.append(_folder(title, _source_sub(entry.get("year"), djs),
                              "/api/ravearchive/%s" % urllib.parse.quote(slug, safe=""),
-                             ART + "tapepacks.png"))
+                             ART + "rave-archive.png"))
     return jsonify({"title": "Rave Archive UK", "items": items})
 
 
@@ -1684,13 +1724,13 @@ def api_ravearchive_release(slug):
     cloudcast = release.get("mixcloud") or ""
     items = []
     if cloudcast:
-        item = _track(title, "Mixcloud · Rave Archive UK", None, ART + "tapepacks.png")
+        item = _track(title, "Mixcloud · Rave Archive UK", None, ART + "rave-archive.png")
         item["embed"] = mixcloud.embed_url(cloudcast)
         item["external"] = cloudcast
         items.append(item)
     elif link:
         items.append(_external_row(title, "Open on Rave Archive UK", link,
-                                   ART + "tapepacks.png"))
+                                   ART + "rave-archive.png"))
     if not items:
         return _json_error("no player found for that release", 404)
     return jsonify({"title": title, "items": items})
@@ -1707,7 +1747,7 @@ def api_getdarker():
         cloudcast = _http_url(entry.get("mixcloud"))
         if cloudcast:
             item = _track(title, _source_sub("GetDarker", entry.get("date")), None,
-                          ART + "jungle.png")
+                          ART + "getdarker.png")
             item["embed"] = mixcloud.embed_url(cloudcast)
             item["external"] = cloudcast
             items.append(item)
@@ -1715,12 +1755,12 @@ def api_getdarker():
         media = _http_url(entry.get("media"))
         if media:
             items.append(_track(title, _source_sub("GetDarker", entry.get("date")),
-                                media, ART + "jungle.png"))
+                                media, ART + "getdarker.png"))
             continue
         link = _http_url(entry.get("link"))
         if link:
             items.append(_external_row(title, _source_sub("GetDarker", entry.get("date")),
-                                       link, ART + "jungle.png"))
+                                       link, ART + "getdarker.png"))
     return jsonify({"title": "GetDarker", "items": items})
 
 
@@ -1733,7 +1773,7 @@ def api_pirate():
                           ", ".join(group.get("years") or []))
         items.append(_folder(group["station"], sub or "curated archive",
                              "/api/pirate/%s" % urllib.parse.quote(group["id"], safe=""),
-                             ART + "pirate.png"))
+                             ART + "pirate-archive.png"))
     return jsonify({"title": "Pirate Radio Archives", "items": items})
 
 
@@ -1752,15 +1792,16 @@ def api_pirate_station(slug):
         stream = _http_url(entry.get("stream_url"))
         source = _http_url(entry.get("source_url"))
         if stream:
-            item = _track(title, sub, stream, ART + "pirate.png")
+            item = _track(title, sub, stream, ART + "pirate-archive.png")
             _mark_download(item, "pirate", stream)
             if source:
                 item["external"] = source
         elif source:
-            item = _external_row(title, sub, source, ART + "pirate.png")
+            item = _external_row(title, sub, source, ART + "pirate-archive.png")
         else:
             # Kept deliberately: the metadata is the archive, no dead link shown.
-            item = _track(title, _source_sub(sub, "link pending"), None, ART + "pirate.png")
+            item = _track(title, _source_sub(sub, "link pending"), None,
+                          ART + "pirate-archive.png")
         if entry.get("credit"):
             item["credit"] = entry["credit"]
         items.append(item)
@@ -1770,7 +1811,7 @@ def api_pirate_station(slug):
 @app.get("/api/packs")
 def api_packs():
     return jsonify({"title": "Tape Packs", "items": [
-        _folder(label, sub, "/api/packs/%s" % key, ART + "tapepacks.png")
+        _folder(label, sub, "/api/packs/%s" % key, ART + PACK_ART[key])
         for key, label, query, sub in ARCHIVE_SECTIONS
     ]})
 
@@ -1819,7 +1860,7 @@ def api_podcasts():
     items = [
         _folder(entry["name"], "%d episodes" % counts.get(entry["id"], 0),
                 "/api/podcast/%s" % urllib.parse.quote(entry["id"]),
-                ART + "radio.png")
+                ART + "podcasts.png")
         for entry in entries
     ]
     return jsonify({"title": "Podcasts & Mixes", "items": items})
@@ -1836,7 +1877,7 @@ def api_podcast(feed_id):
         if not isinstance(url, str) or not url:
             continue
         title = _clean_text(episode.get("title"), MAX_TITLE) or "Untitled"
-        items.append(_track(title, (episode.get("published") or "")[:16], url, ART + "radio.png",
+        items.append(_track(title, (episode.get("published") or "")[:16], url, ART + "podcasts.png",
                             {"kind": "stream", "target": url, "title": title}))
     return jsonify({"title": entry["name"], "items": items})
 
@@ -1851,7 +1892,7 @@ def api_dnb():
         if not isinstance(show, dict) or show.get("id") is None:
             continue
         title = _clean_text(show.get("title"), MAX_TITLE) or "Untitled"
-        item = _track(title, _clean_text(show.get("date"), 40), None, ART + "jungle.png")
+        item = _track(title, _clean_text(show.get("date"), 40), None, ART + "dnb.png")
         item["play_via"] = "/api/dnb/%s" % urllib.parse.quote(str(show["id"]))
         items.append(item)
     return jsonify({"title": "DNB Radio", "items": items})
@@ -1871,7 +1912,7 @@ def api_dnb_resolve(mix_id):
 @app.get("/api/years")
 def api_years():
     this_year = datetime.date.today().year
-    items = [_folder(str(year), "Tape packs", "/api/year/%d" % year, ART + "tapepacks.png")
+    items = [_folder(str(year), "Tape packs", "/api/year/%d" % year, ART + "years.png")
              for year in range(this_year, MIN_YEAR - 1, -1)]
     return jsonify({"title": "By Year", "items": items})
 
@@ -1893,8 +1934,10 @@ def api_year(year):
 @app.get("/api/legacy")
 def api_legacy():
     return jsonify({"title": "Legacy Sites", "items": [
-        _folder("RaveTapePacks.com", "Full tape packs", "/api/legacy/ravetapepacks", ART + "tapepacks.png"),
-        _folder("JungleTapes.com", "Toronto jungle radio shows", "/api/legacy/jungletapes", ART + "jungle.png"),
+        _folder("RaveTapePacks.com", "Full tape packs", "/api/legacy/ravetapepacks",
+                ART + "ravetapepacks.png"),
+        _folder("JungleTapes.com", "Toronto jungle radio shows", "/api/legacy/jungletapes",
+                ART + "jungletapes.png"),
     ]})
 
 
@@ -1923,7 +1966,7 @@ def api_legacy_rtp_pack(pack):
             continue
         playable = legacy.playable(track["url"])
         name = _clean_text(track.get("name"), MAX_TITLE) or "Tape"
-        items.append(_track(name, "Tape", playable, ART + "tapepacks.png",
+        items.append(_track(name, "Tape", playable, ART + "ravetapepacks.png",
                             {"kind": "stream", "target": playable, "title": name}))
     return jsonify({"title": entry.get("name") or pack, "items": items})
 
@@ -1949,7 +1992,7 @@ def api_legacy_jt_show(show_key):
         if not isinstance(track, dict) or not track.get("url"):
             continue
         name = _clean_text(track.get("name"), MAX_TITLE) or "Track"
-        items.append(_track(name, "JungleTapes.com", track["url"], ART + "jungle.png",
+        items.append(_track(name, "JungleTapes.com", track["url"], ART + "jungletapes.png",
                             {"kind": "stream", "target": track["url"], "title": name}))
     if not items:
         return _json_error("no recordings for that show", 404)
@@ -1963,7 +2006,7 @@ def api_legacy_toronto():
         if not isinstance(track, dict) or not track.get("url"):
             continue
         name = _clean_text(track.get("name"), MAX_TITLE) or "Track"
-        items.append(_track(name, "Toronto Rave Mixtape Archive", track["url"], ART + "rave.png",
+        items.append(_track(name, "Toronto Rave Mixtape Archive", track["url"], ART + "toronto.png",
                             {"kind": "stream", "target": track["url"], "title": name}))
     return jsonify({"title": "Toronto Rave Mixtape Archive", "items": items})
 
@@ -1982,12 +2025,12 @@ def _embed_items(entries, provider, art):
 
 def _search_soundcloud(query):
     return _embed_items(soundcloud.search(query, limit=10), "SoundCloud",
-                        ART + "pirate.png")
+                        ART + "soundcloud.png")
 
 
 def _search_mixcloud(query):
     return _embed_items(mixcloud.search(query, limit=12), "Mixcloud",
-                        ART + "djez.png")
+                        ART + "mixcloud.png")
 
 
 @app.get("/api/search")
@@ -2878,7 +2921,7 @@ def _download_item(entry):
                       DOWNLOAD_SOURCE_LABELS.get(entry.get("source"), "Saved"))
     item = _track(entry.get("title") or "Untitled", sub,
                   "/api/downloads/%s/stream" % urllib.parse.quote(identifier, safe=""),
-                  DOWNLOAD_SOURCE_ART.get(entry.get("source"), ART + "tapepacks.png"))
+                  DOWNLOAD_SOURCE_ART.get(entry.get("source"), ART + "downloads.png"))
     item["download_key"] = identifier
     item["file"] = "/api/downloads/%s/file" % urllib.parse.quote(identifier, safe="")
     return item

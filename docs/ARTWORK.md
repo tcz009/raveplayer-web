@@ -271,29 +271,26 @@ points at `icon.png` 512; the template adds the 180 px apple-touch link.
 ## 7. Asset inventory
 
 All paths are under `static/art/`. "Slot" is the rail/menu label that uses the
-file in `app.py` (which was not modified).
+file in `app.py`; the mapping lives in `SECTIONS`, `RAIL`, `PACK_ART`,
+`LIVE_ART` and `FILTER_ART` (1.6.40).
 
-### Section / filter icons — 512 × 512 PNG, 256-colour palette
+### Section / filter icons — 512 × 512 PNG (a few shared 256 px copies)
 
-| File | Slot(s) | Field | Ink glyph | Size |
-|---|---|---|---|---|
-| `rave.png` | Latest | acid | black smiley | 62 KB |
-| `radio.png` | Kool FM, Live Radio | cyan | mast + arcs | 90 KB |
-| `tapepacks.png` | Tape Packs, Quick Filters | paper | C90 cassette | 71 KB |
-| `jungle.png` | Podcasts & Mixes | magenta | tribal mask | 82 KB |
-| `hardcore.png` | DNB Radio | acid | neon bolt | 78 KB |
-| `house.png` | By Year | cyan | 93 calendar ticket | 69 KB |
-| `garage.png` | UK Garage (rail), Garage Nation | paper | 2-step 2 + rewind | 78 KB |
-| `pirate.png` | Legacy Sites | paper | CRT homepage | 71 KB |
-| `about.png` | Favourites | magenta | heart | 72 KB |
-| `search.png` | Search | acid | magnifier + smiley | 71 KB |
-| `djez.png` | DJ EZ (Quick Filters) | magenta | headphones + crossfader | 82 KB |
+| Group | Files |
+|---|---|
+| Brand / root | `rave.png` (Latest), `radio.png` (Live Radio), `tapepacks.png` (Tape Packs), `search.png`, `favourites.png`, `downloads.png`, `about.png` |
+| Rail hubs | `mixes.png` (Mixes & Shows), `curated.png` (Curated Gems), `sets.png` (Club & Rave Sets) |
+| Stations | `kool.png`, `rinse.png`, `oldskool.png`, `radio-jungle.png`, `radio-dnb.png`, `radio-hardcore.png`, `radio-house.png`, `radio-ukg.png`, `radio-breakbeat.png` |
+| Tape genres | `rave-tapes.png`, `jungle.png`, `hardcore.png`, `house.png`, `garage.png`, `pirate-radio.png`, `tapepacks-all.png`, `years.png`, `series.png`, `rave-nights.png` |
+| Shows / sources | `podcasts.png`, `dnb.png`, `moxser.png`, `hardscore.png`, `toronto.png`, `getdarker.png`, `rave-archive.png`, `pirate-archive.png`, `legacy.png`, `ravetapepacks.png`, `jungletapes.png` |
+| Sets widgets | `mixcloud.png`, `soundcloud.png` |
+| Quick Filters | `djez.png`, `garage-nation.png` and twelve series marks (`dreamscape.png`, `helter-skelter.png`, `fantazia.png`, `one-nation.png`, `centreforce.png`, `don-fm.png`, `slammin-vinyl.png`, `one-in-the-jungle.png`, `jungle-fever.png`, `roast.png`, `telepathy.png`, `world-dance.png`) |
 
-`app.py` maps two labels to one file in two places: Kool FM and Live Radio both
-use `radio.png`, and Tape Packs and Quick Filters both use `tapepacks.png`.
-That is why ten tiles cover twelve rail entries; `garage.png` is the UK Garage
-tile (and the Garage Nation filter mark), while `djez.png` is the DJ EZ
-quick-filter mark. The files are intentionally designed to carry both meanings.
+Since 1.6.40 every navigation row has its own file; distinct rows no longer
+share a tile. Leaf rows (tracks, episodes, years, rave nights, station
+recordings) deliberately reuse their parent category sticker. The duplicate
+guard is `test/test_art_duplicates.py`; the shared one-tile leaf lists are
+listed there explicitly.
 
 ### Brand / display
 
@@ -422,6 +419,9 @@ Pillow is a **build-time** dependency only. It is intentionally not in
 ```sh
 # the bundled runtime used for the committed set
 /home/user/.dsh/dsh-runtimes/dsh-primary-runtime/dependencies/python/bin/python3 scripts/make-art.py
+
+# duplicate-fix stickers (run from ../raveplayer; writes Kodi 256 + web 512)
+python3 ../raveplayer/scripts/make-duplicate-art.py
 
 # icons only, or hero only
 python3 scripts/make-art.py --only icons
