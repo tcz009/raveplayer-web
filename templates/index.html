@@ -218,6 +218,8 @@
       <a href="/api/menu">/api/menu</a>.</p>
   </noscript>
 
+  <!-- Opt-in debug log first: it no-ops unless ?debug=1 / localStorage. -->
+  <script src="/static/debug.js?v={{ version }}" defer></script>
   <script src="/static/app.js?v={{ version }}" defer></script>
 
   <div id="embed-panel" class="embed-panel" role="dialog" aria-modal="true" aria-labelledby="embed-title" hidden>

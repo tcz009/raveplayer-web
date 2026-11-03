@@ -143,3 +143,37 @@ RAVEWEB_REQUIRE_BROWSER=1 RAVEWEB_PLAYWRIGHT_NO_SANDBOX=1 \
 RAVEWEB_CHROMIUM_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
   .venv/bin/python -m pytest test_e2e -q                 # 7 passed
 ```
+
+## Addendum — 1.6.31 (`feature/1.6.31-debug`)
+
+Run on the 1.6.31 tree with system Chrome (Playwright's own Chromium cannot be
+installed in this sandbox):
+
+```
+$ .venv/bin/python -m pytest -q test
+379 passed
+
+$ RAVEWEB_REQUIRE_BROWSER=1 RAVEWEB_PLAYWRIGHT_NO_SANDBOX=1 \
+  RAVEWEB_CHROMIUM_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  RAVEWEB_ARTIFACTS_DIR="$PWD/rave-player-space/reports/web-1.6.31" \
+  .venv/bin/python -m pytest test_e2e -q
+25 passed
+```
+
+Three 1.6.31 cases were added (22 → 25):
+
+- `test_single_topbar_spinner_during_background_download` — queues a real
+  background job, reloads so the job poll adopts it, samples the topbar for
+  2.6 s across two polls and asserts one visible face (`chip` only, `both` and
+  `pill` zero), then checks the pill still shows for a delayed
+  `/api/rail/live` load after the job finishes. The fake download delay is
+  patched on every loaded conftest copy so the timing is deterministic.
+- `test_debug_panel_is_absent_unless_enabled` — no panel/`RaveDebug` state off
+  by default; the `localStorage` flag enables it after reload; `?debug=0`
+  clears both.
+- `test_debug_panel_records_exports_and_clears` — `?debug=1` panel records
+  route/API/media events, redacts `password`/`token` before storage, Copy uses
+  the clipboard, Download JSON round-trips, Clear empties the buffer.
+
+New screenshots: `10-single-spinner.png`, `11-debug-panel.png`
+(`rave-player-space/reports/web-1.6.31/`, not committed).

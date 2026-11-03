@@ -22,6 +22,15 @@
   const DEFAULT_EMPTY = "Nothing here — try another section.";
   const SEARCH_EMPTY = "Search the archive — type a query above, or press / to jump to the search box.";
 
+  // 1.6.31 opt-in debug log (static/debug.js). `DEBUG` is null unless the page
+  // was opened with ?debug=1 or the localStorage flag; every hook below is then
+  // a single null/boolean check, so the log costs nothing while it is off.
+  const DEBUG = window.RaveDebug || null;
+
+  function debugEvent(kind, data) {
+    if (DEBUG && DEBUG.enabled) DEBUG.record(kind, data);
+  }
+
   const state = {
     path: "",
     items: [],
@@ -410,11 +419,22 @@
 
   // Global loading pill: any in-flight api() request counts, but the pill is
   // only revealed after 150 ms so fast section switches never flicker it.
-  const LOADING = { count: 0, timer: 0 };
+  // 1.6.31: while a background download job is active the job chip owns the
+  // top-right indicator, so the pill stays hidden — one visible spinner max.
+  const LOADING = { count: 0, timer: 0, visible: false };
+
+  function pillSuppressed() {
+    const chip = $("job-chip");
+    return !!(chip && !chip.hidden);
+  }
 
   function showLoadingPill() {
+    LOADING.timer = 0;
+    if (pillSuppressed() || downloadIndicatorActive()) return;
     const pill = $("loading-pill");
-    if (pill) pill.hidden = false;
+    if (!pill || !pill.hidden) return;  // idempotent: never a second face
+    pill.hidden = false;
+    LOADING.visible = true;
     // The status field also says LOADING; dim it while the pill carries the
     // message so the topbar never repeats the same word twice.
     document.body.classList.add("loading-active");
@@ -423,6 +443,7 @@
   function hideLoadingPill() {
     const pill = $("loading-pill");
     if (pill) pill.hidden = true;
+    LOADING.visible = false;
     document.body.classList.remove("loading-active");
   }
 
@@ -441,6 +462,18 @@
       LOADING.timer = 0;
       hideLoadingPill();
     }
+  }
+
+  // One top-right face only: the chip supersedes the pill, and a duplicate
+  // chip (should one ever be introduced in markup) is forced hidden.
+  function syncSpinnerOwnership() {
+    const chips = document.querySelectorAll(".job-chip");
+    chips.forEach((chip, index) => {
+      if (index > 0) chip.hidden = true;
+    });
+    const chip = chips[0];
+    const pill = $("loading-pill");
+    if (chip && !chip.hidden && pill && !pill.hidden) hideLoadingPill();
   }
 
   async function api(path, options = {}) {
@@ -858,6 +891,7 @@
     if (!path) path = sectionPath("latest");
     const seq = ++state.seq;
     state.path = path;
+    debugEvent("route", { path: path.split("?")[0], push: push });
     state.next = null;
     moreEl.hidden = true;
     emptyEl.hidden = true;
@@ -1406,6 +1440,12 @@
     return !!job && (job.state === "queued" || job.state === "downloading");
   }
 
+  // Used by the loading pill: while any server-side download is running, the
+  // chip is the single top-right indicator.
+  function downloadIndicatorActive() {
+    return JOB_POLL.jobs.some(activeJob);
+  }
+
   function jobPercent(job) {
     if (!job) return 0;
     if (typeof job.progress === "number") return Math.max(0, Math.min(100, job.progress));
@@ -1420,7 +1460,10 @@
     if (!chip) return;
     const active = JOB_POLL.jobs.filter(activeJob);
     chip.hidden = active.length === 0;
-    if (!active.length) return;
+    if (!active.length) {
+      syncSpinnerOwnership();
+      return;
+    }
     const first = active.find((job) => job.state === "downloading") || active[0];
     const percent = jobPercent(first);
     chip.dataset.state = first.state;
@@ -1429,6 +1472,8 @@
     chip.setAttribute("aria-label",
       `${active.length} background download${active.length === 1 ? "" : "s"} — ${text}. Open Downloads.`);
     chip.title = `Background downloads — ${active.length} active`;
+    // The chip now owns the indicator: retire any pill already on screen.
+    syncSpinnerOwnership();
   }
 
   function jobRow(job) {
@@ -1490,6 +1535,26 @@
     if (active) JOB_POLL.timer = setTimeout(() => refreshDownloadJobs(), 1600);
   }
 
+  // Debug log: one event per state/byte change, not per poll (the poll runs
+  // every 1.6 s while a job is active).
+  const JOB_DEBUG = new Map();
+
+  function debugJobStates(jobs) {
+    if (!DEBUG || !DEBUG.enabled) return;
+    jobs.forEach((job) => {
+      const previous = JOB_DEBUG.get(job.id) || {};
+      if (previous.state !== job.state || previous.bytes !== job.bytes_done) {
+        debugEvent("download", {
+          id: job.id,
+          state: job.state,
+          bytes: Number(job.bytes_done) || 0,
+          total: Number(job.bytes_total) || 0,
+        });
+      }
+      JOB_DEBUG.set(job.id, { state: job.state, bytes: job.bytes_done });
+    });
+  }
+
   async function refreshDownloadJobs() {
     if (JOB_POLL.refreshing) return;
     JOB_POLL.refreshing = true;
@@ -1504,6 +1569,7 @@
         if (!activeJob(job)) JOB_POLL.seen.add(job.id);
       });
       JOB_POLL.jobs = jobs;
+      debugJobStates(jobs);
       JOB_POLL.initialized = true;
       updateJobChip();
       if (state.path === "/api/downloads") {
@@ -1548,6 +1614,7 @@
         body: JSON.stringify(payload),
         timeout: 15000,
       });
+      debugEvent("download", { mode: "background", action: "queued", already: !!data.already });
       DOWNLOAD.active = false;
       try { if (controller) controller.abort(); } catch (_) { /* ignore */ }
       try {
@@ -1640,6 +1707,12 @@
 
   function handleDownloadEvent(event) {
     if (!event || typeof event.state !== "string") return false;
+    debugEvent("download", {
+      mode: "foreground",
+      state: event.state,
+      bytes: Number(event.received) || 0,
+      total: Number(event.total) || 0,
+    });
     if (event.state === "started") {
       if (typeof event.filename === "string" && event.filename) {
         $("dl-title").textContent = event.filename;

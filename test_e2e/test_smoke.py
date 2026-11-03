@@ -14,7 +14,9 @@ shared fixtures and every provider call is stubbed (see conftest.py).  Run
 with ``pytest test_e2e``; they are not part of ``pytest test``.
 """
 
+import json
 import os
+import time
 
 ARTIFACTS_DIR = os.environ.get("RAVEWEB_ARTIFACTS_DIR", "")
 
@@ -761,4 +763,206 @@ def test_mobile_search_field_fits_and_submit_is_tappable(browser_page):
     assert box["button"]["right"] <= box["search"]["right"] + 1, box
     assert box["hit"] == "button", box
     assert page.locator("#search-input").is_visible()
+    assert browser_page.page_errors == []
+
+
+# --------------------------------------------------------------------------- 1.6.31
+
+
+def _set_fake_download_delay(seconds):
+    """Patch every loaded copy of the e2e fake download response class.
+
+    ``from test_e2e import conftest`` can resolve to a different module object
+    than the one pytest loaded for the fixture, so patching a single import is
+    not reliable. Walking ``sys.modules`` catches all copies.
+    """
+    import sys
+
+    patched = []
+    for module in list(sys.modules.values()):
+        cls = getattr(module, "_FakeDownloadResponse", None)
+        if cls is not None and hasattr(cls, "DELAY"):
+            patched.append((cls, cls.DELAY))
+            cls.DELAY = seconds
+    return patched
+
+
+def test_single_topbar_spinner_during_background_download(browser_page):
+    """1.6.31: the download chip owns the top-right indicator — one face max."""
+    page = browser_page.page
+    patched = _set_fake_download_delay(0.4)  # ~13 s: outlives the sample window
+    assert patched, "the e2e fake download class is not loaded"
+    try:
+        # Queue a real server-side job through the app's own endpoint, with a
+        # unique URL so a leftover library entry cannot turn it into "already".
+        unique = "spinner-%d.mp3" % int(time.time() * 1000)
+        created = page.evaluate("""async (name) => {
+            const response = await fetch('/api/downloads/jobs', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    url: 'https://archive.org/download/boot-pack/' + name,
+                    title: 'Spinner Test',
+                    source: 'archive',
+                }),
+            });
+            return {status: response.status, body: await response.json()};
+        }""", unique)
+        assert created["status"] == 202, created
+
+        # Reload: boot's job poll adopts the running job and starts its 1.6 s
+        # loop, which is what used to raise the pill alongside the chip.
+        page.reload(wait_until="domcontentloaded")
+        page.wait_for_selector("#nav button")
+        page.wait_for_selector("#job-chip", state="visible", timeout=10000)
+
+        # Sample the topbar continuously across several 1.6 s job polls.
+        page.evaluate("""() => {
+            const visible = (el) => !!(el && !el.hidden);
+            const sample = () => {
+                const pill = visible(document.querySelector('#loading-pill'));
+                const chip = visible(document.querySelector('#job-chip'));
+                // Each surface holds exactly one head; count the *surfaces*
+                // whose hidden state makes that head visible.
+                const heads = (pill ? 1 : 0) + (chip ? 1 : 0);
+                window.__spinner = window.__spinner || {pill: 0, chip: 0, both: 0, max: 0};
+                if (pill) window.__spinner.pill += 1;
+                if (chip) window.__spinner.chip += 1;
+                if (pill && chip) window.__spinner.both += 1;
+                window.__spinner.max = Math.max(window.__spinner.max, heads);
+            };
+            window.__spinner = {pill: 0, chip: 0, both: 0, max: 0};
+            sample();
+            window.__spinnerTimer = setInterval(sample, 50);
+        }""")
+        page.wait_for_timeout(2600)
+        counts = page.evaluate(
+            "() => { clearInterval(window.__spinnerTimer); return window.__spinner; }")
+        assert counts["max"] == 1, counts
+        assert counts["both"] == 0, counts
+        assert counts["chip"] > 0, counts
+        assert counts["pill"] == 0, counts
+        assert page.locator("#loading-pill").is_hidden()
+        _shot(browser_page, "10-single-spinner")
+
+        # A non-download API load still gets the pill once the job is done.
+        page.wait_for_function(
+            "() => document.querySelector('#toast').textContent.includes('Saved to Downloads')",
+            timeout=30000)
+        page.wait_for_selector("#job-chip", state="hidden", timeout=10000)
+        _delay_fetches(page, "/api/rail/live", 700)
+        page.get_by_role("button", name="Live Radio", exact=True).click()
+        page.wait_for_selector("#loading-pill", state="visible", timeout=4000)
+        assert page.evaluate("""() => {
+            const pill = document.querySelector('#loading-pill');
+            const chip = document.querySelector('#job-chip');
+            return !!(pill && !pill.hidden) && !!(!chip || chip.hidden);
+        }""")
+        page.wait_for_selector("#loading-pill", state="hidden", timeout=6000)
+
+        # Leave the shared Downloads library empty for later tests.
+        page.get_by_role("button", name="Downloads", exact=True).click()
+        page.wait_for_function("() => document.querySelector('#title').textContent === 'Downloads'")
+        page.wait_for_function(
+            "() => document.querySelectorAll('#list .row').length > 0", timeout=8000)
+        page.locator("#list .row button[title='Remove download']").click()
+        page.wait_for_function("() => document.querySelectorAll('#list .row').length === 0")
+        assert browser_page.page_errors == []
+    finally:
+        for cls, delay in patched:
+            cls.DELAY = delay
+
+
+def test_debug_panel_is_absent_unless_enabled(browser_page, live_server):
+    """1.6.31: no panel, no capture and no localStorage write unless opted in."""
+    page = browser_page.page
+    assert page.locator("#debug-panel").count() == 0
+    assert page.evaluate("() => window.RaveDebug.enabled") is False
+    assert page.evaluate("() => localStorage.getItem('raveplayer.debug')") is None
+
+    # The stored flag turns it on across reloads.
+    page.evaluate("() => localStorage.setItem('raveplayer.debug', '1')")
+    page.reload(wait_until="domcontentloaded")
+    page.wait_for_selector("#debug-panel", state="visible")
+
+    # ?debug=0 clears both the page state and the stored flag.
+    page.goto(live_server.url + "/?debug=0", wait_until="domcontentloaded")
+    assert page.locator("#debug-panel").count() == 0
+    assert page.evaluate("() => localStorage.getItem('raveplayer.debug')") is None
+    assert browser_page.page_errors == []
+
+
+def test_debug_panel_records_exports_and_clears(browser_page, live_server, tmp_path):
+    """1.6.31: ?debug=1 gives a local ring buffer with copy/download/clear."""
+    page = browser_page.page
+    page.goto(live_server.url + "/?debug=1", wait_until="domcontentloaded")
+    page.wait_for_selector("#debug-panel", state="visible")
+    page.wait_for_function(
+        "() => document.querySelectorAll('#list .row:not(.skeleton)').length > 0")
+    assert page.evaluate("() => localStorage.getItem('raveplayer.debug')") == "1"
+    assert page.locator("#debug-panel .debug-title").text_content().strip() == "DEBUG"
+
+    # Boot already recorded the route, the API calls and the service worker.
+    page.wait_for_function("""() => {
+        const kinds = Array.from(document.querySelectorAll('#debug-log .debug-kind'))
+            .map((el) => el.textContent);
+        return kinds.includes('route') && kinds.includes('api');
+    }""")
+    assert "api" in page.evaluate(
+        "() => window.RaveDebug.snapshot().events.map((e) => e.kind).join(',')")
+    api_event = page.evaluate("""() => {
+        const event = window.RaveDebug.snapshot().events.find((e) => e.kind === 'api');
+        return event ? event.data : null;
+    }""")
+    assert api_event["path"].startswith("/api/")
+    assert api_event["method"] == "GET"
+    assert api_event["status"] == 200
+    assert isinstance(api_event["ms"], int)
+    assert api_event["requestId"]
+
+    # Media events are captured, and redaction happens before storage.
+    page.evaluate("() => document.querySelector('#audio').dispatchEvent(new Event('play'))")
+    page.evaluate("""() => window.RaveDebug.record('probe', {
+        password: 'hunter2', token: 'tok-abc', note: 'keep-me'})""")
+    page.wait_for_function(
+        "() => document.querySelectorAll('#debug-log .debug-line').length > 0")
+    text = page.evaluate("() => window.RaveDebug.formatText()")
+    assert '"kind":"media"' in text
+    assert "hunter2" not in text and "tok-abc" not in text
+    assert "[redacted]" in text and "keep-me" in text
+
+    # Clear empties both the buffer and the rendered list.
+    page.locator('#debug-panel .debug-btn[data-act="clear"]').click()
+    page.wait_for_function("() => window.RaveDebug.size === 0")
+    assert page.locator("#debug-log li").count() == 0
+    assert page.locator("#debug-panel").is_visible()
+
+    # Generate a fresh event, then Copy (clipboard stubbed so the test is
+    # deterministic in headless Chromium).
+    page.evaluate("() => window.RaveDebug.record('probe', { note: 'copy-me' })")
+    page.evaluate("""() => {
+        window.__copied = '';
+        Object.defineProperty(navigator.clipboard, 'writeText', {
+            configurable: true,
+            value: (value) => { window.__copied = String(value); return Promise.resolve(); },
+        });
+    }""")
+    page.locator('#debug-panel .debug-btn[data-act="copy"]').click()
+    page.wait_for_function("() => (window.__copied || '').includes('copy-me')")
+    assert '"kind":"probe"' in page.evaluate("() => window.__copied")
+    assert page.locator('#debug-panel .debug-btn[data-act="copy"]').text_content().strip() == "Copied"
+
+    # Download JSON writes a local file with the request id and the redactions.
+    with page.expect_download() as download_info:
+        page.locator('#debug-panel .debug-btn[data-act="download"]').click()
+    target = tmp_path / "rave-debug.json"
+    download_info.value.save_as(str(target))
+    payload = json.loads(target.read_text(encoding="utf-8"))
+    assert payload["kind"] == "rave-debug-log"
+    assert payload["maxEvents"] == 500
+    assert payload["events"]
+    kinds = {event["kind"] for event in payload["events"]}
+    assert "probe" in kinds
+    assert "hunter2" not in target.read_text(encoding="utf-8")
+    _shot(browser_page, "11-debug-panel")
     assert browser_page.page_errors == []

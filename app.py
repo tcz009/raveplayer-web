@@ -650,6 +650,33 @@ def _public_static(path):
             or path.startswith("/static/art/icon") and path.endswith(".png"))
 
 
+# --------------------------------------------------------------------------- request ids
+# 1.6.31: every response carries X-Request-ID and every access log line quotes
+# it, so an event in the client debug log can be matched to the server line.
+# Incoming values are validated (log-injection safe) and never reflected raw.
+
+_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{8,64}$")
+
+
+def _clean_request_id(value):
+    value = (value or "").strip()
+    return value if _REQUEST_ID_RE.match(value) else ""
+
+
+def _current_request_id():
+    try:
+        return getattr(g, "request_id", "") or "-"
+    except RuntimeError:  # background thread, no request context
+        return "-"
+
+
+@app.before_request
+def _assign_request_id():
+    g.request_id = (_clean_request_id(request.headers.get("X-Request-ID"))
+                    or secrets.token_hex(8))
+    g.request_started = time.perf_counter()
+
+
 @app.before_request
 def _auth_guard():
     """Protect the shell, every API route and non-login static assets."""
@@ -2216,7 +2243,8 @@ def _open_stream(url, headers, deadline):
             raise UpstreamTimeout()
         except (http.client.HTTPException, ssl.SSLError, OSError, ValueError) as exc:
             conn.close()
-            app.logger.info("upstream connect failed for %s: %s", _safe_log_url(current), exc)
+            app.logger.info("upstream connect failed id=%s for %s: %s",
+                            _current_request_id(), _safe_log_url(current), exc)
             raise UpstreamError()
         if resp.status in _REDIRECT_CODES:
             location = resp.getheader("Location") or ""
@@ -2301,7 +2329,8 @@ def api_stream():
         return _stream_error(502, "upstream connection failed")
     except Exception as exc:  # never leak a traceback to the client
         release()
-        app.logger.warning("stream setup failed for %s: %s", _safe_log_url(target), exc)
+        app.logger.warning("stream setup failed id=%s for %s: %s",
+                           _current_request_id(), _safe_log_url(target), exc)
         return _stream_error(502, "upstream connection failed")
 
     status = resp.status
@@ -2322,8 +2351,8 @@ def api_stream():
             return _close_and_error(conn, resp, release, 502, "upstream sent an encoded stream")
         content_type = (resp.getheader("Content-Type") or "").split(";")[0].strip().lower()
         if not _is_media_type(content_type):
-            app.logger.info("stream refused non-media content-type %r for %s",
-                            content_type, _safe_log_url(final_url))
+            app.logger.info("stream refused non-media content-type %r id=%s for %s",
+                            content_type, _current_request_id(), _safe_log_url(final_url))
             return _close_and_error(conn, resp, release, 502, "upstream did not return audio")
     except Exception:
         _close_quietly(conn, resp, release)
@@ -2490,6 +2519,7 @@ def service_worker():
 
 @app.after_request
 def _response_headers(response):
+    response.headers.setdefault("X-Request-ID", getattr(g, "request_id", "") or secrets.token_hex(8))
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
     response.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
@@ -2522,6 +2552,29 @@ def _response_headers(response):
                 response.headers.add("Set-Cookie", cookie)
         response.headers.setdefault(
             "Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return response
+
+
+@app.after_request
+def _log_request_line(response):
+    """One structured line per page/API request, tagged with the request id.
+
+    Path only: query strings can carry search terms or signed URLs, and the
+    request id is the only correlation token the client needs. Static assets
+    and health probes are skipped to keep the log readable.
+    """
+    try:
+        path = request.path
+        if (path.startswith("/static/")
+                or path in ("/healthz", "/manifest.webmanifest", "/manifest.json", "/sw.js")):
+            return response
+        started = getattr(g, "request_started", None)
+        elapsed = (time.perf_counter() - started) * 1000.0 if started else 0.0
+        app.logger.info(
+            "req id=%s method=%s path=%s status=%s ms=%.1f",
+            _current_request_id(), request.method, path, response.status_code, elapsed)
+    except Exception:  # logging must never break a response
+        pass
     return response
 
 
@@ -3030,8 +3083,8 @@ def _download_stream(url, entry, client_id, identity="owner"):
             yield json.dumps({"state": "error", "code": 507,
                               "error": str(exc)}) + "\n"
         except Exception as exc:  # noqa: BLE001 - never leak a traceback
-            app.logger.warning("streaming download failed for %s: %s",
-                               _safe_log_url(url), exc)
+            app.logger.warning("streaming download failed id=%s for %s: %s",
+                               _current_request_id(), _safe_log_url(url), exc)
             yield json.dumps({"state": "error", "code": 502,
                               "error": "could not save that download"}) + "\n"
         finally:
@@ -3135,7 +3188,8 @@ def api_download_create():
         return _json_error(str(exc), 507)
     except Exception as exc:  # noqa: BLE001 - never leak a traceback
         downloads.discard(DATA_DIR, entry, identity)
-        app.logger.warning("download failed for %s: %s", _safe_log_url(url), exc)
+        app.logger.warning("download failed id=%s for %s: %s",
+                           _current_request_id(), _safe_log_url(url), exc)
         return _json_error("could not save that download", 502)
     return jsonify({"saved": True, "item": _download_item(entry)})
 

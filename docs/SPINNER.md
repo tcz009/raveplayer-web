@@ -43,6 +43,25 @@ after **150 ms** with any request still in flight, so fast section switches neve
 flicker it. It clears in `finally` on success or error; `role="status"`
 `aria-live="polite"`; the old READY/ITEMS status is dimmed while it is shown.
 
+### 1.6.31 — one top-right spinner
+
+The background-download chip (1.6.23) polls `/api/downloads/jobs` every 1.6 s,
+so during a job the pill used to show at the same time as the chip: two spinning
+heads in the top-right corner. Since 1.6.31 the chip **owns** the indicator
+while any job is queued/downloading:
+
+- `showLoadingPill()` returns early when a job is active, and also when the chip
+  is already visible (`pillSuppressed()`);
+- `updateJobChip()` re-runs `syncSpinnerOwnership()`, which hides any pill still
+  on screen and force-hides a duplicate `.job-chip` (the markup has exactly one);
+- the pill still appears for ordinary non-download API loads and returns once
+  the last job finishes.
+
+Net effect: at most one `.spinner-head` is visible in the topbar at a time
+(`test_e2e/test_smoke.py::test_single_topbar_spinner_during_background_download`).
+The foreground download panel keeps its own 60 px head — it is not in the topbar.
+
+
 ## 3. Surprise Me reveal
 
 The `/api/surprise` fetch starts immediately. Unless reduced motion is on, the

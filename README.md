@@ -78,7 +78,16 @@ Downloads, section loads and Surprise Me share the Kodi spinning-head art
 %, MB done/total, ETA and Cancel; a topbar loading pill that only appears after
 150 ms; and the Surprise reveal that spins then stamps the pick. All are CSS
 `steps(10)` sprite animations with a reduced-motion fallback — see
-[`docs/SPINNER.md`](docs/SPINNER.md).
+[`docs/SPINNER.md`](docs/SPINNER.md). While a background download runs its
+topbar chip owns the indicator, so only one spinner is visible at a time.
+
+**Debug log (opt-in).** `?debug=1` (or `localStorage["raveplayer.debug"] = "1"`)
+turns on a local 500-event ring buffer in a floating DEBUG panel: API requests
+(path/method/status/duration/`X-Request-ID`), download job transitions and
+bytes, route changes, media/visibility/online events, uncaught errors and
+service-worker state. Values are redacted before they are stored, Copy and
+Download JSON never leave the browser, and there is no overhead while off. See
+[`docs/DEBUG.md`](docs/DEBUG.md).
 - **Search** — Archive text search. Paste a Mixcloud or SoundCloud set URL into
   the search box instead and the embed panel opens that set.
 
@@ -354,9 +363,9 @@ typography, hero and texture language — is documented in
 
 ## Tests
 
-### Offline suite (365 cases)
+### Offline suite (379 cases)
 
-The offline suite is 365 cases (all providers mocked) and uses the Flask test
+The offline suite is 379 cases (all providers mocked) and uses the Flask test
 client. `pytest` is a test-only dependency:
 
 ```sh
@@ -370,8 +379,10 @@ range/header behaviour and every stream error path, cache TTL/pruning, the
 radio/podcast TTL caches, the parallel `/api/latest` merge (ordering, failure
 tolerance and concurrency), the CSP `frame-src`/embed-host contract, the
 search-submit paste wiring, the deploy script's version pinning/labels
-(parsed with `sh -n`), and static checks that every element id used by
-`app.js` exists in the template and that the JavaScript parses.
+(parsed with `sh -n`), the 1.6.31 debug log (toggle/redaction/ring buffer run
+against the real `static/debug.js` under Node, plus the `X-Request-ID`
+echo/validation/log-correlation contract), and static checks that every element
+id used by `app.js` exists in the template and that the JavaScript parses.
 
 ### Install on a phone (PWA)
 
@@ -383,7 +394,7 @@ the cached app shell for any same-origin navigation, never caching
 bookmarks — remove and re-add once, as described in [`docs/PWA.md`](docs/PWA.md)
 (which also covers the plain-HTTP LAN limitation and what Cockney Player needs).
 
-### Browser smoke tests (22 cases)
+### Browser smoke tests (25 cases)
 
 `test_e2e/` drives the real app in headless Chromium through Playwright. It
 covers what the offline suite cannot: boot with the grouped 9-button rail and
@@ -396,7 +407,10 @@ rows), the 150 ms loading pill (fast and slow requests), the Surprise spin/
 stamp reveal plus its reduced-motion skip, section navigation rendering every
 row, the owner login/logout flow + designed door page, background download → navigate away → completion, the Mixcloud/SoundCloud embed panel (widget
 `src`, provider label, close/backdrop, CSP `frame-src`), normal text search, and
-a favourites add/remove round trip. The Flask app runs on a random localhost
+a favourites add/remove round trip, exactly one top-right spinner while a
+background download polls (and the pill returning for a slow non-download
+load), and the opt-in debug panel (off by default; records route/API/media
+events, redacts, copies, exports JSON and clears). The Flask app runs on a random localhost
 port with a temporary `RAVEWEB_DATA`; providers are stubbed and the browser's
 external requests are intercepted, so the tests need no internet. Screenshots
 are generated with `RAVEWEB_ARTIFACTS_DIR` (see `docs/E2E.md`).
