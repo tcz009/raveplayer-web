@@ -648,7 +648,7 @@
       save.setAttribute("aria-label", `Save a copy of ${item.label || "this download"} to this device`);
       save.addEventListener("click", (event) => {
         event.stopPropagation();
-        window.location.assign(item.file);
+        saveFileToDevice(item.file, item.label || "download");
       });
       actions.appendChild(save);
     }
@@ -1706,6 +1706,30 @@
         const cancelled = reader.cancel();
         if (cancelled && typeof cancelled.catch === "function") cancelled.catch(() => {});
       } catch (_) { /* ignore */ }
+    }
+  }
+
+  async function saveFileToDevice(url, label) {
+    // iOS opens a top-level file URL in Quick Look (sometimes with no back
+    // button). Fetch it as a blob and click a download link instead.
+    try {
+      const response = await fetch(url, { credentials: "same-origin" });
+      if (!response.ok) throw new Error("save failed");
+      const blob = await response.blob();
+      const name = String(label || "download")
+        .replace(/[^\w.\-]+/g, "-")
+        .replace(/^-+|-+$/g, "") || "download";
+      const anchor = document.createElement("a");
+      anchor.href = URL.createObjectURL(blob);
+      anchor.download = name;
+      anchor.rel = "noopener";
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      setTimeout(() => URL.revokeObjectURL(anchor.href), 10000);
+    } catch (_) {
+      // Last resort: new tab, never same-tab navigation.
+      window.open(url, "_blank", "noopener");
     }
   }
 
