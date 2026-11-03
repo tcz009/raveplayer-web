@@ -42,3 +42,17 @@ from `test/fixtures/toronto/*.html`.
 
 The old `/api/legacy/toronto` route remains for old bookmarks but is no longer
 listed under Legacy Sites; the new source is the canonical one.
+
+## Artwork
+
+The source has its own identity instead of the generic `rave.png` fallback:
+`static/art/toronto.png` is the **RP-20** cyan 2026 sticker (256×256) — a CN
+Tower/skyline over a cassette, ink glyph, magenta misregistration, halftone,
+scanlines and crop marks. It is served by `/api/menu`, `/api/rail/shows`, the
+`/api/toronto` hub folders, genre/track rows and the Downloads source label.
+
+The asset is generated from the companion Kodi repo by
+`scripts/make-toronto-art.py`, which writes the 256 px web icon and the Kodi
+256 px icon + 1280×720 fanart from the same code. The proof sheet is
+`raveplayer/docs/theme-2026/toronto-icon-sheet.png` (64/128/256 px). Nothing is
+traced from a logo or photograph; the palette follows `docs/ARTWORK.md`.

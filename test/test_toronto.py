@@ -3,6 +3,7 @@
 
 import os
 import re
+import struct
 
 import app as app_module
 from core import toronto
@@ -96,6 +97,7 @@ def test_toronto_hub_and_genre_api(web, monkeypatch):
     assert [item["label"] for item in hub["items"]] == [
         "Jungle & Hardcore", "House & Techno", "Studio", "X-Static"]
     assert hub["items"][0]["open"] == "/api/toronto?genre=jungle"
+    assert all(item["art"] == "/static/art/toronto.png" for item in hub["items"])
 
     payload = web.get("/api/toronto?genre=jungle").get_json()
     assert payload["title"].endswith("Jungle & Hardcore")
@@ -105,13 +107,17 @@ def test_toronto_hub_and_genre_api(web, monkeypatch):
     assert item["date"] == "1993-09-04"
     assert item["venue"] == "Syrous The Next Level"
     assert "external" not in item
-    assert item["art"].startswith("/static/art/")
+    assert item["art"] == "/static/art/toronto.png"
     assert web.get("/api/toronto?genre=nope").status_code == 404
 
     menu = web.get("/api/menu").get_json()
-    assert {section["id"] for section in menu["sections"]} >= {"toronto"}
+    toronto_section = next(s for s in menu["sections"] if s["id"] == "toronto")
+    assert toronto_section["icon"] == "/static/art/toronto.png"
     shows = web.get("/api/rail/shows").get_json()
     assert "Toronto Rave Mixtape Archive" in [item["label"] for item in shows["items"]]
+    toronto_row = next(item for item in shows["items"]
+                       if item["label"] == "Toronto Rave Mixtape Archive")
+    assert toronto_row["art"] == "/static/art/toronto.png"
     paths = {item["open"] for item in shows["items"]}
     assert "/api/toronto" in paths
 
@@ -134,4 +140,20 @@ def test_toronto_is_a_direct_download_source():
     assert not app_module._download_allowed(
         "toronto", "https://torontoravemixtapearchive.com/track/1")[0]
     assert app_module.DOWNLOAD_SOURCE_LABELS["toronto"] == "Toronto Rave Mixtape Archive"
-    assert app_module.DOWNLOAD_SOURCE_ART["toronto"].endswith("rave.png")
+    assert app_module.DOWNLOAD_SOURCE_ART["toronto"].endswith("toronto.png")
+
+
+def test_toronto_sticker_is_a_256px_png():
+    path = os.path.join(os.path.dirname(HERE), "static", "art", "toronto.png")
+    with open(path, "rb") as handle:
+        assert handle.read(8) == b"\x89PNG\r\n\x1a\n"
+        handle.read(4)
+        assert handle.read(4) == b"IHDR"
+        width, height = struct.unpack(">II", handle.read(8))
+    assert (width, height) == (256, 256)
+
+
+def test_toronto_sticker_is_served(web):
+    response = web.get("/static/art/toronto.png")
+    assert response.status_code == 200
+    assert response.mimetype == "image/png"

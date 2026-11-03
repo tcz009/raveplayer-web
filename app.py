@@ -238,7 +238,7 @@ DOWNLOAD_SOURCE_ART = {
     "moxser": ART + "radio.png",
     "hardscore": ART + "hardcore.png",
     "pirate": ART + "pirate.png",
-    "toronto": ART + "rave.png",
+    "toronto": ART + "toronto.png",
 }
 
 _REDIRECT_CODES = frozenset((301, 302, 303, 307, 308))
@@ -299,7 +299,7 @@ SECTIONS = [
     ("soundcloud", "SoundCloud Sets", "pirate.png", "Curated live sets"),
     ("moxser", "Moxser Mixes", "radio.png", "Underground radio mixes, direct MP3"),
     ("hardscore", "Hardscore", "hardcore.png", "Hardcore/jungle tapes and events"),
-    ("toronto", "Toronto Rave Mixtape Archive", "rave.png", "Toronto jungle, house, studio and X-Static direct MP3s"),
+    ("toronto", "Toronto Rave Mixtape Archive", "toronto.png", "Toronto jungle, house, studio and X-Static direct MP3s"),
     ("ravearchive", "Rave Archive UK", "tapepacks.png", "Rave tape scans with Mixcloud"),
     ("getdarker", "GetDarker", "jungle.png", "Dubstep/grime sets on Mixcloud"),
     ("pirates", "Pirate Radio Archives", "pirate.png", "Curated pirate-radio recordings"),
@@ -1638,7 +1638,7 @@ def api_toronto():
             items.append(_folder(
                 entry["label"], "Direct MP3s · Toronto Rave Mixtape Archive",
                 "/api/toronto?genre=%s" % urllib.parse.quote(entry["id"]),
-                ART + "rave.png"))
+                ART + "toronto.png"))
         return jsonify({"title": "Toronto Rave Mixtape Archive", "items": items})
     items = []
     for entry in entries:
@@ -1649,7 +1649,7 @@ def api_toronto():
         if not url:
             continue
         sub = _source_sub("Toronto", entry.get("date"), entry.get("venue"))
-        item = _track(name, sub, url, ART + "rave.png")
+        item = _track(name, sub, url, ART + "toronto.png")
         item["date"] = entry.get("date") or ""
         item["venue"] = entry.get("venue") or ""
         item["duration"] = entry.get("duration") or ""

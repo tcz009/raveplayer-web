@@ -62,6 +62,17 @@ shows through like an unprinted tape inlay. Drawn from the object, not from a
 brand: no tape manufacturer's logo or label design is used. This is the
 archive's physical ancestor.
 
+### The tower + cassette — Toronto Rave Mixtape Archive
+A cyan 2026 sticker (`RP-20`) with a black CN Tower and skyline rising from a
+cassette shell. The tower's antenna, saucer pod and tapered shaft stay legible
+at 64 px, and the cassette label/window/reels are knocked out in the tile
+colour so the shape reads as a tape and not a second tower. It is a generic
+Toronto skyline and a generic cassette — no CN Tower photograph, no station or
+tape-brand logo is traced. The same 256 px file is used by Kodi
+(`resources/art/toronto.png`) and the web build (`static/art/toronto.png`); the
+Kodi repo's `scripts/make-toronto-art.py` rebuilds both and the 64/128/256
+proof sheet.
+
 ### The mask — Podcasts & Mixes (jungle)
 A magenta sticker with a tall black line-plate mask: slit eyes, a diamond
 forehead mark, teeth and cheek stripes. Jungle's sleeve language was dark,
@@ -124,7 +135,7 @@ made of dots, not a glow.
 
 ### The flyer furniture
 Every section tile has an ink halftone screen, a paper sheen, a 2 px inner
-keyline, four crop marks and a small catalogue code (`RP·01` … `RP·11`). The
+keyline, four crop marks and a small catalogue code (`RP·01` … `RP·20`). The
 texture and codes are invisible at 22 px and legible at 52 px and above — the
 detail that rewards a closer look without adding noise to the rail.
 
