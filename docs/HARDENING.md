@@ -1,10 +1,10 @@
-# Hardening pass — Rave Player web (`raveplayer-web` 1.6.38)
+# Hardening pass — Rave Player web (`raveplayer-web` 1.6.42)
 
-**Branch:** `feature/1.6.38-toronto` (not pushed) · **Base:** `main` @ `94cc40f` (1.6.37)
+**Branch:** `feature/1.6.42-list-caps` (not pushed) · **Base:** `main` @ `f34f8b1` (1.6.41)
 **Scope:** `app.py`, `core/`, `static/app.js`, `scripts/deploy.sh`, `docs/`, `test/`,
 `test_e2e/`, `VERSION`. No UX or content changes. No `data/` or advert files touched.
 
-**Result:** `205 → 405 passed` (`.venv/bin/python -m pytest -q test`), all
+**Result:** `205 → 423 passed` (`.venv/bin/python -m pytest -q test`), all
 offline; browser suite `test_e2e` **30 passed** (system Chrome, Playwright 1.60);
 `node --check static/app.js` and `sh -n scripts/deploy.sh` clean.
 
@@ -12,6 +12,19 @@ Inputs folded in: the internal task-22 brief and the adversarial pre-review
 (`docs/ADVERSARIAL-REVIEW.md`, web findings W1–W8). The review's "what is solid" list
 (stream SSRF guard, SPA escaping, CSP, content-type gate, atomic writes) was kept intact.
 
+
+## 1.6.42 — source listing caps
+
+- Removed hidden default caps: Moxser complete sitemap set (was 48/200),
+  Hardscore all mixes/events (was 30/50, 10/20), podcast episodes all (was 60),
+  Toronto all genre rows (was 60/200 route cap, 1000 module cap), Rave Archive
+  all releases (was 30/50), GetDarker all RSS sets (was 30/50; Mixcloud account
+  fallback requests up to 200).
+- Existing Archive sections keep 40/page + `next`/total pagination; no silent
+  truncation remains. Fetches stay cached/throttled; no per-item refetch.
+- `test/test_list_caps.py` constructs counts above every old cap and asserts
+  module + `/api` row counts; docs `docs/LIST-CAPS.md` + README.
+- Tests: 423 offline, 30 e2e.
 
 ## 1.6.38 — Toronto Rave Mixtape Archive source
 
@@ -606,10 +619,10 @@ that the module layout matches.
 
 ```sh
 cd "Rave Player"
-.venv/bin/python -m pytest -q test        # 405 passed
+.venv/bin/python -m pytest -q test        # 423 passed
 node --check static/app.js
 sh -n scripts/deploy.sh
-git diff --stat main..feature/1.6.38-toronto
+git diff --stat main..feature/1.6.42-list-caps
 ```
 
 ## Post-merge fix — deploy.sh heredoc escaping (found on first real deploy)

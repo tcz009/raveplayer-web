@@ -190,14 +190,19 @@ def parse(xml_text):
     return episodes
 
 
-def episodes(feed_id, limit=60):
+def episodes(feed_id, limit=None):
     entry = feed(feed_id)
     if not entry:
         return []
     body = http.fetch(entry["url"], timeout=25, ttl=FEED_TTL)
     if not body:
         return []
-    return parse(body)[:limit]
+    rows = parse(body)
+    try:
+        cap = None if limit is None else max(1, int(limit))
+    except (TypeError, ValueError):
+        cap = None
+    return rows if cap is None else rows[:cap]
 
 
 def _count_from_body(entry):

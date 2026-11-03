@@ -29,15 +29,15 @@ def _row(episode):
     }
 
 
-def sets(limit=30):
+def sets(limit=None):
     """GetDarker sets from the RSS feed, with the Mixcloud API as fallback."""
     try:
-        limit = max(1, min(int(limit), 50))
+        cap = None if limit is None else max(1, min(int(limit), 5000))
     except (TypeError, ValueError):
-        limit = 30
+        cap = None
     rows = []
     try:
-        episodes = sources.parse_rss(fetch.fetch(FEED, timeout=25, ttl=FEED_TTL), limit=limit)
+        episodes = sources.parse_rss(fetch.fetch(FEED, timeout=25, ttl=FEED_TTL), limit=cap)
         rows = [row for row in (_row(episode) for episode in episodes) if row]
     except Exception:  # noqa: BLE001 - fall through to the Mixcloud account
         rows = []
@@ -49,7 +49,7 @@ def sets(limit=30):
                 "link": entry.get("url") or "",
                 "mixcloud": entry.get("url") or "",
                 "media": "",
-            } for entry in mixcloud.account(ACCOUNT, limit=limit)]
+            } for entry in mixcloud.account(ACCOUNT, limit=200)]
         except Exception:  # noqa: BLE001 - both sources down: empty section
             rows = []
     return [row for row in rows if row.get("title")]

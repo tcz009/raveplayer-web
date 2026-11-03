@@ -471,6 +471,14 @@ the offline job so it never slows the main test job down.
 See [`docs/CODE-REVIEW.md`](docs/CODE-REVIEW.md) for the review notes and the
 changes ranked by value.
 
+## Listing caps
+
+All browsable sources render their complete upstream list by default (1.6.42):
+Moxser, Hardscore mixes/events, podcast episodes, Toronto genres, Rave Archive
+releases and GetDarker sets no longer stop at 30/48/60/200. Internet Archive
+sections already use `next` pagination. `?limit=` remains an explicit opt-in
+cap only; see [`docs/LIST-CAPS.md`](docs/LIST-CAPS.md).
+
 ## Known limits
 
 - Shoutcast v1 servers that answer with an `ICY 200 OK` status line are not

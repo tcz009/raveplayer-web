@@ -26,7 +26,7 @@ from . import fetch
 BASE = "https://torontoravemixtapearchive.com"
 PAGE_TTL = 6 * 3600
 MIN_INTERVAL = 1.0
-DEFAULT_LIMIT = 1000
+DEFAULT_LIMIT = None
 
 GENRES = (
     ("jungle", "Jungle & Hardcore", "jungle.html"),
@@ -222,23 +222,28 @@ def _genre_rows(genre):
     return parse_page(page)
 
 
-def genre_items(genre, limit=DEFAULT_LIMIT):
+def genre_items(genre, limit=None):
+    rows = _genre_rows(genre)
+    if limit is None:
+        return rows
     try:
-        limit = max(1, min(int(limit), 1000))
+        cap = max(1, min(int(limit), 5000))
     except (TypeError, ValueError):
-        limit = DEFAULT_LIMIT
-    return _genre_rows(genre)[:limit]
+        cap = None
+    return rows if cap is None else rows[:cap]
 
 
-def search(query, limit=30):
+def search(query, limit=None):
     """Filter titles/venues across every genre (network only on a cold call)."""
     needle = _clean(query, 100).lower()
     if not needle:
         return []
-    try:
-        limit = max(1, min(int(limit), 100))
-    except (TypeError, ValueError):
-        limit = 30
+    cap = None
+    if limit is not None:
+        try:
+            cap = max(1, min(int(limit), 5000))
+        except (TypeError, ValueError):
+            cap = None
     found = []
     for genre, _label, _page in GENRES:
         for entry in _genre_rows(genre):
@@ -246,7 +251,7 @@ def search(query, limit=30):
                                  entry.get("date", ""))).lower()
             if needle in haystack:
                 found.append(entry)
-                if len(found) >= limit:
+                if cap is not None and len(found) >= cap:
                     return found
     return found
 

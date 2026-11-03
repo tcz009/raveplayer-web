@@ -21,14 +21,14 @@ FEED_TTL = 1800
 EVENTS_TTL = 3600
 
 
-def mixes(limit=30):
+def mixes(limit=None):
     """Latest Hardscore mixes; rows keep the direct MP3 when there is one."""
     try:
-        limit = max(1, min(int(limit), 50))
+        cap = None if limit is None else max(1, min(int(limit), 5000))
     except (TypeError, ValueError):
-        limit = 30
+        cap = None
     try:
-        episodes = sources.parse_rss(fetch.fetch(FEED, timeout=25, ttl=FEED_TTL), limit=limit)
+        episodes = sources.parse_rss(fetch.fetch(FEED, timeout=25, ttl=FEED_TTL), limit=cap)
     except Exception:  # noqa: BLE001 - section stays usable when the site is down
         return []
     rows = []
@@ -46,14 +46,14 @@ def mixes(limit=30):
     return rows
 
 
-def events(limit=10):
+def events(limit=None):
     """Hardscore event posts (they link out; no audio expected)."""
     try:
-        limit = max(1, min(int(limit), 20))
+        cap = None if limit is None else max(1, min(int(limit), 5000))
     except (TypeError, ValueError):
-        limit = 10
+        cap = None
     try:
-        episodes = sources.parse_rss(fetch.fetch(EVENTS_FEED, timeout=25, ttl=EVENTS_TTL), limit=limit)
+        episodes = sources.parse_rss(fetch.fetch(EVENTS_FEED, timeout=25, ttl=EVENTS_TTL), limit=cap)
     except Exception:  # noqa: BLE001
         return []
     rows = []

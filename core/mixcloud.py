@@ -49,7 +49,7 @@ def _rows(data):
 def search(query, limit=24):
     """Search cloudcasts; returns dicts with title/url/user/embed/thumb."""
     try:
-        limit = max(1, min(int(limit), 48))
+        limit = max(1, min(int(limit), 200))
     except (TypeError, ValueError):
         limit = 24
     url = "%s/search/?q=%s&type=cloudcast&limit=%d" % (API, fetch.quote(query), limit)

@@ -1,7 +1,7 @@
 # Independent code review — brief
 
 **Project:** Rave Player — web app (`raveplayer-web`)
-**Version under review:** 1.6.38 (`feature/1.6.38-toronto`, based on 1.6.37 / `main @ 94cc40f`)
+**Version under review:** 1.6.42 (`feature/1.6.42-list-caps`, based on 1.6.41 / `main @ f34f8b1`)
 **Reviewer target:** `app.py`, `core/`, `static/`, `templates/`, `test/`; ignore `data/`, `__pycache__/`, `.venv/`.
 
 ## What it is
@@ -168,7 +168,12 @@ A prepared `.venv` exists in this checkout.
   1 req/s, `/api/toronto?genre=&q=`, Mixes & Shows hub, search and an eligible
   direct-download source; fixtures cover parsing/search/routes and platform
   URLs are never emitted. Legacy Toronto is de-listed (old route retained).
-- Tests: `205 → 405` offline (`pytest -q test`) and **30 browser e2e**
+- **1.6.42 list caps**: removed hidden default caps from Moxser (48/200),
+  Hardscore mixes (30/50) and events (10/20), podcast episodes (60), Toronto
+  genres (60/200 route), Rave Archive (30/50) and GetDarker (30/50, plus the
+  48 Mixcloud-account fallback); default routes render the complete upstream
+  list. Archive remains page+`next` paginated. Tests exceed every old cap.
+- Tests: `205 → 423` offline (`pytest -q test`) and **30 browser e2e**
   (`pytest test_e2e`, see `docs/E2E.md`).
 
 ## Areas worth scrutiny

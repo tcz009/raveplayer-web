@@ -1593,7 +1593,7 @@ def api_rave(key):
 def api_moxser():
     """Moxser mixes (sitemap -> page -> direct MP3, resolved on play)."""
     try:
-        entries = moxser.mixes(limit=48)
+        entries = moxser.mixes()
     except Exception as exc:
         app.logger.warning("moxser list failed: %s", exc)
         return _json_error("could not load Moxser", 502)
@@ -1631,7 +1631,7 @@ def api_moxser_resolve(slug):
 def api_hardscore():
     """Hardscore mixes with direct audio, plus their event listings."""
     items = []
-    for entry in hardscore.mixes(limit=30):
+    for entry in hardscore.mixes():
         title = _clean_text(entry.get("title"), MAX_TITLE)
         if not title:
             continue
@@ -1645,7 +1645,7 @@ def api_hardscore():
             link = _http_url(entry.get("link"))
             if link:
                 items.append(_external_row(title, sub, link, ART + "hardscore.png"))
-    for entry in hardscore.events(limit=10):
+    for entry in hardscore.events():
         title = _clean_text(entry.get("title"), MAX_TITLE)
         link = _http_url(entry.get("link"))
         if title and link:
@@ -1659,10 +1659,11 @@ def api_toronto():
     """Toronto Rave Mixtape Archive — genre directories and direct MP3s."""
     genre = (request.args.get("genre") or "").strip().lower()
     query = _clean_text(request.args.get("q", ""), MAX_QUERY)
+    limit_arg = request.args.get("limit")
     try:
-        limit = max(1, min(int(request.args.get("limit", "60")), 200))
+        limit = None if limit_arg in (None, "") else max(1, min(int(limit_arg), 5000))
     except (TypeError, ValueError):
-        limit = 60
+        limit = None
     if query:
         entries = toronto.search(query, limit=limit)
         title = "Toronto Rave Mixtape Archive: %s" % query
@@ -1702,7 +1703,7 @@ def api_toronto():
 def api_ravearchive():
     """Rave Archive UK releases (year/DJs from categories), each with a player."""
     items = []
-    for entry in ravearchive.releases(limit=30):
+    for entry in ravearchive.releases():
         title = _clean_text(entry.get("title"), MAX_TITLE)
         slug = entry.get("slug") or ""
         if not title or not slug:
@@ -1740,7 +1741,7 @@ def api_ravearchive_release(slug):
 def api_getdarker():
     """GetDarker sets: RSS embeds first, Mixcloud account as fallback."""
     items = []
-    for entry in getdarker.sets(limit=30):
+    for entry in getdarker.sets():
         title = _clean_text(entry.get("title"), MAX_TITLE)
         if not title:
             continue

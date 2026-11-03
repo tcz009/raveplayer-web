@@ -26,14 +26,14 @@ def _slug(link):
     return path.rsplit("/", 1)[-1] if path else ""
 
 
-def releases(limit=30):
+def releases(limit=None):
     """Latest Rave Archive releases with year and DJ categories."""
     try:
-        limit = max(1, min(int(limit), 50))
+        cap = None if limit is None else max(1, min(int(limit), 5000))
     except (TypeError, ValueError):
-        limit = 30
+        cap = None
     try:
-        episodes = sources.parse_rss(fetch.fetch(FEED, timeout=25, ttl=FEED_TTL), limit=limit)
+        episodes = sources.parse_rss(fetch.fetch(FEED, timeout=25, ttl=FEED_TTL), limit=cap)
     except Exception:  # noqa: BLE001 - fail-soft section
         return []
     rows = []
@@ -66,7 +66,7 @@ def release(slug):
     if not wanted:
         return None
     try:
-        entry = next((item for item in releases(limit=50) if item["slug"] == wanted), None)
+        entry = next((item for item in releases() if item["slug"] == wanted), None)
         if not entry:
             return None
         body = fetch.fetch(entry["link"], timeout=25, ttl=PAGE_TTL)

@@ -168,24 +168,34 @@ def _load_entries(limit, sitemap_urls=None):
     return ordered, complete
 
 
-def mixes(limit=48):
-    """Newest mixes first, from the mixes sitemaps.  Fail-soft: [] on error."""
-    try:
-        limit = max(1, min(int(limit), 200))
-    except (TypeError, ValueError):
-        limit = 48
+def mixes(limit=None):
+    """Newest mixes first, from the mixes sitemaps.  Fail-soft: [] on error.
+
+    ``limit=None`` returns the complete mixes sitemap set (1.6.42); an explicit
+    limit is honoured for internal callers/tests but is never imposed by the
+    API.  Sources are sitemap-bounded, so there is no hidden 48/200 cap.
+    """
+    cap = None
+    if limit is not None:
+        try:
+            cap = max(1, min(int(limit), 5000))
+        except (TypeError, ValueError):
+            cap = None
     try:
         now = time.monotonic()
         with _ENTRIES_LOCK:
             cached = list(_ENTRIES["entries"])
             fresh = (now - _ENTRIES["at"]) < ENTRIES_TTL
             complete = _ENTRIES["complete"]
-        if fresh and (complete or len(cached) >= limit):
-            return cached[:limit]
-        # 48 rows always come from the first mixes sitemap (500 URLs); the
-        # second page is only fetched when the caller needs more than it holds.
+        if fresh and complete:
+            return cached if cap is None else cached[:cap]
+        if cap is not None and fresh and len(cached) >= cap:
+            return cached[:cap]
+        if cap is None:
+            merged = _all_entries()
+            return merged
         urls = _sitemap_urls()
-        ordered, complete = _load_entries(limit, urls)
+        ordered, complete = _load_entries(cap, urls)
         if not ordered and not complete:
             return []
         with _ENTRIES_LOCK:
@@ -197,13 +207,18 @@ def mixes(limit=48):
                             reverse=True)
             _ENTRIES.update({"at": time.monotonic(), "entries": merged,
                              "complete": complete})
-        return merged[:limit]
+        return merged[:cap]
     except Exception:  # noqa: BLE001 - one dead source must not break the section
         return []
 
 
 def _all_entries():
-    """Load every mixes sitemap (used by detail fallback for older mixes)."""
+    """Load every mixes sitemap (complete-list and detail fallback)."""
+    now = time.monotonic()
+    with _ENTRIES_LOCK:
+        if (_ENTRIES["complete"]
+                and (now - _ENTRIES["at"]) < ENTRIES_TTL):
+            return list(_ENTRIES["entries"])
     urls = _sitemap_urls()
     ordered, _complete = _load_entries(10 ** 9, urls)
     with _ENTRIES_LOCK:
@@ -226,7 +241,7 @@ def detail(slug):
     if not wanted:
         return None
     try:
-        entry = next((item for item in mixes(limit=200) if item["slug"] == wanted), None)
+        entry = next((item for item in mixes() if item["slug"] == wanted), None)
         if not entry:
             # Older mixes live on later sitemap pages; load them only when a
             # detail lookup misses (keeps the list endpoint cheap).

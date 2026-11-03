@@ -94,7 +94,7 @@ def mixcloud_page(*values):
     return ""
 
 
-def parse_rss(xml_text, limit=50):
+def parse_rss(xml_text, limit=None):
     """Parse an RSS 2.0 feed into plain dicts; malformed input returns [].
 
     Each item: title, link, date (YYYY-MM-DD), summary, content (raw HTML),
@@ -103,6 +103,10 @@ def parse_rss(xml_text, limit=50):
     if not isinstance(xml_text, str) or not xml_text.strip():
         return []
     try:
+        cap = None if limit is None else max(1, int(limit))
+    except (TypeError, ValueError):
+        cap = None
+    try:
         root = ET.fromstring(xml_text.lstrip("\ufeff \t\r\n"))
     except (ET.ParseError, ValueError, TypeError):
         return []
@@ -110,7 +114,8 @@ def parse_rss(xml_text, limit=50):
     if channel is None:
         channel = root
     episodes = []
-    for item in channel.findall("item")[:limit]:
+    items = channel.findall("item")
+    for item in (items if cap is None else items[:cap]):
         content = _content(item)
         enclosure = item.find("enclosure")
         enclosure_url = ""
