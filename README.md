@@ -333,6 +333,13 @@ status: `400` bad/blocked URL, `404` unknown section or upstream media,
 `page` is clamped to 500 so a hand-written `?page=99999999` cannot walk the
 Archive forever.
 
+## Audio sources
+
+Only one surface plays at a time (1.6.45): opening a SoundCloud/Mixcloud
+widget stops and clears the main player, starting the main player removes the
+widget iframe, and navigation closes active embeds. See
+[`docs/AUDIO-SINGLE-SOURCE.md`](docs/AUDIO-SINGLE-SOURCE.md).
+
 ## iPhone and AirPlay
 
 Open the LAN address, not `localhost` or a Tailscale-only `100.x` address: an
@@ -431,7 +438,7 @@ the cached app shell for any same-origin navigation, never caching
 bookmarks — remove and re-add once, as described in [`docs/PWA.md`](docs/PWA.md)
 (which also covers the plain-HTTP LAN limitation and what Cockney Player needs).
 
-### Browser smoke tests (31 cases)
+### Browser smoke tests (32 cases)
 
 `test_e2e/` drives the real app in headless Chromium through Playwright. It
 covers what the offline suite cannot: boot with the grouped 9-button rail and

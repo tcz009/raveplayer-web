@@ -1,7 +1,7 @@
 # Independent code review — brief
 
 **Project:** Rave Player — web app (`raveplayer-web`)
-**Version under review:** 1.6.44 (`feature/1.6.44-taxonomy`, based on `main @ 7a80a6e` / 1.6.43)
+**Version under review:** 1.6.45 (`feature/1.6.45-single-audio`, based on 1.6.44 / `main @ 615fa29`)
 **Reviewer target:** `app.py`, `core/`, `static/`, `templates/`, `test/`; ignore `data/`, `__pycache__/`, `.venv/`.
 
 ## What it is
@@ -178,7 +178,12 @@ A prepared `.venv` exists in this checkout.
   Series, By Rave/Venue, By Year, Every Pack; Pirate Radio root; Mixes & Shows
   four; Live Radio named stations then split genres; duplicate legacy_toronto
   and Legacy Sites bucket removed; Jungle/DnB and Hardcore/Happy Hardcore split.
-- Tests: `205 → 442` offline (`pytest -q test`) and **31 browser e2e**
+- **1.6.45 single audio source**: selecting an embed closes/clears the main
+  player before the iframe src loads (and re-asserts on iframe load); starting
+  the main player removes the embed iframe; navigation closes active embeds;
+  stale iframe load events cannot stop a newly started track. E2E covers
+  main→embed, embed→main and navigation.
+- Tests: `205 → 442` offline (`pytest -q test`) and **32 browser e2e**
   (`pytest test_e2e`, see `docs/E2E.md`).
 
 ## Areas worth scrutiny

@@ -1320,3 +1320,43 @@ def test_taxonomy_rail_and_tape_packs_in_both_themes(browser_page):
     _open_help(page)
     _choose_appearance(page, "Dark", "dark")
     page.locator("#help-close").click()
+
+
+def test_single_audio_source_policy_main_and_embeds(browser_page):
+    """1.6.45: opening an embed stops the main player; playing main unloads embeds."""
+    page = browser_page.page
+
+    # Start a main-player track from Latest → Boot Pack → Boot Track.
+    page.locator("#list .row", has_text="Boot Pack").click()
+    page.wait_for_function("() => location.hash.includes('/api/item/boot-pack')")
+    _wait_for_rows(page, 1)
+    page.locator("#list .row").first.click()
+    page.wait_for_selector("#player", state="visible")
+    page.wait_for_function("() => !!document.querySelector('#audio').getAttribute('src')")
+
+    # Opening a SoundCloud embed is an unconditional hand-off of audio.
+    _paste(page, SOUNDCLOUD_URL)
+    _wait_for_panel(page)
+    page.wait_for_function("() => { const a = document.querySelector('#audio'); return a.paused && !a.getAttribute('src'); }")
+    assert page.locator("#embed-frame").get_attribute("src") is not None
+    assert page.locator("#player").is_hidden()
+    ms_state = page.evaluate("() => navigator.mediaSession.playbackState")
+    assert ms_state in ("none", "paused")
+    assert page.locator("#audio").count() == 1
+
+    # Starting the main player must tear the embed down completely.
+    page.evaluate("() => document.querySelector('#list .row').click()")
+    page.wait_for_selector("#embed-panel", state="hidden")
+    page.wait_for_selector("#player", state="visible")
+    assert page.locator("#embed-frame").get_attribute("src") is None
+    page.wait_for_function("() => !!document.querySelector('#audio').getAttribute('src')")
+
+    # Navigation with an embed open must stop it and start the destination clean.
+    _paste(page, MIXCLOUD_URL)
+    _wait_for_panel(page)
+    page.evaluate("() => document.querySelector('#nav button').click()")
+    page.wait_for_function("() => document.querySelector('#title').textContent === 'Latest'")
+    assert page.locator("#embed-panel").is_hidden()
+    assert page.locator("#embed-frame").get_attribute("src") is None
+    assert page.locator("#audio").evaluate("(el) => el.paused")
+    assert browser_page.page_errors == []

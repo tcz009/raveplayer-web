@@ -1,4 +1,4 @@
-# Browser e2e run — `test_e2e` (Playwright), 1.6.44 tree
+# Browser e2e run — `test_e2e` (Playwright), 1.6.45 tree
 
 Owner: motion-1x1 · Task: close the last deferred web item ("actually run the
 browser suite"). Branch `hardening/1.6.13` (this e2e change was test+docs only;
@@ -10,7 +10,7 @@ browser suite"). Branch `hardening/1.6.13` (this e2e change was test+docs only;
 |---|---|---|
 | Offline suite (baseline) | `.venv/bin/python -m pytest -q test` | **433 passed** |
 | Browser suite, no local browser | `.venv/bin/python -m pytest test_e2e -q` | 7 skipped (clean skip, as designed) |
-| Browser suite, system Chrome | see command below | **31 passed** |
+| Browser suite, system Chrome | see command below | **32 passed** |
 
 ```
 $ .venv/bin/python -m pytest -q test
@@ -24,7 +24,7 @@ $ RAVEWEB_REQUIRE_BROWSER=1 RAVEWEB_PLAYWRIGHT_NO_SANDBOX=1 \
 
 `RAVEWEB_REQUIRE_BROWSER=1` turns the "no browser" skip into a failure, so a
 broken install cannot pass silently (the CI browser job already sets it). The
-test module covers 31 cases: boot + the grouped 9-button rail, hub and section
+test module covers 32 cases: boot + the grouped 9-button rail, hub and section
 navigation, the rail fitting 1440×900 with Favourites visible, the pinned 48 px
 back button under scroll, Surprise Me opening a random pack/show, the phone
 rail/back layout, the Download action → Downloads library → offline playback → delete

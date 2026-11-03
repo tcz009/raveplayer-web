@@ -353,6 +353,10 @@
     const title = $("embed-title");
     const external = $("embed-external");
     if (!panel || !frame) return;
+    // Single-audio policy: the main player must be stopped and cleared before
+    // the widget can start. The cross-origin iframe gives us no reliable
+    // play/pause events, so this is unconditional when an embed is selected.
+    closePlayer();
     // Route and label the panel from the item itself: a pasted SoundCloud URL
     // must not open with "Open on Mixcloud" / "Mixcloud player".
     const isSoundCloud = /soundcloud\.com/i.test(String(item.external || item.embed || ""));
@@ -373,7 +377,14 @@
 
   function markEmbedLoaded() {
     const wrap = document.querySelector("#embed-panel .embed-frame-wrap");
-    if (!wrap) return;
+    const panel = $("embed-panel");
+    const frame = $("embed-frame");
+    if (!wrap || !panel || panel.hidden || !frame || !frame.getAttribute("src")) return;
+    // Autoplay race: a widget can start as its document loads. Re-assert the
+    // single-source policy here as well as when the row is selected. The guard
+    // above prevents a stale iframe load event from pausing a newly started
+    // main track after the embed was closed.
+    closePlayer();
     wrap.classList.remove("is-loading");
     wrap.classList.add("is-loaded");
   }
@@ -894,6 +905,9 @@
   async function navigate(path, options = {}) {
     const push = options.push !== false;
     if (push) saveCurrentScroll();
+    // Leaving the section (or opening a new route) tears down a widget; the
+    // next page starts with no iframe and no hidden audio source.
+    closeEmbed();
     path = normalizePath(path);
     if (!path) path = sectionPath("latest");
     const seq = ++state.seq;
@@ -1032,6 +1046,7 @@
   }
 
   async function resolveAndPlay(item, index) {
+    closeEmbed();
     try {
       const data = await api(item.play_via);
       let url = typeof data.url === "string" ? data.url : "";
@@ -1060,6 +1075,9 @@
   }
 
   function playItem(item, url, index) {
+    // Starting the main player must tear down any widget so it cannot keep
+    // playing underneath. Remove the iframe src before loading the audio.
+    closeEmbed();
     if (index == null || index < 0) {
       if (!state.queue.length || state.queueSource !== state.path) {
         state.queue = queueFrom(state.items);
@@ -1133,6 +1151,7 @@
   }
 
   function togglePlay() {
+    closeEmbed();
     if (!state.current) {
       const queue = queueFrom(state.items);
       if (!queue.length) { toast("Pick a track to start"); return; }
@@ -1158,6 +1177,7 @@
 
   function retryPlayback() {
     if (!state.current) return;
+    closeEmbed();
     setPlayerStatus("Retrying…");
     audio.src = audioSource(state.current.url);
     const started = audio.play();

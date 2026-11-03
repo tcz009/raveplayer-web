@@ -1,17 +1,27 @@
-# Hardening pass — Rave Player web (`raveplayer-web` 1.6.44)
+# Hardening pass — Rave Player web (`raveplayer-web` 1.6.45)
 
-**Branch:** `feature/1.6.44-taxonomy` (not pushed until review) · **Base:** `main` @ `7a80a6e` (1.6.43)
+**Branch:** `feature/1.6.45-single-audio` (not pushed until review) · **Base:** 1.6.44 / `615fa29`
 **Scope:** `app.py`, `core/`, `static/app.js`, `scripts/deploy.sh`, `docs/`, `test/`,
 `test_e2e/`, `VERSION`. No UX or content changes. No `data/` or advert files touched.
 
 **Result:** `205 → 442 passed` (`.venv/bin/python -m pytest -q test`), all
-offline; browser suite `test_e2e` **31 passed** (system Chrome, Playwright 1.60);
+offline; browser suite `test_e2e` **32 passed** (system Chrome, Playwright 1.60);
 `node --check static/app.js` and `sh -n scripts/deploy.sh` clean.
 
 Inputs folded in: the internal task-22 brief and the adversarial pre-review
 (`docs/ADVERSARIAL-REVIEW.md`, web findings W1–W8). The review's "what is solid" list
 (stream SSRF guard, SPA escaping, CSP, content-type gate, atomic writes) was kept intact.
 
+
+## 1.6.45 — single audio source
+
+- Embed selection now stops and clears the main `<audio>` (src, progress,
+  MediaSession, heartbeat) before setting the iframe src; the policy is
+  re-asserted on iframe load for autoplay races.
+- Starting/resuming the main player unloads the embed iframe; navigation closes
+  active embeds; stale iframe load events are guarded.
+- Tests: 442 offline unchanged, 32 e2e (new main↔embed→main→navigation).
+  Docs `AUDIO-SINGLE-SOURCE.md`.
 
 ## 1.6.44 — scene taxonomy
 
@@ -639,7 +649,7 @@ cd "Rave Player"
 .venv/bin/python -m pytest -q test        # 442 passed
 node --check static/app.js
 sh -n scripts/deploy.sh
-git diff --stat main..feature/1.6.44-taxonomy
+git diff --stat 615fa29..feature/1.6.45-single-audio
 ```
 
 ## Post-merge fix — deploy.sh heredoc escaping (found on first real deploy)
