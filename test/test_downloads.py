@@ -236,4 +236,4 @@ def test_download_markers_only_on_the_four_sources(web, monkeypatch):
     playable = next(item for item in risk if item.get("play"))
     assert playable["download"]["source"] == "pirate"
     # Sources that are playable but not downloadable phase 1.
-    assert "download" not in web.get("/api/legacy").get_json()["items"][0]
+    assert "download" not in web.get("/api/packs").get_json()["items"][0]

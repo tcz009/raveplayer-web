@@ -1,7 +1,7 @@
 # Independent code review — brief
 
 **Project:** Rave Player — web app (`raveplayer-web`)
-**Version under review:** 1.6.42 (`feature/1.6.42-list-caps`, based on 1.6.41 / `main @ f34f8b1`)
+**Version under review:** 1.6.44 (`feature/1.6.44-taxonomy`, based on `main @ 7a80a6e` / 1.6.43)
 **Reviewer target:** `app.py`, `core/`, `static/`, `templates/`, `test/`; ignore `data/`, `__pycache__/`, `.venv/`.
 
 ## What it is
@@ -173,7 +173,12 @@ A prepared `.venv` exists in this checkout.
   genres (60/200 route), Rave Archive (30/50) and GetDarker (30/50, plus the
   48 Mixcloud-account fallback); default routes render the complete upstream
   list. Archive remains page+`next` paginated. Tests exceed every old cap.
-- Tests: `205 → 423` offline (`pytest -q test`) and **30 browser e2e**
+- **1.6.44 scene taxonomy**: exact rail/hub order; Tape Packs = Toronto,
+  JungleTapes, RaveTapePacks (with By Event/DJ/MC/Year indexes), Classic Pack
+  Series, By Rave/Venue, By Year, Every Pack; Pirate Radio root; Mixes & Shows
+  four; Live Radio named stations then split genres; duplicate legacy_toronto
+  and Legacy Sites bucket removed; Jungle/DnB and Hardcore/Happy Hardcore split.
+- Tests: `205 → 442` offline (`pytest -q test`) and **31 browser e2e**
   (`pytest test_e2e`, see `docs/E2E.md`).
 
 ## Areas worth scrutiny

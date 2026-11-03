@@ -86,6 +86,15 @@ CURATED = [
         "bitrate": 128,
         "favicon": "",
     },
+    {
+        "name": "Centreforce 883",
+        "token": "centreforce",
+        "url_resolved": "https://listen.centreforceradio.com/96",
+        "countrycode": "GB",
+        "codec": "MP3",
+        "bitrate": 96,
+        "favicon": "",
+    },
 ]
 
 

@@ -373,9 +373,8 @@ def test_api_getdarker_embeds_cloudcasts(web, monkeypatch):
 def test_menu_lists_the_new_sections(web):
     payload = web.get("/api/menu").get_json()
     labels = {section["id"]: section["label"] for section in payload["sections"]}
-    assert labels["moxser"] == "Moxser Mixes"
+    assert labels["moxser"] == "Moxser"
     assert labels["hardscore"] == "Hardscore"
-    assert labels["ravearchive"] == "Rave Archive UK"
     assert labels["getdarker"] == "GetDarker"
     assert labels["pirates"] == "Pirate Radio Archives"
 

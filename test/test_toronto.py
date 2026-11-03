@@ -113,12 +113,12 @@ def test_toronto_hub_and_genre_api(web, monkeypatch):
     menu = web.get("/api/menu").get_json()
     toronto_section = next(s for s in menu["sections"] if s["id"] == "toronto")
     assert toronto_section["icon"] == "/static/art/toronto.png"
-    shows = web.get("/api/rail/shows").get_json()
-    assert "Toronto Rave Mixtape Archive" in [item["label"] for item in shows["items"]]
-    toronto_row = next(item for item in shows["items"]
+    packs = web.get("/api/rail/packs").get_json()
+    assert "Toronto Rave Mixtape Archive" in [item["label"] for item in packs["items"]]
+    toronto_row = next(item for item in packs["items"]
                        if item["label"] == "Toronto Rave Mixtape Archive")
     assert toronto_row["art"] == "/static/art/toronto.png"
-    paths = {item["open"] for item in shows["items"]}
+    paths = {item["open"] for item in packs["items"]}
     assert "/api/toronto" in paths
 
 

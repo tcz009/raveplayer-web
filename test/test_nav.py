@@ -18,15 +18,8 @@ def _read(name):
 
 
 RAIL_LABELS = [
-    "Latest",
-    "Tape Packs",
-    "Mixes & Shows",
-    "Club & Rave Sets",
-    "SoundCloud Picks",
-    "Live Radio",
-    "Curated Gems",
-    "Favourites",
-    "Downloads",
+    "Latest", "Tape Packs", "Pirate Radio", "Mixes & Shows", "Live Radio",
+    "Favourites", "Downloads",
 ]
 
 
@@ -36,7 +29,7 @@ def test_menu_rail_is_nine_groups_covering_every_section(web):
     payload = web.get("/api/menu").get_json()
     rail = payload["rail"]
     assert [group["label"] for group in rail] == RAIL_LABELS
-    assert len(rail) == 9
+    assert len(rail) == 7
     covered = []
     for group in rail:
         assert set(group) == {"id", "label", "icon", "sub", "path", "children"}
@@ -57,17 +50,20 @@ def test_rail_hub_returns_a_folder_per_section(web):
     payload = web.get("/api/rail/shows").get_json()
     assert payload["title"] == "Mixes & Shows"
     labels = [item["label"] for item in payload["items"]]
-    assert labels == ["Podcasts & Mixes", "DNB Radio", "Moxser Mixes",
-                      "Hardscore", "Toronto Rave Mixtape Archive"]
+    assert labels == ["Podcasts & Mixes", "DNBRADIO", "GetDarker", "Moxser"]
     assert [item["open"] for item in payload["items"]] == [
-        "/api/podcasts", "/api/dnb", "/api/moxser", "/api/hardscore",
-        "/api/toronto",
+        "/api/podcasts", "/api/dnb", "/api/getdarker", "/api/moxser",
     ]
 
     packs = web.get("/api/rail/packs").get_json()
     assert [item["label"] for item in packs["items"]] == [
-        "Tape Packs", "By Year", "Quick Filters",
+        "Toronto Rave Mixtape Archive", "JungleTapes.com", "RaveTapePacks.com",
+        "Classic Pack Series", "By Rave, Venue & Promoter", "By Year",
+        "Every Pack",
     ]
+    pirate = web.get("/api/rail/pirate").get_json()
+    assert [item["label"] for item in pirate["items"]] == [
+        "Hardscore", "Pirate Radio Archives", "Kool FM Sets"]
     assert web.get("/api/rail/nope").status_code == 404
 
 

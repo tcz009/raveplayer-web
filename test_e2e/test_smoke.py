@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Headless-browser smoke tests: the class of bugs the offline suite missed.
 
-Covers page boot + the grouped 9-button rail (derived from `/api/menu.rail`),
+Covers page boot + the grouped 7-button rail (derived from `/api/menu.rail`),
 hub navigation and section rows, the pinned back button, Surprise Me (reveal
 spin/stamp and the reduced-motion skip), the global 150 ms loading pill, the
 spinner progress panel (save/cancel), the pasted Mixcloud/SoundCloud embed panel
@@ -106,9 +106,8 @@ def _rail_labels(page):
     return _texts(page.locator("#nav button .rail-label"))
 
 
-RAIL = ["Latest", "Tape Packs", "Mixes & Shows", "Club & Rave Sets",
-        "SoundCloud Picks", "Live Radio", "Curated Gems", "Favourites",
-        "Downloads"]
+RAIL = ["Latest", "Tape Packs", "Pirate Radio", "Mixes & Shows",
+        "Live Radio", "Favourites", "Downloads"]
 
 
 # --------------------------------------------------------------------------- tests
@@ -120,7 +119,7 @@ def test_boot_renders_the_shell_and_the_grouped_rail(browser_page):
         "async () => (await (await fetch('/api/menu')).json()).rail"
     )
     assert [group["label"] for group in rail] == RAIL
-    assert page.locator("#nav button").count() == 9
+    assert page.locator("#nav button").count() == 7
     assert _rail_labels(page) == RAIL
     # Topbar keeps the search; the rail no longer carries a Search button.
     assert page.locator("#search-input").is_visible()
@@ -139,14 +138,16 @@ def test_boot_renders_the_shell_and_the_grouped_rail(browser_page):
 
 def test_section_navigation_renders_rows(browser_page):
     page = browser_page.page
-    # The rail groups sections: Quick Filters lives in the Tape Packs hub.
+    # The Tape Packs hub now starts with the three literal tape archives.
     page.get_by_role("button", name="Tape Packs", exact=True).click()
     page.wait_for_function("() => document.querySelector('#title').textContent === 'Tape Packs'")
-    _wait_for_rows(page, 3)
+    _wait_for_rows(page, 7)
     assert _texts(page.locator("#list .row .row-label")) == [
-        "Tape Packs", "By Year", "Quick Filters",
+        "Toronto Rave Mixtape Archive", "JungleTapes.com", "RaveTapePacks.com",
+        "Classic Pack Series", "By Rave, Venue & Promoter", "By Year",
+        "Every Pack",
     ]
-    page.locator("#list .row", has_text="Quick Filters").click()
+    page.locator("#list .row", has_text="Classic Pack Series").click()
     page.wait_for_function("() => document.querySelector('#title').textContent === 'Quick Filters'")
     # One row per filter in the data file (16 today; again, no hardcoded count).
     filters = page.evaluate(
@@ -286,14 +287,14 @@ def test_favourite_add_and_remove_round_trip(browser_page):
     page.wait_for_function("() => document.querySelectorAll('#list .row').length === 0")
     assert page.locator("#empty").is_visible()
 
-def test_pirate_radio_archive_is_reachable_from_curated_gems(browser_page):
-    """1.6.15: Curated Gems is the hub row that owns Pirate Radio Archives."""
+def test_pirate_radio_archive_is_reachable_from_the_pirate_radio_door(browser_page):
+    """1.6.44: Pirate Radio is a root rail door."""
     page = browser_page.page
-    page.get_by_role("button", name="Curated Gems", exact=True).click()
-    page.wait_for_function("() => document.querySelector('#title').textContent === 'Curated Gems'")
-    _wait_for_rows(page, 2)
+    page.get_by_role("button", name="Pirate Radio", exact=True).click()
+    page.wait_for_function("() => document.querySelector('#title').textContent === 'Pirate Radio'")
+    _wait_for_rows(page, 3)
     assert _texts(page.locator("#list .row .row-label")) == [
-        "Pirate Radio Archives", "Legacy Sites",
+        "Hardscore", "Pirate Radio Archives", "Kool FM Sets",
     ]
     page.locator("#list .row", has_text="Pirate Radio Archives").click()
     page.wait_for_function(
@@ -319,7 +320,7 @@ def test_rail_fits_1440x900_and_favourites_stays_visible(browser_page):
     page.reload(wait_until="domcontentloaded")
     page.wait_for_selector("#nav button")
     page.wait_for_function(
-        "() => document.querySelectorAll('#nav button').length === 9")
+        "() => document.querySelectorAll('#nav button').length === 7")
     assert _rail_labels(page) == RAIL
 
     nav = page.evaluate("""() => {
@@ -350,7 +351,7 @@ def test_back_button_is_large_pinned_and_stays_visible_on_scroll(browser_page):
     page = browser_page.page
     page.get_by_role("button", name="Tape Packs", exact=True).click()
     page.wait_for_function("() => document.querySelector('#title').textContent === 'Tape Packs'")
-    page.locator("#list .row", has_text="Quick Filters").click()
+    page.locator("#list .row", has_text="Classic Pack Series").click()
     page.wait_for_function("() => document.querySelector('#title').textContent === 'Quick Filters'")
     page.wait_for_selector("#back", state="visible")
 
@@ -395,7 +396,7 @@ def test_phone_rail_and_back_button_are_usable(browser_page):
     page.set_viewport_size({"width": 390, "height": 844})
     page.reload(wait_until="domcontentloaded")
     page.wait_for_selector("#nav button")
-    assert page.locator("#nav button").count() == 9
+    assert page.locator("#nav button").count() == 7
     # The rail is a horizontal strip on a phone: it scrolls sideways, not down.
     overflow = page.evaluate("""() => {
         const rail = document.querySelector('#nav');
@@ -407,7 +408,7 @@ def test_phone_rail_and_back_button_are_usable(browser_page):
 
     page.get_by_role("button", name="Tape Packs", exact=True).click()
     page.wait_for_function("() => document.querySelector('#title').textContent === 'Tape Packs'")
-    page.locator("#list .row", has_text="Quick Filters").click()
+    page.locator("#list .row", has_text="Classic Pack Series").click()
     page.wait_for_function("() => document.querySelector('#title').textContent === 'Quick Filters'")
     page.wait_for_selector("#back", state="visible")
     box = page.locator("#back").bounding_box()
@@ -477,7 +478,7 @@ def test_loading_pill_waits_150ms_and_clears(browser_page):
     assert page.evaluate("window.__pillShows") == 0
 
     # Slow API: appears after the grace period, then clears on completion.
-    _delay_fetches(page, "/api/rail/live", 700)
+    _delay_fetches(page, "/api/live", 700)
     page.get_by_role("button", name="Live Radio", exact=True).click()
     page.wait_for_selector("#loading-pill", state="visible", timeout=4000)
     assert page.locator("#loading-pill").get_attribute("aria-live") == "polite"
@@ -556,13 +557,13 @@ def test_reduced_motion_skips_spinner_animation_and_surprise_delay(browser_page)
     assert page.locator("#surprise-reveal").is_hidden()
 
     # The loading pill still reports, just without animation.
-    _delay_fetches(page, "/api/rail/gems", 600)
-    page.get_by_role("button", name="Curated Gems", exact=True).click()
+    _delay_fetches(page, "/api/rail/pirate", 600)
+    page.get_by_role("button", name="Pirate Radio", exact=True).click()
     page.wait_for_selector("#loading-pill", state="visible", timeout=4000)
     pill_animation = page.locator("#loading-pill .spinner-head").evaluate(
         "(el) => getComputedStyle(el).animationName")
     assert pill_animation == "none"
-    page.wait_for_function("() => document.querySelector('#title').textContent === 'Curated Gems'")
+    page.wait_for_function("() => document.querySelector('#title').textContent === 'Pirate Radio'")
     page.wait_for_selector("#loading-pill", state="hidden", timeout=4000)
 
 def test_pwa_installs_and_any_same_origin_link_opens_the_app(browser_page, live_server):
@@ -850,7 +851,7 @@ def test_single_topbar_spinner_during_background_download(browser_page):
             "() => document.querySelector('#toast').textContent.includes('Saved to Downloads')",
             timeout=30000)
         page.wait_for_selector("#job-chip", state="hidden", timeout=10000)
-        _delay_fetches(page, "/api/rail/live", 700)
+        _delay_fetches(page, "/api/live", 700)
         page.get_by_role("button", name="Live Radio", exact=True).click()
         page.wait_for_selector("#loading-pill", state="visible", timeout=4000)
         assert page.evaluate("""() => {
@@ -1285,3 +1286,37 @@ def test_appearance_is_mobile_safe_and_keyboard_focus_visible(browser_page):
     page.locator("#help-close").click()
     page.wait_for_selector("#help", state="hidden")
     assert browser_page.page_errors == []
+
+
+def test_taxonomy_rail_and_tape_packs_in_both_themes(browser_page):
+    """1.6.44: the scene taxonomy reads the same in dark and light."""
+    page = browser_page.page
+    for mode in ("dark", "light"):
+        _open_help(page)
+        _choose_appearance(page, "Light" if mode == "light" else "Dark", mode)
+        page.locator("#help-close").click()
+        page.wait_for_selector("#help", state="hidden")
+        assert _rail_labels(page) == [
+            "Latest", "Tape Packs", "Pirate Radio", "Mixes & Shows",
+            "Live Radio", "Favourites", "Downloads",
+        ]
+        page.get_by_role("button", name="Latest", exact=True).click()
+        page.wait_for_function(
+            "() => document.querySelector('#title').textContent === 'Latest'")
+        page.get_by_role("button", name="Tape Packs", exact=True).click()
+        page.wait_for_function(
+            "() => document.querySelector('#title').textContent === 'Tape Packs'")
+        _wait_for_rows(page, 7)
+        assert _texts(page.locator("#list .row .row-label")) == [
+            "Toronto Rave Mixtape Archive", "JungleTapes.com",
+            "RaveTapePacks.com", "Classic Pack Series",
+            "By Rave, Venue & Promoter", "By Year", "Every Pack",
+        ]
+        _shot(browser_page, "20-taxonomy-tape-packs-%s" % mode)
+        assert page.evaluate(
+            "() => document.documentElement.scrollWidth <= window.innerWidth + 1")
+        assert browser_page.page_errors == []
+    # Leave the default dark choice for later tests.
+    _open_help(page)
+    _choose_appearance(page, "Dark", "dark")
+    page.locator("#help-close").click()

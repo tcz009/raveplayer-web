@@ -50,14 +50,13 @@ The sections behind the groups:
   opens its Mixcloud player in the shared embed panel.
 - **GetDarker** — dubstep/grime/140 sets from GetDarker's RSS and curated
   `getdarker` Mixcloud account, played in the Mixcloud widget.
-- **Pirate Radio Archives** — a small hand-checked archive of pirate recordings
+- **Pirate Radio** — Hardscore, Pirate Radio Archives and Kool FM sets are grouped under one root door. Pirate Radio Archives is a small hand-checked archive of pirate recordings
   (Risk FM 107.1/Beat Sanctuary, Weekend Rush 92.3/Hardscore, Flava FM/A-Team)
   in `resources/pirate-radio.json`, with the same `station, year, title, djs,
   source_url, stream_url, credit` schema as the Kodi add-on.
 - **Rave Nights** — the 55-name researched catalogue of promotions, venues and
   pirate stations, opening the Archive packs and Mixcloud sets recorded for
   each.
-- **Legacy Sites** — RaveTapePacks.com, JungleTapes.com (Toronto archive is now a first-class source above).
 - **Favourites** — stored server-side in `RAVEWEB_DATA`.
 - **Downloads** — explicit, direct-file saves kept under `RAVEWEB_DATA/downloads`
   and scoped per owner/friends identity (legacy global library becomes the
@@ -213,6 +212,14 @@ container user) — `deploy.sh` fixes that for you. Favourites failing silently
 is the symptom when it is not. `/healthz` reports `"data_writable"` so you can
 check without guesswork.
 
+## Scene taxonomy
+
+The 1.6.44 rail and source order follow the [scene taxonomy](docs/TAXONOMY-WEB-2026.md):
+Tape Packs starts with Toronto/JungleTapes/RaveTapePacks and ends with Every
+Pack; Pirate Radio is a root door; Mixes & Shows is Podcasts/DNBRADIO/GetDarker/
+Moxser; Live Radio names Kool FM, Rinse FM and Centreforce 883 before the
+genres. Jungle/Drum & Bass and Hardcore/Happy Hardcore are separate doors.
+
 ## Configuration
 
 | Variable | Default | Purpose |
@@ -309,7 +316,6 @@ an owner session or `Authorization: Bearer $RAVEWEB_WIDGET_TOKEN`; friends are
 | `/api/podcasts`, `/api/podcast/<id>` | RSS feeds |
 | `/api/dnb`, `/api/dnb/<mix>` | DNB Radio |
 | `/api/years`, `/api/year/<year>` | by-year browse |
-| `/api/legacy/...` | the surviving sites |
 | `/api/search?q=&page=` | Archive search |
 | `/api/favourites` (GET/POST) | list / add |
 | `/api/favourites/<key>` (DELETE) | remove (key is `kind:target`) |
@@ -425,7 +431,7 @@ the cached app shell for any same-origin navigation, never caching
 bookmarks — remove and re-add once, as described in [`docs/PWA.md`](docs/PWA.md)
 (which also covers the plain-HTTP LAN limitation and what Cockney Player needs).
 
-### Browser smoke tests (30 cases)
+### Browser smoke tests (31 cases)
 
 `test_e2e/` drives the real app in headless Chromium through Playwright. It
 covers what the offline suite cannot: boot with the grouped 9-button rail and

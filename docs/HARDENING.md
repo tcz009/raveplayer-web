@@ -1,17 +1,34 @@
-# Hardening pass — Rave Player web (`raveplayer-web` 1.6.42)
+# Hardening pass — Rave Player web (`raveplayer-web` 1.6.44)
 
-**Branch:** `feature/1.6.42-list-caps` (not pushed) · **Base:** `main` @ `f34f8b1` (1.6.41)
+**Branch:** `feature/1.6.44-taxonomy` (not pushed until review) · **Base:** `main` @ `7a80a6e` (1.6.43)
 **Scope:** `app.py`, `core/`, `static/app.js`, `scripts/deploy.sh`, `docs/`, `test/`,
 `test_e2e/`, `VERSION`. No UX or content changes. No `data/` or advert files touched.
 
-**Result:** `205 → 423 passed` (`.venv/bin/python -m pytest -q test`), all
-offline; browser suite `test_e2e` **30 passed** (system Chrome, Playwright 1.60);
+**Result:** `205 → 442 passed` (`.venv/bin/python -m pytest -q test`), all
+offline; browser suite `test_e2e` **31 passed** (system Chrome, Playwright 1.60);
 `node --check static/app.js` and `sh -n scripts/deploy.sh` clean.
 
 Inputs folded in: the internal task-22 brief and the adversarial pre-review
 (`docs/ADVERSARIAL-REVIEW.md`, web findings W1–W8). The review's "what is solid" list
 (stream SSRF guard, SPA escaping, CSP, content-type gate, atomic writes) was kept intact.
 
+
+## 1.6.44 — scene taxonomy
+
+- Exact rail: Latest, Tape Packs, Pirate Radio, Mixes & Shows, Live Radio,
+  Favourites, Downloads.
+- Tape Packs exact order: Toronto, JungleTapes, RaveTapePacks (with published
+  By Event/DJ/MC/Year indexes), Classic Pack Series, By Rave/Venue, By Year,
+  Every Pack (archive.org demoted). Removed duplicate legacy_toronto and the
+  whole Legacy Sites bucket.
+- Pirate Radio root: Hardscore, Pirate Radio Archives, Kool FM Sets. Mixes &
+  Shows: Podcasts, DNBRADIO, GetDarker, Moxser.
+- Live Radio: Kool FM, Rinse FM, Centreforce 883, then Hardcore, Jungle,
+  Drum & Bass, House, UK Garage, Dubstep & Grime; Oldskool & Rave and
+  Breakbeat dropped. Jungle/DnB and Hardcore/Happy Hardcore split as doors.
+- Kebab-case ids/paths, unique art (new by-dj/by-mc/happy-hardcore/techno/
+  radio-dubstep stickers), exact-order/light-dark tests. No new scraping.
+- Tests: 442 offline, 31 e2e.
 
 ## 1.6.42 — source listing caps
 
@@ -619,10 +636,10 @@ that the module layout matches.
 
 ```sh
 cd "Rave Player"
-.venv/bin/python -m pytest -q test        # 423 passed
+.venv/bin/python -m pytest -q test        # 442 passed
 node --check static/app.js
 sh -n scripts/deploy.sh
-git diff --stat main..feature/1.6.42-list-caps
+git diff --stat main..feature/1.6.44-taxonomy
 ```
 
 ## Post-merge fix — deploy.sh heredoc escaping (found on first real deploy)

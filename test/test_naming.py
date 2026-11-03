@@ -49,7 +49,7 @@ def test_every_referenced_art_exists():
 def test_uk_garage_is_spelled_out():
     assert "uk-garage" in dict((row[0], row) for row in app_module.RADIO_SECTIONS)
     assert "ukg" not in dict((row[0], row) for row in app_module.RADIO_SECTIONS)
-    assert app_module.SECTION_PATHS["uk-garage"] == "/api/uk-garage"
+    assert app_module.SECTION_PATHS["uk-garage"] == "/api/live/uk-garage"
     assert "ukg" not in app_module.SECTION_PATHS
     assert app_module.LIVE_ART["uk-garage"] == "radio-uk-garage.png"
     assert "ukg" not in app_module.LIVE_ART

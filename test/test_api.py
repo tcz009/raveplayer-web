@@ -130,7 +130,7 @@ def test_api_500_is_json_and_does_not_leak(web, monkeypatch):
         raise RuntimeError("secret internal detail")
 
     monkeypatch.setattr("app.archive.search", boom)
-    response = web.get("/api/packs/rave")
+    response = web.get("/api/packs/jungle")
     assert response.status_code == 500
     assert response.get_json() == {"error": "internal error"}
     assert "secret internal detail" not in response.get_data(as_text=True)
@@ -260,7 +260,10 @@ def test_filter_live_unknown(web):
 
 def test_live_groups(web):
     payload = web.get("/api/live").get_json()
-    assert [item["open"] for item in payload["items"]][:2] == ["/api/live/oldskool", "/api/live/jungle"]
+    labels = [item["label"] for item in payload["items"]]
+    assert labels[:3] == ["Kool FM", "Rinse FM", "Centreforce 883"]
+    assert labels[3:] == ["Hardcore", "Jungle", "Drum & Bass", "House",
+                          "UK Garage", "Dubstep & Grime"]
 
 
 def test_live_tag_skips_stations_without_stream(web, monkeypatch):
@@ -284,8 +287,9 @@ def test_live_unknown_group(web):
 
 def test_packs_sections(web):
     payload = web.get("/api/packs").get_json()
-    ids = [item["open"] for item in payload["items"]]
-    assert "/api/packs/rave" in ids and "/api/packs/tapepacks" in ids
+    assert [item["label"] for item in payload["items"]] == [
+        "Toronto Rave Mixtape Archive", "JungleTapes.com", "RaveTapePacks.com",
+        "Classic Pack Series", "By Rave, Venue & Promoter", "By Year", "Every Pack"]
 
 
 def test_packs_list_skips_docs_without_identifier(web, archive_search):
@@ -294,7 +298,7 @@ def test_packs_list_skips_docs_without_identifier(web, archive_search):
         {"title": "no identifier"},
         "not a dict",
     ]
-    payload = web.get("/api/packs/rave").get_json()
+    payload = web.get("/api/packs/jungle").get_json()
     assert [item["open"] for item in payload["items"]] == ["/api/item/one"]
 
 
@@ -442,9 +446,23 @@ def test_year_listing(web, archive_search):
 
 
 def test_legacy_sites(web):
-    payload = web.get("/api/legacy").get_json()
-    assert [item["open"] for item in payload["items"]] == [
-        "/api/legacy/ravetapepacks", "/api/legacy/jungletapes"]
+    # The 2014 bucket is gone; the two surviving sources are first-class above.
+    assert web.get("/api/legacy").status_code == 404
+
+
+def test_legacy_ravetapepacks_indexes(web, monkeypatch):
+    monkeypatch.setattr("app.legacy.categories", lambda: {
+        "events": [{"id": "5", "name": "Dreamscape"}],
+        "djs": [{"id": "106", "name": "Brockie"}],
+        "mcs": [{"id": "203", "name": "Bassman"}],
+        "years": [{"id": "56", "name": "1992"}],
+    })
+    payload = web.get("/api/legacy/ravetapepacks").get_json()
+    assert [item["label"] for item in payload["items"]] == [
+        "By Event (1)", "By DJ (1)", "By MC (1)", "By Year", "All Packs"]
+    assert payload["items"][1]["open"].endswith("/index/djs")
+    cats = web.get("/api/legacy/ravetapepacks/index/djs").get_json()
+    assert cats["items"][0]["label"] == "Brockie"
 
 
 def test_legacy_ravetapepacks_list(web, monkeypatch):
@@ -453,7 +471,7 @@ def test_legacy_ravetapepacks_list(web, monkeypatch):
         {"name": "no key", "tracks": []},
         "junk",
     ])
-    payload = web.get("/api/legacy/ravetapepacks").get_json()
+    payload = web.get("/api/legacy/ravetapepacks/all").get_json()
     assert payload["items"][0]["label"] == "Exposure Vol 1 (1 tapes)"
     assert payload["items"][0]["open"] == "/api/legacy/ravetapepacks/ExposureVol1"
 
@@ -486,13 +504,6 @@ def test_legacy_jungletapes_show(web, monkeypatch):
 def test_legacy_jungletapes_empty_show_is_404(web, monkeypatch):
     monkeypatch.setattr("app.legacy.jungle_tracks", lambda key: [])
     assert web.get("/api/legacy/jungletapes/dead").status_code == 404
-
-
-def test_legacy_toronto(web, monkeypatch):
-    monkeypatch.setattr("app.legacy.toronto_tracks", lambda: [
-        {"name": "Mixtape 1", "url": "https://tr.example/1.mp3"}])
-    payload = web.get("/api/legacy/toronto").get_json()
-    assert payload["items"][0]["label"] == "Mixtape 1"
 
 
 # --------------------------------------------------------------------------- search

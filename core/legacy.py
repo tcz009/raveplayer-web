@@ -62,14 +62,10 @@ def _pack_name(raw):
     return _space_words(raw) or str(raw)
 
 
-def packs():
-    """Return [{'key': folder, 'name': label, 'tracks': [...]}, ...] sorted by name."""
-    page = http.fetch(BASE, timeout=25, ttl=PACKS_TTL)
-    if not page:
-        return []
+def _packs_from_html(page):
     grouped = {}
     seen = set()
-    for pack, filename in MUSIC_RE.findall(page):
+    for pack, filename in MUSIC_RE.findall(page or ""):
         pack = html.unescape(pack)
         filename = html.unescape(filename)
         pack_path, file_path = _url_path(pack), _url_path(filename)
@@ -87,6 +83,61 @@ def packs():
         result.append(entry)
     result.sort(key=lambda entry: entry["name"].lower())
     return result
+
+
+def packs():
+    """Return [{'key': folder, 'name': label, 'tracks': [...]}, ...] sorted by name."""
+    return _packs_from_html(http.fetch(BASE, timeout=25, ttl=PACKS_TTL))
+
+
+_CATEGORY_HEADINGS = {
+    "PACKS BY EVENT": "events",
+    "PACKS BY DJ": "djs",
+    "PACKS BY MC": "mcs",
+    "PACKS BY YEAR": "years",
+}
+_MENU_ITEM_RE = re.compile(
+    r'<li[^>]*>\s*<a[^>]*>\s*(PACKS BY (?:EVENT|DJ|MC|YEAR))\s*</a>\s*'
+    r'<ul[^>]*>(.*?)</ul>', re.I | re.S)
+_CAT_RE = re.compile(r'\?cat=(\d+)"[^>]*>(.*?)</a>', re.I | re.S)
+
+
+def parse_categories(page):
+    """Parse the site nav's PACKS BY EVENT/DJ/MC/YEAR menus (no extra fetch)."""
+    groups = {"events": [], "djs": [], "mcs": [], "years": []}
+    for match in _MENU_ITEM_RE.finditer(page or ""):
+        kind = _CATEGORY_HEADINGS.get(match.group(1).upper())
+        if not kind:
+            continue
+        seen = set()
+        for cat_id, label in _CAT_RE.findall(match.group(2)):
+            name = html.unescape(re.sub(r"<[^>]+>", "", label)).strip()
+            if not name or cat_id in seen:
+                continue
+            seen.add(cat_id)
+            groups[kind].append({"id": cat_id, "name": name})
+    return groups
+
+
+def categories():
+    return parse_categories(http.fetch(BASE, timeout=25, ttl=PACKS_TTL))
+
+
+def category(kind, cat_id):
+    entry = next((item for item in categories().get(kind, [])
+                  if item["id"] == str(cat_id)), None)
+    return entry
+
+
+CATEGORY_TTL = 6 * 60 * 60
+
+
+def category_packs(kind, cat_id):
+    """Packs carrying one RaveTapePacks category id."""
+    if not category(kind, cat_id):
+        return []
+    page = http.fetch(BASE + "?cat=" + str(cat_id), timeout=25, ttl=CATEGORY_TTL)
+    return _packs_from_html(page)
 
 
 def playable(url):
@@ -153,22 +204,4 @@ def jungle_tracks(slug):
         url = urllib.parse.urljoin(JT_BASE + "/", url)
         filename = urllib.parse.unquote(url.rsplit("/", 1)[-1]).rsplit(".", 1)[0]
         tracks.append({"name": _pretty(filename), "url": url})
-    return tracks
-
-
-# --------------------------------------------------------------------------- torontoravemixtapearchive.com
-
-TR_BASE = "https://www.torontoravemixtapearchive.com"
-TR_MP3_RE = re.compile(r'href="(/files/mixtapes?/[^"]+\.mp3)"', re.IGNORECASE)
-
-
-def toronto_tracks():
-    """Flat index of Toronto rave mixtapes."""
-    page = http.fetch(TR_BASE + "/", timeout=25, ttl=TORONTO_TTL)
-    if not page:
-        return []
-    tracks = []
-    for path in TR_MP3_RE.findall(page):
-        filename = html.unescape(urllib.parse.unquote(path.rsplit("/", 1)[-1])).rsplit(".", 1)[0]
-        tracks.append({"name": _pretty(filename), "url": TR_BASE + _url_path(path)})
     return tracks

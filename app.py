@@ -266,72 +266,63 @@ _MEDIA_EXACT = frozenset((
 _SSL_CONTEXT = ssl.create_default_context()
 
 ARCHIVE_SECTIONS = [
-    ("rave", "Rave Tape Packs", "collection:ravetapes AND mediatype:audio", "Rave tapes collection"),
-    ("jungle", "Jungle / Drum & Bass", 'collection:ravetapes AND (jungle OR "drum and bass")', "Jungle and DnB"),
-    ("hardcore", "Hardcore", "collection:ravetapes AND hardcore", "Hardcore sets"),
-    ("house", "House", "collection:ravetapes AND house", "House music sets"),
-    ("pirate", "Pirate Radio", 'collection:ravetapes AND (Kool OR Centreforce OR "Don FM")', "Pirate radio sets"),
-    ("tapepacks", "All Tape Packs", '(jungle OR "drum and bass" OR hardcore OR house) AND "tape pack"', "Everything tagged tape pack"),
+    ("jungle", "Jungle", 'collection:ravetapes AND jungle AND mediatype:audio', "Jungle sets"),
+    ("dnb", "Drum & Bass", 'collection:ravetapes AND ("drum and bass" OR dnb) AND mediatype:audio', "Drum & bass sets"),
+    ("hardcore", "Hardcore", 'collection:ravetapes AND hardcore AND NOT "happy hardcore" AND mediatype:audio', "Hardcore sets"),
+    ("happy-hardcore", "Happy Hardcore", 'collection:ravetapes AND "happy hardcore" AND mediatype:audio', "Happy hardcore sets"),
+    ("house", "House", "collection:ravetapes AND house AND mediatype:audio", "House music sets"),
+    ("techno", "Techno", "collection:ravetapes AND techno AND mediatype:audio", "Techno sets"),
     ("garage", "UK Garage", '(title:("uk garage") OR title:("garage nation") OR title:("pure garage") OR title:("speed garage")) AND mediatype:audio', "UK garage, 90s to now"),
+    ("tapepacks", "Every Pack", "collection:ravetapes AND mediatype:audio", "Archive mixtapes"),
 ]
 
 RADIO_SECTIONS = [
-    ("oldskool", "Oldskool & Rave", "oldskool"),
-    ("jungle", "Jungle", "jungle"),
-    ("dnb", "Drum & Bass", "drum and bass"),
     ("hardcore", "Hardcore", "hardcore"),
+    ("jungle", "Jungle", "jungle"),
+    ("drum-and-bass", "Drum & Bass", "drum and bass"),
     ("house", "House", "house"),
     ("uk-garage", "UK Garage", "uk garage"),
-    ("breakbeat", "Breakbeat", "breakbeat"),
+    ("dubstep-grime", "Dubstep & Grime", "dubstep"),
 ]
 
 SECTIONS = [
     ("latest", "Latest", "rave.png", "Newest of everything"),
-    ("kool", "Kool FM", "kool.png", "Kool FM live plus archive sets"),
-    ("rinse", "Rinse FM", "rinse.png", "Rinse FM live plus archive sets"),
-    ("filters", "Quick Filters", "series.png", "Classic pack series"),
-    ("live", "Live Radio", "radio.png", "Stations streaming now"),
-    ("packs", "Tape Packs", "tapepacks.png", "The ravetapes collection"),
+    ("toronto", "Toronto Rave Mixtape Archive", "toronto.png", "Toronto rave tapes, 1990–2014"),
+    ("jungletapes", "JungleTapes.com", "jungletapes.png", "Toronto jungle radio from cassette, 1996–2000"),
+    ("ravetapepacks", "RaveTapePacks.com", "ravetapepacks.png", "UK tape packs, 1992–2004"),
+    ("classic-packs", "Classic Pack Series", "series.png", "The UK pack canon"),
+    ("by-rave", "By Rave, Venue & Promoter", "rave-nights.png", "Raves, venues and promoters"),
+    ("by-year", "By Year", "years.png", "Tape packs by year"),
+    ("every-pack", "Every Pack", "rave-tapes.png", "Everything tagged as a tape pack"),
     ("podcasts", "Podcasts & Mixes", "podcasts.png", "Present-day shows"),
-    ("dnb", "DNB Radio", "dnb.png", "Recent jungle/DnB shows"),
-    ("uk-garage", "UK Garage", "radio-uk-garage.png", "DJ EZ, garage sets, live"),
-    ("mixcloud", "Mixcloud Sets", "mixcloud.png", "Live club and rave sets"),
-    ("soundcloud", "SoundCloud Sets", "soundcloud.png", "Curated live sets"),
-    ("moxser", "Moxser Mixes", "moxser.png", "Underground radio mixes, direct MP3"),
-    ("hardscore", "Hardscore", "hardscore.png", "Hardcore/jungle tapes and events"),
-    ("toronto", "Toronto Rave Mixtape Archive", "toronto.png", "Toronto jungle, house, studio and X-Static direct MP3s"),
-    ("ravearchive", "Rave Archive UK", "rave-archive.png", "Rave tape scans with Mixcloud"),
-    ("getdarker", "GetDarker", "getdarker.png", "Dubstep/grime sets on Mixcloud"),
+    ("dnb", "DNBRADIO", "dnb.png", "Jungle and drum & bass shows"),
+    ("getdarker", "GetDarker", "getdarker.png", "Dubstep and grime, 2003 onwards"),
+    ("moxser", "Moxser", "moxser.png", "Old skool to new cool dance mixes"),
+    ("hardscore", "Hardscore", "hardscore.png", "1990s pirate-radio recordings"),
     ("pirates", "Pirate Radio Archives", "pirate-archive.png", "Curated pirate-radio recordings"),
-    ("raves", "Rave Nights", "rave-nights.png", "Promotions, venues & pirate stations"),
-    ("years", "By Year", "years.png", "Tape packs 1987 onwards"),
-    ("legacy", "Legacy Sites", "legacy.png", "The 2014 survivors"),
-    ("favourites", "Favourites", "favourites.png", "What you saved"),
+    ("kool-sets", "Kool FM Sets", "kool.png", "Kool FM recordings"),
+    ("live", "Live Radio", "radio.png", "Stations on air now"),
+    ("hardcore", "Hardcore", "radio-hardcore.png", "Happy hardcore and rave stations on air"),
+    ("jungle", "Jungle", "radio-jungle.png", "Jungle and ragga stations on air"),
+    ("drum-and-bass", "Drum & Bass", "radio-dnb.png", "Drum & bass stations on air"),
+    ("house", "House", "radio-house.png", "House stations on air"),
+    ("uk-garage", "UK Garage", "radio-uk-garage.png", "UK garage and 2-step stations on air"),
+    ("dubstep-grime", "Dubstep & Grime", "radio-dubstep.png", "Dubstep, grime and 140 stations on air"),
+    ("favourites", "Favourites", "favourites.png", "The sets you saved"),
     ("downloads", "Downloads", "downloads.png", "Saved for offline"),
-    ("search", "Search", "search.png", "Search the Archive"),
+    ("search", "Search", "search.png", "Search every tape pack"),
 ]
 
-# One distinct sticker per navigation row.  The duplicate-art test checks that
-# no two rows in a menu borrow the same file; leaf rows (tracks, episodes,
-# years, rave nights, station recordings) reuse their category tile and are the
-# explicit exceptions in test/test_art_duplicates.py.
+# One distinct sticker per navigation row.
 PACK_ART = {
-    "rave": "rave-tapes.png",
     "jungle": "jungle.png",
+    "dnb": "dnb.png",
     "hardcore": "hardcore.png",
+    "happy-hardcore": "happy-hardcore.png",
     "house": "house.png",
-    "pirate": "pirate-stations.png",
-    "tapepacks": "tapepacks-all.png",
+    "techno": "techno.png",
     "garage": "garage.png",
-}
-LIVE_ART = {
-    "oldskool": "oldskool.png",
-    "jungle": "radio-jungle.png",
-    "dnb": "radio-dnb.png",
-    "hardcore": "radio-hardcore.png",
-    "house": "radio-house.png",
-    "uk-garage": "radio-uk-garage.png",
-    "breakbeat": "radio-breakbeat.png",
+    "tapepacks": "tapepacks-all.png",
 }
 FILTER_ART = {
     "kool": "kool.png",
@@ -352,57 +343,65 @@ FILTER_ART = {
     "garage-nation": "garage-nation.png",
 }
 
-# One source of truth for section -> API path; mirrored (and tested) in
-# static/app.js so the grouped 8-button rail and the legacy flat list agree.
+LIVE_ART = {
+    "hardcore": "radio-hardcore.png",
+    "jungle": "radio-jungle.png",
+    "drum-and-bass": "radio-dnb.png",
+    "house": "radio-house.png",
+    "uk-garage": "radio-uk-garage.png",
+    "dubstep-grime": "radio-dubstep.png",
+}
+
 SECTION_PATHS = {
     "latest": "/api/latest",
-    "kool": "/api/filter/kool",
-    "rinse": "/api/filter/rinse",
-    "filters": "/api/filters",
-    "live": "/api/live",
-    "packs": "/api/packs",
+    "toronto": "/api/toronto",
+    "jungletapes": "/api/legacy/jungletapes",
+    "ravetapepacks": "/api/legacy/ravetapepacks",
+    "classic-packs": "/api/filters",
+    "by-rave": "/api/raves",
+    "by-year": "/api/years",
+    "every-pack": "/api/every-pack",
     "podcasts": "/api/podcasts",
     "dnb": "/api/dnb",
-    "uk-garage": "/api/uk-garage",
-    "mixcloud": "/api/mixcloud_hub",
-    "soundcloud": "/api/soundcloud",
+    "getdarker": "/api/getdarker",
     "moxser": "/api/moxser",
     "hardscore": "/api/hardscore",
-    "toronto": "/api/toronto",
-    "ravearchive": "/api/ravearchive",
-    "getdarker": "/api/getdarker",
     "pirates": "/api/pirate",
-    "raves": "/api/raves",
-    "years": "/api/years",
-    "legacy": "/api/legacy",
+    "kool-sets": "/api/filter/kool",
+    "live": "/api/live",
+    "hardcore": "/api/live/hardcore",
+    "jungle": "/api/live/jungle",
+    "drum-and-bass": "/api/live/drum-and-bass",
+    "house": "/api/live/house",
+    "uk-garage": "/api/live/uk-garage",
+    "dubstep-grime": "/api/live/dubstep-grime",
     "favourites": "/api/favourites",
     "downloads": "/api/downloads",
     "search": "/api/search",
 }
 
-# The 8-button rail (1.6.15): it replaces 21 flat buttons, which overflowed a
-# 1440x900 viewport and hid Favourites/Search.  Multi-section groups open a
-# server-rendered hub (/api/rail/<id>); single sections link straight through.
+# 1.6.44 taxonomy: tape packs → pirate radio → shows → live → saved.
 RAIL = [
     {"id": "latest", "label": "Latest", "icon": "rave.png", "path": "/api/latest",
-     "children": ["latest"], "sub": "Newest of everything"},
+     "children": ["latest"], "sub": "Newest packs, shows and radio rips."},
     {"id": "packs", "label": "Tape Packs", "icon": "tapepacks.png",
-     "children": ["packs", "years", "filters"], "sub": "Archive packs, years, classic series"},
+     "children": ["toronto", "jungletapes", "ravetapepacks", "classic-packs",
+                  "by-rave", "by-year", "every-pack"],
+     "sub": "Cassette packs and rave tapes, by event, DJ, MC and year."},
+    {"id": "pirate", "label": "Pirate Radio", "icon": "pirate-radio.png",
+     "children": ["hardscore", "pirates", "kool-sets"],
+     "sub": "1990s pirate-radio recordings: Kool FM, Don FM, Green Apple."},
     {"id": "shows", "label": "Mixes & Shows", "icon": "mixes.png",
-     "children": ["podcasts", "dnb", "moxser", "hardscore", "toronto"], "sub": "Shows, mixes and radio archives"},
-    {"id": "sets", "label": "Club & Rave Sets", "icon": "sets.png",
-     "children": ["mixcloud", "getdarker", "ravearchive", "uk-garage", "raves"],
-     "sub": "Embedded sets and rave nights"},
-    {"id": "soundcloud", "label": "SoundCloud Picks", "icon": "soundcloud.png",
-     "path": "/api/soundcloud", "children": ["soundcloud"], "sub": "Curated live sets"},
+     "children": ["podcasts", "dnb", "getdarker", "moxser"],
+     "sub": "Podcasts, DNBRADIO, GetDarker and studio mixes."},
     {"id": "live", "label": "Live Radio", "icon": "radio.png",
-     "children": ["live", "kool", "rinse"], "sub": "Stations on air now"},
-    {"id": "gems", "label": "Curated Gems", "icon": "curated.png",
-     "children": ["pirates", "legacy"], "sub": "Pirate archives and surviving sites"},
+     "path": "/api/live",
+     "children": ["live", "hardcore", "jungle", "drum-and-bass", "house",
+                  "uk-garage", "dubstep-grime"], "sub": "Stations on air now."},
     {"id": "favourites", "label": "Favourites", "icon": "favourites.png",
-     "path": "/api/favourites", "children": ["favourites"], "sub": "What you saved"},
+     "path": "/api/favourites", "children": ["favourites"], "sub": "The sets you saved."},
     {"id": "downloads", "label": "Downloads", "icon": "downloads.png",
-     "path": "/api/downloads", "children": ["downloads"], "sub": "Saved for offline"},
+     "path": "/api/downloads", "children": ["downloads"], "sub": "Saved for offline."},
 ]
 
 
@@ -1430,10 +1429,19 @@ def api_filter_live(key):
 
 @app.get("/api/live")
 def api_live():
-    return jsonify({"title": "Live Radio", "items": [
-        _folder(label, tag, "/api/live/%s" % key, ART + LIVE_ART[key])
-        for key, label, tag in RADIO_SECTIONS
-    ]})
+    """Live Radio: named stations first, then the scene genres."""
+    items = []
+    for token, label, icon in (("kool", "Kool FM", "kool.png"),
+                               ("rinse", "Rinse FM", "rinse.png"),
+                               ("centreforce", "Centreforce 883", "centreforce.png")):
+        station = next((entry for entry in radio.curated(token) if entry), None)
+        if station:
+            items.append(_track(label, "Live now", radio.stream_url(station),
+                                ART + icon))
+    for key, label, _tag in RADIO_SECTIONS:
+        items.append(_folder(label, "Stations on air", "/api/live/%s" % key,
+                             ART + LIVE_ART[key]))
+    return jsonify({"title": "Live Radio", "items": items})
 
 
 @app.get("/api/live/<key>")
@@ -1483,7 +1491,9 @@ def api_uk_garage():
         item["embed"] = entry["embed"]
         item["external"] = entry["url"]
         items.append(item)
-    docs, _ = archive.search(ARCHIVE_SECTIONS[-1][2], rows=30)
+    garage_query = next((entry[2] for entry in ARCHIVE_SECTIONS if entry[0] == "garage"),
+                        "collection:ravetapes AND house")
+    docs, _ = archive.search(garage_query, rows=30)
     items.extend(_pack_items(docs))
     return jsonify({"title": "UK Garage", "items": items})
 
@@ -1816,12 +1826,31 @@ def api_pirate_station(slug):
     return jsonify({"title": pirate.station(slug)[0]["station"], "items": items})
 
 
+@app.get("/api/every-pack")
+def api_every_pack():
+    """Demoted archive.org collection: Every Pack / Archive mixtapes."""
+    page = _page_arg()
+    query = next((entry[2] for entry in ARCHIVE_SECTIONS if entry[0] == "tapepacks"),
+                 "collection:ravetapes AND mediatype:audio")
+    docs, total = archive.search(query, page=page, rows=ROWS)
+    payload = {"title": "Every Pack", "items": _pack_items(docs)}
+    nxt = _next_link("/api/every-pack", page, total)
+    if nxt:
+        payload["next"] = nxt
+    return jsonify(payload)
+
+
 @app.get("/api/packs")
 def api_packs():
-    return jsonify({"title": "Tape Packs", "items": [
-        _folder(label, sub, "/api/packs/%s" % key, ART + PACK_ART[key])
-        for key, label, query, sub in ARCHIVE_SECTIONS
-    ]})
+    """Tape Packs taxonomy hub (1.6.44 exact order)."""
+    items = []
+    for sid in ("toronto", "jungletapes", "ravetapepacks", "classic-packs",
+                "by-rave", "by-year", "every-pack"):
+        section = next((entry for entry in SECTIONS if entry[0] == sid), None)
+        if section:
+            items.append(_folder(section[1], section[3], SECTION_PATHS[sid],
+                                 ART + section[2]))
+    return jsonify({"title": "Tape Packs", "items": items})
 
 
 @app.get("/api/packs/<key>")
@@ -1939,27 +1968,77 @@ def api_year(year):
     return jsonify(payload)
 
 
-@app.get("/api/legacy")
-def api_legacy():
-    return jsonify({"title": "Legacy Sites", "items": [
-        _folder("RaveTapePacks.com", "Full tape packs", "/api/legacy/ravetapepacks",
-                ART + "ravetapepacks.png"),
-        _folder("JungleTapes.com", "Toronto jungle radio shows", "/api/legacy/jungletapes",
-                ART + "jungletapes.png"),
-    ]})
-
-
 @app.get("/api/legacy/ravetapepacks")
 def api_legacy_rtp():
-    items = []
-    for entry in legacy.packs():
-        if not isinstance(entry, dict) or not isinstance(entry.get("key"), str):
-            continue
-        tracks = entry.get("tracks") if isinstance(entry.get("tracks"), list) else []
-        items.append(_folder("%s (%d tapes)" % (entry.get("name") or entry["key"], len(tracks)),
-                             "RaveTapePacks.com",
-                             "/api/legacy/ravetapepacks/%s" % urllib.parse.quote(entry["key"])))
+    """RaveTapePacks.com: its own Event/DJ/MC/Year indexes."""
+    if request.args.get("all"):
+        return jsonify({"title": "RaveTapePacks.com", "items": [
+            _folder(entry.get("name") or entry["key"],
+                    _source_sub("RaveTapePacks.com", "%d tapes" % len(entry.get("tracks") or [])),
+                    "/api/legacy/ravetapepacks/%s" % urllib.parse.quote(entry["key"]),
+                    ART + "ravetapepacks.png")
+            for entry in legacy.packs()
+            if isinstance(entry, dict) and entry.get("key")]})
+    cats = legacy.categories()
+    items = [
+        _folder("By Event (%d)" % len(cats.get("events", [])),
+                "Dreamscape, One Nation, Helter Skelter, Roast…",
+                "/api/legacy/ravetapepacks/index/events", ART + "rave-nights.png"),
+        _folder("By DJ (%d)" % len(cats.get("djs", [])),
+                "Brockie, Randall, Hype, Slipmatt, SY…",
+                "/api/legacy/ravetapepacks/index/djs", ART + "by-dj.png"),
+        _folder("By MC (%d)" % len(cats.get("mcs", [])),
+                "Det, Fearless, Skibadee, Bassman, Five-O…",
+                "/api/legacy/ravetapepacks/index/mcs", ART + "by-mc.png"),
+        _folder("By Year", "1992 · 1993 · … · 2004",
+                "/api/legacy/ravetapepacks/index/years", ART + "years.png"),
+        _folder("All Packs", "Every RaveTapePacks pack",
+                "/api/legacy/ravetapepacks/all", ART + "ravetapepacks.png"),
+    ]
     return jsonify({"title": "RaveTapePacks.com", "items": items})
+
+
+@app.get("/api/legacy/ravetapepacks/all")
+def api_legacy_rtp_all():
+    return jsonify({"title": "RaveTapePacks.com", "items": [
+        _folder("%s (%d tapes)" % (entry.get("name") or entry["key"],
+                                   len(entry.get("tracks") or [])),
+                "RaveTapePacks.com",
+                "/api/legacy/ravetapepacks/%s" % urllib.parse.quote(entry["key"]),
+                ART + "ravetapepacks.png")
+        for entry in legacy.packs()
+        if isinstance(entry, dict) and entry.get("key")]})
+
+
+@app.get("/api/legacy/ravetapepacks/index/<kind>")
+def api_legacy_rtp_index(kind):
+    if kind not in ("events", "djs", "mcs", "years"):
+        return _json_error("unknown RaveTapePacks index", 404)
+    categories = legacy.categories().get(kind, [])
+    if not categories:
+        return _json_error("RaveTapePacks index unavailable", 502)
+    labels = {"events": "By Event", "djs": "By DJ", "mcs": "By MC", "years": "By Year"}
+    return jsonify({"title": "%s · RaveTapePacks.com" % labels[kind], "items": [
+        _folder(entry["name"], "RaveTapePacks.com",
+                "/api/legacy/ravetapepacks/index/%s/%s" % (kind, entry["id"]),
+                ART + {"events": "rave-nights.png", "djs": "by-dj.png",
+                       "mcs": "by-mc.png", "years": "years.png"}[kind])
+        for entry in categories]})
+
+
+@app.get("/api/legacy/ravetapepacks/index/<kind>/<cat_id>")
+def api_legacy_rtp_category(kind, cat_id):
+    if kind not in ("events", "djs", "mcs", "years") or not cat_id.isdigit():
+        return _json_error("unknown RaveTapePacks category", 404)
+    packs = legacy.category_packs(kind, cat_id)
+    if not packs:
+        return _json_error("no packs in that RaveTapePacks category", 404)
+    return jsonify({"title": "RaveTapePacks.com · category", "items": [
+        _folder(entry.get("name") or entry["key"],
+                _source_sub("RaveTapePacks.com", "%d tapes" % len(entry.get("tracks") or [])),
+                "/api/legacy/ravetapepacks/%s" % urllib.parse.quote(entry["key"]),
+                ART + "ravetapepacks.png")
+        for entry in packs]})
 
 
 @app.get("/api/legacy/ravetapepacks/<path:pack>")
@@ -1974,7 +2053,7 @@ def api_legacy_rtp_pack(pack):
             continue
         playable = legacy.playable(track["url"])
         name = _clean_text(track.get("name"), MAX_TITLE) or "Tape"
-        items.append(_track(name, "Tape", playable, ART + "ravetapepacks.png",
+        items.append(_track(name, "Tape", playable, ART + "tapepacks.png",
                             {"kind": "stream", "target": playable, "title": name}))
     return jsonify({"title": entry.get("name") or pack, "items": items})
 
@@ -2005,18 +2084,6 @@ def api_legacy_jt_show(show_key):
     if not items:
         return _json_error("no recordings for that show", 404)
     return jsonify({"title": show_key.replace("-", " ").replace("_", " "), "items": items})
-
-
-@app.get("/api/legacy/toronto")
-def api_legacy_toronto():
-    items = []
-    for track in legacy.toronto_tracks():
-        if not isinstance(track, dict) or not track.get("url"):
-            continue
-        name = _clean_text(track.get("name"), MAX_TITLE) or "Track"
-        items.append(_track(name, "Toronto Rave Mixtape Archive", track["url"], ART + "toronto.png",
-                            {"kind": "stream", "target": track["url"], "title": name}))
-    return jsonify({"title": "Toronto Rave Mixtape Archive", "items": items})
 
 
 def _embed_items(entries, provider, art):

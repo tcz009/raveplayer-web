@@ -91,5 +91,6 @@ def test_service_worker_registration_is_secure_context_only(web):
 
 def test_service_worker_cache_version_is_current():
     worker = _read("static/sw.js")
-    assert 'raveplayer-shell-v1.6.28' in worker
+    version = _read("VERSION").strip()
+    assert "raveplayer-shell-v%s" % version in worker
     assert "raveplayer-shell-v1.6.19" not in worker

@@ -73,28 +73,28 @@ def test_section_and_rail_icons_are_distinct(web):
     _check_unique(sections, "/api/menu sections")
     _check_unique(rail, "/api/menu rail")
     _check_unique(sections + rail, "/api/menu sections+rail")
-    assert len(sections) == 23
-    assert len(rail) == 9
+    assert len(sections) == 25
+    assert len(rail) == 7
 
 
 def test_pack_genre_rows_are_distinct(web):
     rows = [(item["label"], item["art"]) for item in _items(web, "/api/packs")]
     assert len(rows) == 7
     _check_unique(rows, "/api/packs")
-    expected = {row[1]: app_module.PACK_ART[row[0]] for row in app_module.ARCHIVE_SECTIONS}
-    for label, icon in rows:
-        assert _icon_name(icon) == expected[label]
-    _check_unique(rows + [(row["label"], row["icon"]) for row in
-                          web.get("/api/menu").get_json()["sections"]],
-                  "/api/packs + sections")
+    assert [label for label, _icon in rows] == [
+        "Toronto Rave Mixtape Archive", "JungleTapes.com", "RaveTapePacks.com",
+        "Classic Pack Series", "By Rave, Venue & Promoter", "By Year",
+        "Every Pack",
+    ]
 
 
 def test_live_genre_rows_are_distinct(web):
     rows = [(item["label"], item["art"]) for item in _items(web, "/api/live")]
-    assert len(rows) == 7
+    assert len(rows) == 9
     _check_unique(rows, "/api/live")
-    assert {_icon_name(item["art"]) for item in _items(web, "/api/live")} == \
-        set(app_module.LIVE_ART.values())
+    assert [label for label, _icon in rows[:3]] == [
+        "Kool FM", "Rinse FM", "Centreforce 883"]
+    assert set(app_module.LIVE_ART.values()) <= {_icon_name(icon) for _label, icon in rows}
 
 
 def test_filter_rows_are_distinct(web):
@@ -103,13 +103,6 @@ def test_filter_rows_are_distinct(web):
     _check_unique(rows, "/api/filters")
     assert {_icon_name(item["art"]) for item in _items(web, "/api/filters")} == \
         set(app_module.FILTER_ART.values())
-
-
-def test_legacy_rows_are_distinct(web):
-    rows = [(item["label"], item["art"]) for item in _items(web, "/api/legacy")]
-    _check_unique(rows, "/api/legacy")
-    assert [label for label, _icon in rows] == [
-        "RaveTapePacks.com", "JungleTapes.com"]
 
 
 def test_no_leaf_list_shares_icons_between_rows(web):
@@ -128,7 +121,7 @@ def test_no_row_uses_the_generic_rave_tile_unless_it_is_latest(web):
             assert _icon_name(row["icon"]) == "rave.png"
         else:
             assert _icon_name(row["icon"]) != "rave.png", row["label"]
-    for path in ("/api/packs", "/api/live", "/api/filters", "/api/legacy"):
+    for path in ("/api/packs", "/api/live", "/api/filters"):
         for item in _items(web, path):
             assert _icon_name(item["art"]) != "rave.png", (path, item["label"])
 
@@ -154,10 +147,8 @@ def test_web_icons_are_square_and_sized_for_the_rail():
 
 
 def test_art_tables_cover_every_menu_row():
-    section_icons = {row[2] for row in app_module.SECTIONS}
-    assert section_icons & {row["icon"] for row in app_module.RAIL} == {
-        "rave.png", "tapepacks.png", "radio.png", "favourites.png",
-        "downloads.png", "soundcloud.png"}
+    for row in app_module.SECTIONS + app_module.RAIL:
+        assert os.path.exists(os.path.join(ART, _icon_name(row[2] if isinstance(row, tuple) else row["icon"])))
     assert set(app_module.PACK_ART) == {row[0] for row in app_module.ARCHIVE_SECTIONS}
     assert set(app_module.LIVE_ART) == {row[0] for row in app_module.RADIO_SECTIONS}
     assert set(app_module.FILTER_ART) == {
