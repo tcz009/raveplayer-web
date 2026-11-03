@@ -1,4 +1,4 @@
-# Debug log (opt-in) — 1.6.31
+# Debug log (opt-in) — 1.6.31, menu switch 1.6.32
 
 A client-side ring buffer for chasing browser-only bugs: API requests, download
 jobs, routes, media events, connectivity, service-worker state and uncaught
@@ -7,8 +7,16 @@ never sends anything anywhere.
 
 ## Turn it on
 
+The everyday switch is in the app's existing Help/utility dialog: click **?**
+in the topbar, then **Debug log: off** under **Debugging**. The same button
+turns it off again and its label always reflects the current state
+(**Debug log: on** / **Debug log: off**, plus `aria-pressed`). It is a normal
+focusable button (Enter/Space) and is at least 44 px tall on touch screens.
+
 | How | Effect |
 |---|---|
+| Click **?** → **Debug log: off** | Turns the log on, shows the panel and stores the flag in `localStorage` |
+| Click **?** → **Debug log: on** | Turns it off, hides the panel, clears the stored flag and empties the buffer |
 | Open the app with `?debug=1` | Turns the log on and stores the flag in `localStorage` (survives reloads) |
 | `localStorage.setItem("raveplayer.debug", "1")` then reload | Same, without a query string |
 | Open with `?debug=0` | Turns it off and removes the stored flag |
@@ -16,7 +24,8 @@ never sends anything anywhere.
 | `javascript:localStorage.clear()` | Nukes it with everything else |
 
 The flag key is `raveplayer.debug`; the only accepted on values are `1` and
-`true`. Query string wins over the stored value for that load.
+`true`. Query string wins over the stored value for that load, and the Help
+button is synced from the same resolved state when the page loads.
 
 The app must be opened normally (signed in). The debug bundle is a same-origin
 script (`static/debug.js`) loaded before `static/app.js`; there is no inline
@@ -84,10 +93,13 @@ what you played. Treat it like a screenshot of the app, not a public artifact.
 
 ## Performance
 
-When off, `debug.js` reads the flag and stops. There are no listeners, no
-fetch wrapper, no DOM and no storage writes; `app.js` holds a `null` reference
-and every hook is one boolean check. When on, rendering is batched to one frame
-and the buffer is hard-capped at 500 events, so it cannot grow without bound.
+When off at boot, `debug.js` reads the flag and binds only the Help switch: no
+panel, no fetch wrapper, no capture listeners and no storage writes, and each
+`app.js` hook is one boolean check. Turning the switch off in a running page
+hides the panel, empties the buffer and removes the flag; the capture listeners
+installed earlier stay in place but every `record()` call short-circuits. When
+on, rendering is batched to one frame and the buffer is hard-capped at 500
+events, so it cannot grow without bound.
 
 ## Server side
 
@@ -102,11 +114,15 @@ and the buffer is hard-capped at 500 events, so it cannot grow without bound.
 
 ## Tests
 
-- `test/test_debug.py` — toggle resolution, redaction, the 500-event ring
-  buffer and copy/format output (executed against the real `static/debug.js`
-  with Node), plus the `X-Request-ID` echo/validation/log-correlation contract
-  and the "one spinner" client hooks.
+- `test/test_debug.py` — toggle resolution, the Help switch's persistence/clear
+  behaviour, redaction, the 500-event ring buffer and copy/format output
+  (executed against the real `static/debug.js` with Node), the labelled 44 px
+  switch markup, plus the `X-Request-ID` echo/validation/log-correlation
+  contract and the "one spinner" client hooks.
 - `test_e2e/test_smoke.py` — the panel appears only when opted in, records
   route/API/media events, redacts before display, and Copy/Download/Clear work;
-  and exactly one top-right spinner shows while a background download runs
-  (the pill returns for a slow non-download API load).
+  the Help switch turns the panel on and off by mouse and keyboard, its state
+  and the flag survive a reload, the off state clears flag and buffer, the
+  button reflects `?debug=1` on load, and it has a 44 px mobile target; and
+  exactly one top-right spinner shows while a background download runs (the
+  pill returns for a slow non-download API load).

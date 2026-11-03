@@ -8,6 +8,18 @@
 const assert = require("node:assert");
 const path = require("node:path");
 
+/* A fake localStorage so the Help-dialog switch's persistence can be exercised
+ * in Node. debug.js gates DOM work behind isBrowser(), so no document is
+ * needed: setEnabled() still owns the flag and the ring buffer. */
+const memory = new Map();
+global.window = {
+  localStorage: {
+    getItem: (key) => (memory.has(key) ? memory.get(key) : null),
+    setItem: (key, value) => { memory.set(key, String(value)); },
+    removeItem: (key) => { memory.delete(key); },
+  },
+};
+
 const RaveDebug = require(path.join(__dirname, "..", "..", "static", "debug.js"));
 
 let passed = 0;
@@ -36,6 +48,31 @@ test("?debug=1 and the stored flag enable the log", () => {
   assert.strictEqual(RaveDebug.resolveEnabled("", "true"), true);
   // An explicit ?debug=0 beats a previously stored flag.
   assert.strictEqual(RaveDebug.resolveEnabled("?debug=0", "1"), false);
+});
+
+test("the Help switch persists the flag and starts capture", () => {
+  memory.clear();
+  RaveDebug.setEnabled(false);
+  assert.strictEqual(RaveDebug.enabled, false);
+  assert.strictEqual(memory.has("raveplayer.debug"), false);
+
+  assert.strictEqual(RaveDebug.setEnabled(true), true);
+  assert.strictEqual(RaveDebug.enabled, true);
+  assert.strictEqual(memory.get("raveplayer.debug"), "1");
+  assert.strictEqual(RaveDebug.resolveEnabled("", memory.get("raveplayer.debug")), true);
+  assert.ok(RaveDebug.record("probe", { note: "menu" }));
+});
+
+test("turning the Help switch off clears the flag and the buffer", () => {
+  RaveDebug.record("probe", { note: "about-to-go" });
+  assert.ok(RaveDebug.size > 0);
+
+  assert.strictEqual(RaveDebug.setEnabled(false), false);
+  assert.strictEqual(RaveDebug.enabled, false);
+  assert.strictEqual(memory.has("raveplayer.debug"), false);
+  assert.strictEqual(RaveDebug.size, 0);
+  assert.strictEqual(RaveDebug.record("probe", { note: "after" }), null);
+  assert.strictEqual(RaveDebug.resolveEnabled("", memory.get("raveplayer.debug")), false);
 });
 
 /* ------------------------------------------------------------ redaction */

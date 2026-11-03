@@ -1,10 +1,12 @@
-/* Rave Player — opt-in client-side debug log (1.6.31).
+/* Rave Player — opt-in client-side debug log (1.6.32).
  *
- * Off by default: when the flag is absent this file only reads the flag and
- * stops. No listeners, no DOM, no fetch wrapper, no storage writes.
+ * Off by default: when the flag is absent this file reads the flag, binds the
+ * Help switch and stops. No panel, no fetch wrapper, no capture listeners and
+ * no storage writes until it is switched on.
  *
- * Enable with `?debug=1` (persisted in localStorage) or set
- * `localStorage["raveplayer.debug"] = "1"` and reload. `?debug=0` clears it.
+ * Enable with `?debug=1` (persisted in localStorage), the Help dialog's
+ * "Debug log: off" switch, or `localStorage["raveplayer.debug"] = "1"` and
+ * reload. `?debug=0` and the switch's off state clear it.
  * The panel is local only: Copy goes to the clipboard and Download JSON writes
  * a file, never the network. Every value is redacted before it is stored.
  *
@@ -260,6 +262,64 @@
       state.countEl.textContent = state.events.length + " / " + MAX_EVENTS;
     }
     state.logEl.scrollTop = state.logEl.scrollHeight;
+  }
+
+  /* ------------------------------------------------------------ menu toggle */
+
+  function toggleButton() {
+    if (!isBrowser()) return null;
+    return document.getElementById("debug-toggle");
+  }
+
+  // The help dialog owns the visible switch; keep its label and ARIA state in
+  // step with the URL/localStorage flag so it is correct on first paint too.
+  function syncToggle() {
+    const button = toggleButton();
+    if (!button) return;
+    const on = state.enabled;
+    button.textContent = "Debug log: " + (on ? "on" : "off");
+    button.setAttribute("aria-pressed", on ? "true" : "false");
+    button.setAttribute("aria-label", "Debug log: " + (on ? "on" : "off")
+      + (on ? " — turn off" : " — turn on"));
+    button.classList.toggle("is-on", on);
+  }
+
+  // One path for the menu button: persist the flag, start/stop capture, and
+  // drop the panel and buffered events on the way out.
+  function setEnabled(on) {
+    const enabled = !!on;
+    if (enabled) {
+      storageSet("1");
+      state.enabled = true;
+      if (!state.started) {
+        start();
+      } else {
+        buildPanel();
+        record("debug", { enabled: true, resumed: true });
+      }
+    } else {
+      storageSet(null);
+      state.enabled = false;
+      clear();
+      if (state.panel && state.panel.parentNode) {
+        state.panel.parentNode.removeChild(state.panel);
+      }
+      state.panel = null;
+      state.logEl = null;
+      state.countEl = null;
+      state.renderQueued = false;
+    }
+    syncToggle();
+    return state.enabled;
+  }
+
+  function bindToggle() {
+    const button = toggleButton();
+    if (button && button.dataset.debugToggleBound !== "1") {
+      button.dataset.debugToggleBound = "1";
+      button.addEventListener("click", () => { setEnabled(!state.enabled); });
+    }
+    syncToggle();
   }
 
   /* ------------------------------------------------------------ actions */
@@ -525,8 +585,9 @@
     formatText: formatText,
     copyText: copyText,
     start: start,
-    enable: () => { state.enabled = true; start(); },
-    disable: () => { state.enabled = false; },
+    setEnabled: setEnabled,
+    enable: () => setEnabled(true),
+    disable: () => setEnabled(false),
   };
   Object.defineProperty(api, "enabled", { get: () => state.enabled });
   Object.defineProperty(api, "size", { get: () => state.events.length });
@@ -537,6 +598,7 @@
     state.enabled = resolveEnabled(window.location.search, storageGet());
     if (state.enabled) start();
     window.RaveDebug = api;
+    bindToggle();
   }
 
   if (typeof module === "object" && module.exports) {

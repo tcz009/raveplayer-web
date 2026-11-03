@@ -1000,6 +1000,54 @@ kbd {
 }
 .help-card > button:hover { background: var(--paper); border-color: var(--paper); }
 
+/* 1.6.32 — debug log switch, inside the existing help/utility dialog. */
+.help-debug {
+  margin: 0 0 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.help-debug-title {
+  margin: 0 0 8px;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.debug-toggle {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line-bright);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-align: left;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.debug-toggle:hover { border-color: var(--paper); color: var(--paper); }
+.debug-toggle:focus-visible { outline: 2px solid var(--acid); outline-offset: 2px; }
+.debug-toggle.is-on {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  background: rgba(0, 0, 0, 0.35);
+  box-shadow: 3px 3px 0 rgba(255, 45, 143, 0.55);
+}
+.help-debug-note {
+  margin: 8px 0 0;
+  color: var(--faint);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  line-height: 1.5;
+}
+.help-debug-note code { color: var(--muted); }
+
 .noscript { position: relative; z-index: 5; padding: 20px; color: var(--muted); }
 
 /* ------------------------------------------------- 1.6.15 — brutalist pass
@@ -1064,7 +1112,8 @@ kbd {
 
 @media (pointer: coarse) {
   .icon-btn, .p-controls button, .p-extra button, .queue-head button, .help-btn,
-  .back, .search button, .state-action, .help-card > button { min-width: 44px; min-height: 44px; }
+  .back, .search button, .state-action, .help-card > button,
+  .debug-toggle { min-width: 44px; min-height: 44px; }
   .queue-item, .rail button { min-height: 44px; }
   .row { padding-top: 10px; padding-bottom: 10px; }
   .help-touch, .help-sub { display: block; }

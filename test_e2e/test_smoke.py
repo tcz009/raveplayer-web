@@ -966,3 +966,82 @@ def test_debug_panel_records_exports_and_clears(browser_page, live_server, tmp_p
     assert "hunter2" not in target.read_text(encoding="utf-8")
     _shot(browser_page, "11-debug-panel")
     assert browser_page.page_errors == []
+
+
+def test_debug_menu_toggle_turns_panel_on_and_off(browser_page, live_server):
+    """1.6.32: the Help switch is the same toggle as ?debug=1/?debug=0."""
+    page = browser_page.page
+    toggle = page.locator("#debug-toggle")
+    assert page.locator("#debug-panel").count() == 0
+    assert page.evaluate("() => window.RaveDebug.enabled") is False
+    assert page.evaluate("() => localStorage.getItem('raveplayer.debug')") is None
+
+    # The switch lives in the existing Help/utility dialog and starts off.
+    page.click("#help-btn")
+    assert page.locator("#help").is_visible()
+    assert _text(toggle) == "Debug log: off"
+    assert toggle.get_attribute("aria-pressed") == "false"
+    assert "Debug log: off" in (toggle.get_attribute("aria-label") or "")
+
+    # Keyboard support: focus the real button, press Enter (not a mouse click).
+    toggle.focus()
+    page.keyboard.press("Enter")
+    page.wait_for_selector("#debug-panel", state="visible")
+    assert _text(toggle) == "Debug log: on"
+    assert toggle.get_attribute("aria-pressed") == "true"
+    assert page.evaluate("() => localStorage.getItem('raveplayer.debug')") == "1"
+    _shot(browser_page, "12-debug-toggle-on")
+
+    # Escape closes the dialog only; capture keeps running.
+    page.keyboard.press("Escape")
+    assert page.locator("#help").is_hidden()
+    assert page.locator("#debug-panel").is_visible()
+    page.evaluate("() => window.RaveDebug.record('probe', { note: 'before-reload' })")
+
+    # Reload: the stored flag reopens the panel and the switch reflects it.
+    page.reload(wait_until="domcontentloaded")
+    page.wait_for_selector("#debug-panel", state="visible")
+    assert page.evaluate("() => window.RaveDebug.enabled") is True
+    page.click("#help-btn")
+    assert _text(toggle) == "Debug log: on"
+    assert toggle.get_attribute("aria-pressed") == "true"
+
+    # Keyboard support again: Space turns it off, clearing flag and buffer.
+    toggle.focus()
+    page.keyboard.press("Space")
+    page.wait_for_selector("#debug-panel", state="detached")
+    assert _text(toggle) == "Debug log: off"
+    assert toggle.get_attribute("aria-pressed") == "false"
+    assert page.evaluate("() => localStorage.getItem('raveplayer.debug')") is None
+    assert page.evaluate("() => window.RaveDebug.size") == 0
+    assert page.evaluate(
+        "() => window.RaveDebug.record('probe', { after: 1 })") is None
+    _shot(browser_page, "13-debug-toggle-off")
+
+    # Reload: off sticks and the button still shows the off state.
+    page.reload(wait_until="domcontentloaded")
+    page.wait_for_function("() => window.RaveDebug && window.RaveDebug.enabled === false")
+    assert page.locator("#debug-panel").count() == 0
+    page.click("#help-btn")
+    assert _text(toggle) == "Debug log: off"
+
+    # 44 px mobile target, inside the existing dialog (no new nav row).
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.reload(wait_until="domcontentloaded")
+    page.wait_for_selector("#nav button")
+    page.click("#help-btn")
+    assert toggle.is_visible()
+    box = toggle.bounding_box()
+    assert box is not None
+    assert box["height"] >= 44, box
+    assert box["width"] <= 390, box
+    _shot(browser_page, "14-debug-toggle-mobile")
+
+    # The URL switch still works and updates the button on load.
+    page.goto(live_server.url + "/?debug=1", wait_until="domcontentloaded")
+    page.wait_for_selector("#debug-panel", state="visible")
+    page.click("#help-btn")
+    assert _text(toggle) == "Debug log: on"
+    assert toggle.get_attribute("aria-pressed") == "true"
+    assert page.evaluate("() => localStorage.getItem('raveplayer.debug')") == "1"
+    assert browser_page.page_errors == []

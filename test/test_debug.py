@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""1.6.31 — opt-in client debug log and server request ids.
+"""1.6.31–1.6.32 — opt-in client debug log, menu switch and request ids.
 
 The JavaScript unit checks (toggle, redaction, ring buffer) run under Node so
 they exercise the real ``static/debug.js`` rather than strings in it. The
@@ -38,6 +38,39 @@ def test_index_loads_the_debug_log_before_the_app():
     assert 'id="debug-panel"' not in html
 
 
+def test_help_dialog_has_a_labelled_debug_toggle():
+    """1.6.32: the switch lives in the existing Help/utility dialog."""
+    html = _read("templates/index.html")
+    match = re.search(r'<button\b[^>]*\bid="debug-toggle"[^>]*>(.*?)</button>',
+                      html, re.S)
+    assert match, "the Help dialog has no #debug-toggle button"
+    tag, label = match.group(0), match.group(1)
+    assert 'type="button"' in tag
+    assert 'class="debug-toggle"' in tag
+    assert 'aria-pressed="false"' in tag
+    assert 'aria-label="Debug log: off' in tag
+    assert "Debug log: off" in label
+
+
+def test_debug_toggle_has_focus_and_44px_mobile_styling():
+    css = _read("static/app.css")
+    start = css.index(".debug-toggle {")
+    block = css[start:css.index("}", start)]
+    assert "min-height: 44px" in block
+    assert ".debug-toggle:focus-visible" in css
+    coarse = css[css.index("@media (pointer: coarse)"):]
+    coarse = coarse[:coarse.index("}")]
+    assert ".debug-toggle" in coarse
+
+
+def test_debug_js_owns_the_menu_switch():
+    js = _read("static/debug.js")
+    assert "function setEnabled" in js
+    assert "document.getElementById(\"debug-toggle\")" in js
+    assert 'button.textContent = "Debug log: " + (on ? "on" : "off")' in js
+    assert "setEnabled: setEnabled" in js
+
+
 def test_debug_log_is_local_only():
     js = _read("static/debug.js")
     assert "sendBeacon" not in js
@@ -72,7 +105,7 @@ def test_debug_js_unit_checks():
     result = subprocess.run([NODE, script], cwd=ROOT, capture_output=True,
                             text=True, timeout=60)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "PASS 11 debug.js unit checks" in result.stdout
+    assert "PASS 13 debug.js unit checks" in result.stdout
 
 
 # --------------------------------------------------------------------------- server

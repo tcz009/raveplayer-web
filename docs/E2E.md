@@ -177,3 +177,35 @@ Three 1.6.31 cases were added (22 → 25):
 
 New screenshots: `10-single-spinner.png`, `11-debug-panel.png`
 (`rave-player-space/reports/web-1.6.31/`, not committed).
+
+## Addendum — 1.6.32 (`feature/1.6.32-debug-toggle`)
+
+Run on the 1.6.32 tree with system Chrome (Playwright's own Chromium cannot be
+installed in this sandbox):
+
+```
+$ .venv/bin/python -m pytest -q test
+382 passed
+
+$ RAVEWEB_REQUIRE_BROWSER=1 RAVEWEB_PLAYWRIGHT_NO_SANDBOX=1 \
+  RAVEWEB_CHROMIUM_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  RAVEWEB_ARTIFACTS_DIR="$PWD/rave-player-space/reports/web-1.6.32" \
+  .venv/bin/python -m pytest test_e2e -q
+26 passed
+```
+
+One browser case was added (25 → 26), plus three offline checks for the switch
+markup, its 44 px/focus styling and the real `debug.js` toggle/persistence
+unit path (Node spec is now 13 checks):
+
+- `test_debug_menu_toggle_turns_panel_on_and_off` — the Help dialog's
+  **Debug log: off** button starts off; Enter turns the panel on, writes
+  `localStorage["raveplayer.debug"]="1"` and updates `aria-pressed`; reload
+  restores the panel and the **on** label; Space turns it off, which removes
+  the panel and clears both the flag and the buffer; a further reload stays
+  off, the button still reports off, and `?debug=1` turns it back on with the
+  button in sync. A 390 × 844 pass asserts the button is at least 44 px tall.
+
+New screenshots: `12-debug-toggle-on.png`, `13-debug-toggle-off.png`,
+`14-debug-toggle-mobile.png` (`rave-player-space/reports/web-1.6.32/`, not
+committed).

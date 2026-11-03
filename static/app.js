@@ -22,9 +22,10 @@
   const DEFAULT_EMPTY = "Nothing here — try another section.";
   const SEARCH_EMPTY = "Search the archive — type a query above, or press / to jump to the search box.";
 
-  // 1.6.31 opt-in debug log (static/debug.js). `DEBUG` is null unless the page
-  // was opened with ?debug=1 or the localStorage flag; every hook below is then
-  // a single null/boolean check, so the log costs nothing while it is off.
+  // 1.6.31–1.6.32 opt-in debug log (static/debug.js). `DEBUG` is the debug API
+  // and its `enabled` flag is false unless the page was opened with ?debug=1,
+  // the localStorage flag, or the Help dialog switch; every hook below is then
+  // a single boolean check, so the log costs nothing while it is off.
   const DEBUG = window.RaveDebug || null;
 
   function debugEvent(kind, data) {
