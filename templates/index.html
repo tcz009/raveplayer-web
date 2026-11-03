@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark" data-theme-mode="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#0a0a0f">
-  <meta name="color-scheme" content="dark">
+  <meta name="color-scheme" content="dark light">
   <meta name="application-name" content="Rave Player">
   <meta name="apple-mobile-web-app-title" content="Rave Player">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -15,6 +15,8 @@
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" type="image/png" sizes="512x512" href="/static/art/icon.png">
   <link rel="apple-touch-icon" sizes="180x180" href="/static/art/icon-180.png">
+  <!-- Blocking and before the stylesheet: data-theme is on <html> before first paint. -->
+  <script src="/static/theme.js?v={{ version }}"></script>
   <link rel="stylesheet" href="/static/app.css?v={{ version }}">
   <script src="/static/sw-register.js?v={{ version }}" defer></script>
 </head>
@@ -213,6 +215,25 @@
         <div><dt><kbd>q</kbd></dt><dd>Show the queue</dd></div>
         <div><dt><kbd>Esc</kbd></dt><dd>Close this or the queue</dd></div>
       </dl>
+      <fieldset class="help-appearance">
+        <legend class="help-sub">Appearance</legend>
+        <div class="appearance-options">
+          <label class="appearance-option">
+            <input class="sr-only" type="radio" name="appearance" value="dark">
+            <span>Dark</span>
+          </label>
+          <label class="appearance-option">
+            <input class="sr-only" type="radio" name="appearance" value="light">
+            <span>Light</span>
+          </label>
+          <label class="appearance-option">
+            <input class="sr-only" type="radio" name="appearance" value="system">
+            <span>System</span>
+          </label>
+        </div>
+        <p class="help-appearance-note" id="appearance-note">System follows this
+          device’s light/dark setting. The choice is saved on this device only.</p>
+      </fieldset>
       <div class="help-debug">
         <div class="help-debug-head">
           <p class="help-debug-title">Debugging</p>

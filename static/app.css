@@ -1057,6 +1057,54 @@ body:not(.has-player) .toast {
   letter-spacing: 0.18em;
   text-transform: uppercase;
 }
+/* 1.6.35 — Appearance: Dark / Light / System (static/theme.js owns the mode).
+   Real radio inputs, 44 px labels, and a visible focus ring on the label. */
+.help-appearance {
+  margin: 0 0 18px;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.help-appearance legend { padding: 0; }
+.appearance-options {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.appearance-option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 8px;
+  border: 2px solid var(--paper);
+  background: var(--ink-2, var(--panel));
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.appearance-option:hover { border-color: var(--acid); color: var(--acid); }
+.appearance-option.is-checked {
+  background: var(--acid);
+  border-color: var(--acid);
+  color: var(--ink);
+  box-shadow: 3px 3px 0 var(--magenta);
+}
+.appearance-option:focus-within { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.help-appearance-note {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  line-height: 1.55;
+}
+
 .help-list {
   margin: 0 0 18px;
   display: grid;
@@ -1937,5 +1985,481 @@ body.loading-active .status { opacity: 0; }
   .help-btn, .help-close, .debug-toggle, .help-x {
     transition-duration: 0.001ms !important;
     animation-duration: 0.001ms !important;
+  }
+}
+
+/* ============================================================================
+   1.6.35 — LIGHT "RAVE FLYER" THEME
+   ----------------------------------------------------------------------------
+   Paper stock, ink type, acid/magenta/cyan kept as spot colours. The dark
+   theme above is untouched and remains the default. static/theme.js writes
+   data-theme="light" on <html> before first paint. Layout, logo mark, type
+   scale and interaction behaviour are unchanged.
+
+   Rules for this block:
+   - type flips to ink (--paper is a type token: paper on dark, ink on light)
+   - surfaces get paper tokens; the printed-paper stock is --stock/--stock-2
+   - hard sticker offsets are ink, not magenta/cyan
+   - halftone dots and scanlines drop to a soft ink screen
+   - accent TEXT uses the darker *-ink variants; bright acid/magenta/cyan stay
+     on fills, rules, borders and sticker fields where ink sits on top
+   ========================================================================= */
+
+html[data-theme="light"] {
+  --bg: #f2eee3;
+  --ink: #07070b;
+  --ink-2: #0b0b11;
+  --panel: #eae4d5;
+  --panel-2: #e4ded0;
+  --panel-3: #ddd6c5;
+  --paper: #07070b;          /* type token: ink on paper */
+  --text: #07070b;
+  --muted: #4b4740;          /* 7.96:1 on paper, 5.94:1 on panel-3 */
+  --faint: #575247;          /* 6.70:1 on paper, 5.00:1 on panel-3 */
+  --line: rgba(7, 7, 11, 0.14);
+  --line-bright: rgba(7, 7, 11, 0.30);
+
+  /* print stock, shadow inks and accessible accent text (all AA on paper) */
+  /* spot colours stay the same stock inks in both modes */
+  --acid: #e8ff00;
+  --magenta: #ff2d8f;
+  --cyan: #22e6ff;
+  --orange: #ff6a1a;
+
+  --stock: #f2eee3;
+  --stock-2: #fbf8ef;
+  --sticker-shadow: #07070b;
+  --sticker-shadow-2: #07070b;
+  --acid-ink: #5c4700;       /* 7.69:1 on paper */
+  --magenta-ink: #a30055;    /* 6.74:1 on paper */
+  --cyan-ink: #0a5560;       /* 7.30:1 on paper */
+  --orange-ink: #8f2b00;     /* 7.21:1 on paper */
+
+  color-scheme: light;
+}
+
+html[data-theme="light"] body {
+  background:
+    radial-gradient(1100px 620px at 88% -12%, rgba(255, 45, 143, 0.09), transparent 62%),
+    radial-gradient(900px 560px at 4% 108%, rgba(34, 230, 255, 0.10), transparent 60%),
+    var(--bg);
+}
+
+/* soft ink screen instead of the dark CRT scanline */
+html[data-theme="light"] .halftone {
+  background-image:
+    repeating-linear-gradient(0deg, rgba(7, 7, 11, 0.045) 0 1px, transparent 1px 4px),
+    radial-gradient(rgba(7, 7, 11, 0.10) 1px, transparent 1.2px),
+    radial-gradient(rgba(255, 45, 143, 0.06) 1px, transparent 1.2px),
+    repeating-linear-gradient(135deg, transparent 0 8px, rgba(7, 7, 11, 0.02) 8px 9px);
+  background-size: auto, 9px 9px, 13px 13px, auto;
+  background-position: 0 0, 0 0, 4px 5px, 0 0;
+}
+
+html[data-theme="light"] ::selection { background: var(--ink); color: var(--stock); }
+
+/* ---------------------------------------------------------------- topbar */
+html[data-theme="light"] .topbar { background: rgba(242, 238, 227, 0.90); }
+html[data-theme="light"] .topbar::after {
+  background: repeating-linear-gradient(90deg, var(--magenta) 0 18px, transparent 18px 36px);
+  opacity: 0.55;
+}
+html[data-theme="light"] .search input {
+  background: var(--stock-2);
+  color: var(--ink);
+  border-color: var(--line-bright);
+}
+html[data-theme="light"] .search input:hover { border-color: var(--ink); }
+html[data-theme="light"] .search input:focus {
+  border-color: var(--ink);
+  background: #fffdf7;
+  box-shadow: 0 0 0 3px rgba(7, 7, 11, 0.14);
+}
+html[data-theme="light"] .search button { border-color: var(--ink); }
+html[data-theme="light"] .search button:hover { background: var(--stock); border-color: var(--ink); }
+
+/* sticker buttons: petal-clean borders, ink offsets (never the magenta shadow) */
+html[data-theme="light"] .surprise-btn {
+  border-color: var(--stock);
+  box-shadow: 3px 3px 0 var(--sticker-shadow);
+}
+html[data-theme="light"] .surprise-btn:hover {
+  background: var(--stock);
+  border-color: var(--ink);
+  box-shadow: 3px 3px 0 var(--sticker-shadow-2);
+}
+html[data-theme="light"] .help-btn {
+  border-color: var(--ink);
+  box-shadow: 3px 3px 0 var(--sticker-shadow);
+}
+html[data-theme="light"] .help-btn:hover {
+  background: var(--stock);
+  border-color: var(--ink);
+  box-shadow: 3px 3px 0 var(--sticker-shadow-2);
+}
+
+/* Wordmark: geometry/type/mark untouched; on paper the type is ink so it
+   stays legible and keeps its original magenta/cyan second-pass offsets. */
+html[data-theme="light"] .name { color: var(--ink); text-shadow: 3px 3px 0 var(--magenta); }
+html[data-theme="light"] .name em { color: var(--ink); text-shadow: 3px 3px 0 var(--cyan); }
+
+html[data-theme="light"] .status::before {
+  background: var(--magenta-ink);
+  box-shadow: 0 0 0 2px rgba(255, 45, 143, 0.16);
+}
+
+/* ---------------------------------------------------------------- rail */
+html[data-theme="light"] .rail {
+  background: linear-gradient(180deg, rgba(234, 228, 213, 0.92), rgba(242, 238, 227, 0.98));
+}
+html[data-theme="light"] .rail button {
+  background: linear-gradient(180deg, var(--panel-2), var(--panel));
+  color: var(--ink);
+}
+html[data-theme="light"] .rail button:hover {
+  background: linear-gradient(180deg, var(--stock-2), var(--panel-2));
+  border-color: var(--ink);
+  color: var(--ink);
+  box-shadow: 3px 3px 0 var(--sticker-shadow);
+}
+html[data-theme="light"] .rail button:hover .rail-code { color: var(--ink); }
+html[data-theme="light"] .rail button.active {
+  background: var(--stock-2);
+  color: var(--ink);
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink), 4px 4px 0 var(--sticker-shadow);
+}
+html[data-theme="light"] .rail button.active img { box-shadow: 0 0 0 1px var(--ink); }
+html[data-theme="light"] .rail button.active .rail-code { color: var(--magenta-ink); }
+
+/* ---------------------------------------------------------------- stage */
+html[data-theme="light"] .stage::before {
+  background-image:
+    linear-gradient(180deg, rgba(242, 238, 227, 0.58) 0%, rgba(242, 238, 227, 0.80) 58%, var(--bg) 100%),
+    linear-gradient(90deg, rgba(242, 238, 227, 0.94) 0%, rgba(242, 238, 227, 0.70) 28%,
+                    rgba(242, 238, 227, 0.20) 60%, rgba(242, 238, 227, 0.06) 100%),
+    url("/static/art/hero.jpg");
+  background-size: cover, cover, cover;
+  background-position: center top, center top, 66% 30%;
+}
+html[data-theme="light"] .stage-head h1 {
+  color: var(--ink);
+  text-shadow: 3px 3px 0 rgba(7, 7, 11, 0.18);
+}
+html[data-theme="light"] .back {
+  background: var(--stock);
+  border-color: var(--ink);
+  color: var(--ink);
+  box-shadow: 4px 4px 0 var(--sticker-shadow);
+}
+html[data-theme="light"] .back:hover {
+  background: var(--acid);
+  border-color: var(--ink);
+  box-shadow: 4px 4px 0 var(--sticker-shadow-2);
+}
+
+/* ---------------------------------------------------------------- list */
+html[data-theme="light"] .list { background: rgba(242, 238, 227, 0.55); }
+html[data-theme="light"] .row {
+  background-image:
+    repeating-linear-gradient(135deg, transparent 0 7px, rgba(7, 7, 11, 0.022) 7px 8px),
+    linear-gradient(145deg, #faf6ec, #eee8da);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+html[data-theme="light"] .row:hover {
+  border-color: rgba(7, 7, 11, 0.42);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.60), 0 8px 22px rgba(7, 7, 11, 0.10);
+}
+html[data-theme="light"] .row:focus-within { border-color: var(--ink); }
+html[data-theme="light"] .row.playing {
+  border-color: var(--ink);
+  background-image:
+    repeating-linear-gradient(135deg, transparent 0 7px, rgba(232, 255, 0, 0.18) 7px 8px),
+    linear-gradient(145deg, #fbf7e9, #f0ead9);
+}
+html[data-theme="light"] .row.playing .row-label::before {
+  background: linear-gradient(90deg,
+    var(--magenta-ink) 0 2px, transparent 2px 5px,
+    var(--magenta-ink) 5px 7px, transparent 7px 10px,
+    var(--magenta-ink) 10px 12px, transparent 12px 14px);
+}
+html[data-theme="light"] .row-art {
+  border-color: rgba(7, 7, 11, 0.16);
+  background: var(--panel-2);
+}
+html[data-theme="light"] .icon-btn { background: var(--panel); }
+html[data-theme="light"] .icon-btn:hover,
+html[data-theme="light"] .icon-btn.play {
+  color: var(--magenta-ink);
+  border-color: var(--magenta-ink);
+}
+html[data-theme="light"] .icon-btn.faved {
+  color: var(--magenta-ink);
+  border-color: var(--magenta-ink);
+}
+html[data-theme="light"] .state.is-error {
+  border-color: rgba(163, 0, 85, 0.45);
+  background: rgba(255, 45, 143, 0.10);
+  color: #7a003a;
+}
+html[data-theme="light"] .banner {
+  border-color: rgba(143, 43, 0, 0.45);
+  background: rgba(255, 106, 26, 0.10);
+  color: #7a2a00;
+}
+html[data-theme="light"] .skeleton .row-art,
+html[data-theme="light"] .skeleton .bar {
+  background: linear-gradient(90deg, #e3ddce 0%, #f7f3e8 50%, #e3ddce 100%);
+  background-size: 220% 100%;
+}
+html[data-theme="light"] .spinner {
+  border-color: rgba(7, 7, 11, 0.18);
+  border-top-color: var(--magenta-ink);
+}
+
+/* ---------------------------------------------------------------- player */
+html[data-theme="light"] .player { background: rgba(242, 238, 227, 0.97); }
+html[data-theme="light"] .player::before {
+  background: repeating-linear-gradient(90deg, var(--magenta-ink) 0 7px, transparent 7px 19px);
+  opacity: 0.30;
+}
+html[data-theme="light"] .p-art { border-color: rgba(7, 7, 11, 0.18); }
+html[data-theme="light"] .p-controls button { background: var(--panel); }
+html[data-theme="light"] .p-controls button:hover {
+  color: var(--ink);
+  border-color: var(--ink);
+  background: var(--panel-2);
+}
+html[data-theme="light"] .p-status { color: var(--orange-ink); }
+html[data-theme="light"] .p-play:focus-visible { outline-color: var(--ink); }
+html[data-theme="light"] .p-seek input { accent-color: var(--magenta-ink); }
+html[data-theme="light"] .queue:hover,
+html[data-theme="light"] .queue[aria-expanded="true"] {
+  color: var(--ink);
+  border-color: var(--magenta-ink);
+}
+html[data-theme="light"] .p-extra button:hover { color: var(--ink); border-color: var(--ink); }
+html[data-theme="light"] .p-extra button.faved,
+html[data-theme="light"] .p-extra .fav[aria-pressed="true"] {
+  color: var(--magenta-ink);
+  border-color: var(--magenta-ink);
+}
+html[data-theme="light"] #p-airplay.connected { color: var(--cyan-ink); border-color: var(--cyan-ink); }
+html[data-theme="light"] .queue-panel {
+  background: var(--panel);
+  box-shadow: 0 24px 60px rgba(7, 7, 11, 0.24);
+}
+html[data-theme="light"] .queue-head { background: var(--panel-2); }
+html[data-theme="light"] .queue-item[aria-current="true"] {
+  color: var(--ink);
+  background: var(--stock-2);
+  box-shadow: inset 2px 0 0 var(--magenta-ink);
+}
+html[data-theme="light"] .toast {
+  background: var(--stock-2);
+  color: var(--ink);
+  box-shadow: 0 12px 30px rgba(7, 7, 11, 0.18);
+}
+
+/* ---------------------------------------------------------------- help */
+html[data-theme="light"] .help { background: rgba(7, 7, 11, 0.52); }
+html[data-theme="light"] .help::before {
+  background-image:
+    repeating-linear-gradient(0deg, rgba(7, 7, 11, 0.035) 0 1px, transparent 1px 4px),
+    radial-gradient(rgba(7, 7, 11, 0.08) 1px, transparent 1.2px),
+    radial-gradient(rgba(255, 45, 143, 0.05) 1px, transparent 1.2px);
+  background-size: auto, 10px 10px, 14px 14px;
+  background-position: 0 0, 0 0, 4px 5px;
+  opacity: 0.45;
+}
+html[data-theme="light"] .help-card {
+  background: var(--stock-2);
+  border-color: var(--ink);
+  box-shadow: 8px 8px 0 var(--sticker-shadow), 0 0 0 1px var(--ink);
+}
+html[data-theme="light"] .help-card::before { background: var(--magenta); }
+html[data-theme="light"] .help-card h2 {
+  color: var(--ink);
+  text-shadow: 4px 4px 0 rgba(7, 7, 11, 0.18);
+}
+html[data-theme="light"] .help-kicker,
+html[data-theme="light"] .help-sub { color: var(--acid-ink); }
+html[data-theme="light"] .help-x {
+  border-color: var(--ink);
+  color: var(--ink);
+  box-shadow: 3px 3px 0 var(--sticker-shadow);
+}
+html[data-theme="light"] .help-x:hover {
+  background: var(--magenta);
+  border-color: var(--ink);
+  color: var(--ink);
+  box-shadow: 3px 3px 0 var(--sticker-shadow);
+}
+html[data-theme="light"] .help-touch {
+  background: rgba(7, 7, 11, 0.05);
+  border-left-color: var(--magenta-ink);
+  color: var(--ink);
+}
+html[data-theme="light"] .help-list { border-top-color: var(--line-bright); }
+html[data-theme="light"] .help-list dd { color: var(--ink); }
+html[data-theme="light"] kbd {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--stock);
+  box-shadow: 2px 2px 0 rgba(7, 7, 11, 0.25);
+}
+html[data-theme="light"] .appearance-option {
+  background: var(--stock-2);
+  border-color: var(--ink);
+  color: var(--ink);
+}
+html[data-theme="light"] .appearance-option:hover {
+  border-color: var(--magenta-ink);
+  color: var(--magenta-ink);
+}
+html[data-theme="light"] .appearance-option.is-checked {
+  background: var(--acid);
+  border-color: var(--ink);
+  color: var(--ink);
+  box-shadow: 3px 3px 0 var(--sticker-shadow);
+}
+html[data-theme="light"] .appearance-option:focus-within { outline-color: var(--ink); }
+html[data-theme="light"] .help-appearance-note { color: var(--muted); }
+html[data-theme="light"] .help-debug {
+  background: var(--panel-2);
+  border-color: var(--ink);
+  box-shadow: 5px 5px 0 var(--sticker-shadow);
+}
+html[data-theme="light"] .help-debug-title { color: var(--ink); }
+html[data-theme="light"] .help-debug-badge {
+  border-color: var(--magenta-ink);
+  color: var(--magenta-ink);
+}
+html[data-theme="light"] .debug-toggle {
+  background: var(--stock-2);
+  border-color: var(--ink);
+  color: var(--ink);
+  box-shadow: 3px 3px 0 var(--sticker-shadow);
+}
+html[data-theme="light"] .debug-toggle:hover {
+  background: var(--ink);
+  color: var(--stock);
+  box-shadow: 3px 3px 0 var(--sticker-shadow);
+}
+html[data-theme="light"] .debug-toggle.is-on {
+  border-color: var(--cyan-ink);
+  color: var(--cyan-ink);
+  background: rgba(34, 230, 255, 0.20);
+  box-shadow: 3px 3px 0 var(--sticker-shadow);
+}
+html[data-theme="light"] .help-debug-note { color: var(--muted); }
+html[data-theme="light"] .help-debug-note code { color: var(--cyan-ink); }
+html[data-theme="light"] .help-close {
+  background: var(--acid);
+  border-color: var(--ink);
+  color: var(--ink);
+  box-shadow: 4px 4px 0 var(--sticker-shadow);
+}
+html[data-theme="light"] .help-close:hover {
+  background: var(--stock);
+  box-shadow: 4px 4px 0 var(--sticker-shadow-2);
+}
+
+/* ---------------------------------------------------------------- downloads */
+html[data-theme="light"] .download-panel {
+  background: var(--panel);
+  border-color: var(--ink);
+  color: var(--ink);
+  box-shadow: 6px 6px 0 var(--sticker-shadow);
+}
+html[data-theme="light"] .download-title { color: var(--ink); }
+html[data-theme="light"] .download-line { color: var(--muted); }
+html[data-theme="light"] .download-hint { color: var(--faint); }
+html[data-theme="light"] .dl-bar { background: var(--stock-2); }
+html[data-theme="light"] .dl-bar-fill { background: var(--magenta-ink); }
+html[data-theme="light"] .dl-bar.indeterminate .dl-bar-fill {
+  background: repeating-linear-gradient(90deg, var(--magenta-ink) 0 10px, transparent 10px 20px);
+}
+html[data-theme="light"] .dl-percent { color: var(--magenta-ink); }
+html[data-theme="light"] .dl-cancel {
+  background: var(--magenta);
+  border-color: var(--ink);
+  color: var(--ink);
+  box-shadow: 3px 3px 0 var(--sticker-shadow);
+}
+html[data-theme="light"] .dl-cancel:hover {
+  background: var(--stock);
+  border-color: var(--ink);
+  box-shadow: 3px 3px 0 var(--sticker-shadow);
+}
+html[data-theme="light"] .dl-background {
+  background: var(--acid);
+  border-color: var(--ink);
+  color: var(--ink);
+  box-shadow: 3px 3px 0 var(--sticker-shadow);
+}
+html[data-theme="light"] .dl-background:hover {
+  background: var(--stock);
+  box-shadow: 3px 3px 0 var(--sticker-shadow);
+}
+html[data-theme="light"] .job-chip { border-color: var(--ink); background: var(--ink); color: var(--acid); }
+html[data-theme="light"] .job-chip[data-state="queued"] { color: var(--stock); border-color: var(--ink); }
+html[data-theme="light"] .job-cancel { border-color: var(--ink); color: var(--ink); }
+html[data-theme="light"] .job-cancel:hover { background: var(--magenta); color: var(--ink); }
+html[data-theme="light"] .job-progress span { background: var(--magenta-ink); }
+html[data-theme="light"] .loading-pill { box-shadow: 2px 2px 0 var(--ink); border-color: var(--ink); }
+
+/* ---------------------------------------------------------------- overlays */
+html[data-theme="light"] .surprise-reveal { background: rgba(242, 238, 227, 0.92); }
+html[data-theme="light"] .surprise-kicker { color: var(--magenta-ink); }
+html[data-theme="light"] .surprise-pick { color: var(--ink); text-shadow: 5px 5px 0 var(--magenta); }
+html[data-theme="light"] .embed-panel { background: rgba(7, 7, 11, 0.55); }
+html[data-theme="light"] .embed-card {
+  background: var(--panel);
+  box-shadow: 0 24px 60px rgba(7, 7, 11, 0.24);
+}
+html[data-theme="light"] .embed-title { color: var(--ink); }
+html[data-theme="light"] .embed-link { color: var(--ink); border-color: var(--line-bright); }
+html[data-theme="light"] .embed-frame-wrap {
+  background:
+    radial-gradient(60% 60% at 50% 42%, rgba(255, 45, 143, 0.08), transparent 70%),
+    repeating-linear-gradient(135deg, transparent 0 9px, rgba(7, 7, 11, 0.03) 9px 10px),
+    var(--panel-2);
+}
+html[data-theme="light"] .embed-note { color: var(--faint); }
+html[data-theme="light"] .debug-panel {
+  background: var(--panel);
+  border-color: var(--ink);
+  color: var(--ink);
+  box-shadow: 4px 4px 0 var(--sticker-shadow);
+}
+html[data-theme="light"] .debug-head { background: var(--panel-2); }
+html[data-theme="light"] .debug-title { color: var(--cyan-ink); }
+html[data-theme="light"] .debug-btn { color: var(--ink); border-color: var(--line-bright); }
+html[data-theme="light"] .debug-btn:hover,
+html[data-theme="light"] .debug-btn:focus-visible {
+  border-color: var(--magenta-ink);
+  color: var(--magenta-ink);
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+html[data-theme="light"] .debug-kind { color: var(--magenta-ink); }
+html[data-theme="light"] .debug-line:nth-child(even) .debug-kind { color: var(--acid-ink); }
+html[data-theme="light"] .debug-body { color: var(--muted); }
+html[data-theme="light"] .debug-line { border-bottom-color: rgba(7, 7, 11, 0.10); }
+html[data-theme="light"] .debug-note { color: var(--faint); }
+
+/* ---------------------------------------------------------------- focus */
+html[data-theme="light"] :focus-visible { outline-color: var(--ink); }
+
+@media (max-width: 860px) {
+  html[data-theme="light"] .stage::before {
+    background-image:
+      linear-gradient(180deg, rgba(242, 238, 227, 0.62) 0%, rgba(242, 238, 227, 0.86) 62%, var(--bg) 100%),
+      linear-gradient(90deg, rgba(242, 238, 227, 0.94) 0%, rgba(242, 238, 227, 0.56) 58%,
+                      rgba(242, 238, 227, 0.10) 100%),
+      url("/static/art/hero-960.jpg");
+    background-size: cover, cover, cover;
+    background-position: center top, center top, 62% 20%;
   }
 }

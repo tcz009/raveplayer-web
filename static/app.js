@@ -27,6 +27,9 @@
   // the localStorage flag, or the Help dialog switch; every hook below is then
   // a single boolean check, so the log costs nothing while it is off.
   const DEBUG = window.RaveDebug || null;
+  // 1.6.35 appearance (static/theme.js). THEME is the early boot script that
+  // already put data-theme on <html>; the Help dialog only writes the choice.
+  const THEME = window.RaveTheme || null;
 
   function debugEvent(kind, data) {
     if (DEBUG && DEBUG.enabled) DEBUG.record(kind, data);
@@ -1966,12 +1969,32 @@
     }
   }
 
+  /* ------------------------------------------------------------ appearance */
+
+  function syncAppearance() {
+    const mode = THEME ? THEME.get() : "dark";
+    document.querySelectorAll('input[name="appearance"]').forEach((input) => {
+      const on = input.value === mode;
+      input.checked = on;
+      const label = input.closest(".appearance-option");
+      if (label) label.classList.toggle("is-checked", on);
+    });
+  }
+
+  function setAppearance(mode) {
+    if (!THEME) return;
+    THEME.set(mode);
+    syncAppearance();
+    debugEvent("theme", { mode: THEME.get() });
+  }
+
   /* ------------------------------------------------------------ help */
 
   function toggleHelp(force) {
     const open = typeof force === "boolean" ? force : helpEl.hidden;
     helpEl.hidden = !open;
     if (open) {
+      syncAppearance();
       // Focus the card, not the Close button: on a small screen focusing the
       // button scrolls the card past the touch instructions.
       const card = helpEl.querySelector(".help-card");
@@ -2190,6 +2213,13 @@
   $("help-close").addEventListener("click", () => toggleHelp(false));
   $("help-close-top").addEventListener("click", () => toggleHelp(false));
   helpEl.addEventListener("click", (event) => { if (event.target === helpEl) toggleHelp(false); });
+  document.querySelectorAll('input[name="appearance"]').forEach((input) => {
+    input.addEventListener("change", () => {
+      if (input.checked) setAppearance(input.value);
+    });
+  });
+  window.addEventListener("rave:theme", syncAppearance);
+  syncAppearance();
 
   $("p-fav").addEventListener("click", () => {
     const item = state.current && state.current.item;
@@ -2252,6 +2282,17 @@
   function playbackItem() {
     return state.current && state.current.item ? state.current.item : null;
   }
+  function playbackSource(item) {
+    const explicit = (item && item.download && item.download.source)
+      || (item && item.source) || (item && item.provider) || (item && item.origin) || "";
+    if (explicit) return String(explicit).slice(0, 64);
+    const url = String((item && item.play) || "");
+    if (/archive\.org/i.test(url)) return "Internet Archive";
+    if (/moxser/i.test(url)) return "Moxser";
+    if (/hardscore/i.test(url)) return "Hardscore";
+    if (/mixcloud/i.test(url)) return "Mixcloud";
+    return "";
+  }
   function playbackPayload(playState) {
     const item = playbackItem();
     if (!item) return null;
@@ -2259,7 +2300,7 @@
     return {
       state: playState,
       label: String((item && item.label) || "").slice(0, 300),
-      source: String((item && (item.download && item.download.source || item.source)) || "").slice(0, 64),
+      source: playbackSource(item),
       position: Math.max(0, Number(audio.currentTime) || 0),
       duration: isFinite(duration) && duration > 0 ? duration : null,
       client_ts: Date.now() / 1000,
