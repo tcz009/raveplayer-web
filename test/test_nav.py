@@ -57,9 +57,11 @@ def test_rail_hub_returns_a_folder_per_section(web):
     payload = web.get("/api/rail/shows").get_json()
     assert payload["title"] == "Mixes & Shows"
     labels = [item["label"] for item in payload["items"]]
-    assert labels == ["Podcasts & Mixes", "DNB Radio", "Moxser Mixes", "Hardscore"]
+    assert labels == ["Podcasts & Mixes", "DNB Radio", "Moxser Mixes",
+                      "Hardscore", "Toronto Rave Mixtape Archive"]
     assert [item["open"] for item in payload["items"]] == [
         "/api/podcasts", "/api/dnb", "/api/moxser", "/api/hardscore",
+        "/api/toronto",
     ]
 
     packs = web.get("/api/rail/packs").get_json()

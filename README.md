@@ -41,6 +41,11 @@ The sections behind the groups:
 - **Hardscore** — hardcore/jungle tapes from hardscore.com (direct MP3 when the
   post has one, otherwise the post opens on the source site) plus its event
   listings.
+- **Toronto Rave Mixtape Archive** — 1990s Toronto jungle/house/studio/X-Static
+  recordings from [torontoravemixtapearchive.com](https://torontoravemixtapearchive.com/);
+  direct MP3s under `/files/...`, played through `/api/stream` and downloadable
+  through the existing direct-file path. Genre pages, search and the API are in
+  [`docs/TORONTO.md`](docs/TORONTO.md). Credit: the independent TRMA archive.
 - **Rave Archive UK** — rave tape scans from rave-archive.com; each release
   opens its Mixcloud player in the shared embed panel.
 - **GetDarker** — dubstep/grime/140 sets from GetDarker's RSS and curated
@@ -52,20 +57,21 @@ The sections behind the groups:
 - **Rave Nights** — the 55-name researched catalogue of promotions, venues and
   pirate stations, opening the Archive packs and Mixcloud sets recorded for
   each.
-- **Legacy Sites** — RaveTapePacks.com, JungleTapes.com, Toronto archive.
+- **Legacy Sites** — RaveTapePacks.com, JungleTapes.com (Toronto archive is now a first-class source above).
 - **Favourites** — stored server-side in `RAVEWEB_DATA`.
 - **Downloads** — explicit, direct-file saves kept under `RAVEWEB_DATA/downloads`
   and scoped per owner/friends identity (legacy global library becomes the
   owner's; see [`docs/PER-USER.md`](docs/PER-USER.md))
   (Archive tracks, Moxser MP3s, Hardscore MP3/M4A, Pirate Radio Archives direct
-  files). Each row shows size/date, plays from the local copy offline, can be
+  files, Toronto Rave Mixtape Archive MP3s). Each row shows size/date, plays from the local copy offline, can be
   saved to another device (Content-Disposition + Range) and deleted.
   **Background jobs** (1.6.23) keep saving after the progress panel is dismissed
   or the tab closes: a spinner/percent chip links to the Downloads view, where
   queued/downloading rows can be cancelled; owners see all users' jobs, friends
   only their own. See `docs/DOWNLOADS.md`. Provider
-  pages (Mixcloud/SoundCloud/YouTube), live streams, HLS, podcasts, legacy
-  scrapers and GetDarker are never downloadable in phase 1; nothing downloads
+  pages (Mixcloud/SoundCloud/YouTube), live streams, HLS, podcasts, legacy scrapers
+  (except the promoted Toronto direct-MP3 source) and GetDarker are never
+  downloadable in phase 1; nothing downloads
   automatically. See [`docs/DOWNLOADS.md`](docs/DOWNLOADS.md).
 
 
@@ -296,6 +302,7 @@ an owner session or `Authorization: Bearer $RAVEWEB_WIDGET_TOKEN`; friends are
 | `/api/raves`, `/api/rave/<key>` | Rave Nights catalogue and one entry |
 | `/api/moxser`, `/api/moxser/<slug>` | Moxser mixes; `<slug>` resolves to `{url}` (played via `/api/stream`) |
 | `/api/hardscore` | Hardscore mixes (direct MP3 where available) + events |
+| `/api/toronto?genre=&q=` | Toronto Rave Mixtape Archive genre hub/rows/search |
 | `/api/ravearchive`, `/api/ravearchive/<slug>` | Rave Archive UK releases; detail returns the Mixcloud `embed` row |
 | `/api/getdarker` | GetDarker sets (Mixcloud `embed` rows, source link fallback) |
 | `/api/pirate`, `/api/pirate/<station>` | Curated Pirate Radio Archives: stations then entries |
@@ -384,9 +391,9 @@ typography, hero and texture language — is documented in
 
 ## Tests
 
-### Offline suite (396 cases)
+### Offline suite (405 cases)
 
-The offline suite is 396 cases (all providers mocked) and uses the Flask test
+The offline suite is 405 cases (all providers mocked) and uses the Flask test
 client. `pytest` is a test-only dependency:
 
 ```sh

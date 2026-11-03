@@ -45,7 +45,7 @@ from flask.sessions import SecureCookieSessionInterface
 
 from core import (archive, audit, auth, cache, dnbradio, download_jobs, downloads,
                   favourites, feeds, getdarker, hardscore, latest, legacy, mixcloud,
-                  moxser, pirate, playback, radio, raves, ravearchive, soundcloud)
+                  moxser, pirate, playback, radio, raves, ravearchive, soundcloud, toronto)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.config["JSON_SORT_KEYS"] = False
@@ -218,7 +218,7 @@ DOWNLOAD_MAX_TOTAL = _env_bytes("RAVEWEB_DOWNLOAD_TOTAL", 2 * 1024 * 1024 * 1024
                                 1024 * 1024, 16 * 1024 * 1024 * 1024)
 DOWNLOAD_MAX_ITEMS = 200
 DOWNLOAD_DEADLINE = 1800  # seconds for one proxy download
-DOWNLOAD_SOURCES = ("archive", "moxser", "hardscore", "pirate")
+DOWNLOAD_SOURCES = ("archive", "moxser", "hardscore", "pirate", "toronto")
 DOWNLOAD_EXTENSIONS = (".mp3", ".m4a")
 DOWNLOAD_JOB_CONCURRENCY = max(1, min(2, int(os.environ.get("RAVEWEB_DOWNLOAD_JOBS", "2") or 2)))
 DOWNLOAD_JOB_MAX = 20
@@ -231,12 +231,14 @@ DOWNLOAD_SOURCE_LABELS = {
     "moxser": "Moxser",
     "hardscore": "Hardscore",
     "pirate": "Pirate Radio Archives",
+    "toronto": "Toronto Rave Mixtape Archive",
 }
 DOWNLOAD_SOURCE_ART = {
     "archive": ART + "tapepacks.png",
     "moxser": ART + "radio.png",
     "hardscore": ART + "hardcore.png",
     "pirate": ART + "pirate.png",
+    "toronto": ART + "rave.png",
 }
 
 _REDIRECT_CODES = frozenset((301, 302, 303, 307, 308))
@@ -297,6 +299,7 @@ SECTIONS = [
     ("soundcloud", "SoundCloud Sets", "pirate.png", "Curated live sets"),
     ("moxser", "Moxser Mixes", "radio.png", "Underground radio mixes, direct MP3"),
     ("hardscore", "Hardscore", "hardcore.png", "Hardcore/jungle tapes and events"),
+    ("toronto", "Toronto Rave Mixtape Archive", "rave.png", "Toronto jungle, house, studio and X-Static direct MP3s"),
     ("ravearchive", "Rave Archive UK", "tapepacks.png", "Rave tape scans with Mixcloud"),
     ("getdarker", "GetDarker", "jungle.png", "Dubstep/grime sets on Mixcloud"),
     ("pirates", "Pirate Radio Archives", "pirate.png", "Curated pirate-radio recordings"),
@@ -324,6 +327,7 @@ SECTION_PATHS = {
     "soundcloud": "/api/soundcloud",
     "moxser": "/api/moxser",
     "hardscore": "/api/hardscore",
+    "toronto": "/api/toronto",
     "ravearchive": "/api/ravearchive",
     "getdarker": "/api/getdarker",
     "pirates": "/api/pirate",
@@ -344,7 +348,7 @@ RAIL = [
     {"id": "packs", "label": "Tape Packs", "icon": "tapepacks.png",
      "children": ["packs", "years", "filters"], "sub": "Archive packs, years, classic series"},
     {"id": "shows", "label": "Mixes & Shows", "icon": "radio.png",
-     "children": ["podcasts", "dnb", "moxser", "hardscore"], "sub": "Shows, mixes and radio archives"},
+     "children": ["podcasts", "dnb", "moxser", "hardscore", "toronto"], "sub": "Shows, mixes and radio archives"},
     {"id": "sets", "label": "Club & Rave Sets", "icon": "djez.png",
      "children": ["mixcloud", "getdarker", "ravearchive", "ukg", "raves"],
      "sub": "Embedded sets and rave nights"},
@@ -1610,6 +1614,50 @@ def api_hardscore():
     return jsonify({"title": "Hardscore", "items": items})
 
 
+@app.get("/api/toronto")
+def api_toronto():
+    """Toronto Rave Mixtape Archive — genre directories and direct MP3s."""
+    genre = (request.args.get("genre") or "").strip().lower()
+    query = _clean_text(request.args.get("q", ""), MAX_QUERY)
+    try:
+        limit = max(1, min(int(request.args.get("limit", "60")), 200))
+    except (TypeError, ValueError):
+        limit = 60
+    if query:
+        entries = toronto.search(query, limit=limit)
+        title = "Toronto Rave Mixtape Archive: %s" % query
+    elif genre:
+        entry = toronto.GENRE_BY_ID.get(genre)
+        if not entry:
+            return _json_error("unknown Toronto genre", 404)
+        entries = toronto.genre_items(genre, limit=limit)
+        title = "Toronto Rave Mixtape Archive: %s" % entry["label"]
+    else:
+        items = []
+        for entry in toronto.genres():
+            items.append(_folder(
+                entry["label"], "Direct MP3s · Toronto Rave Mixtape Archive",
+                "/api/toronto?genre=%s" % urllib.parse.quote(entry["id"]),
+                ART + "rave.png"))
+        return jsonify({"title": "Toronto Rave Mixtape Archive", "items": items})
+    items = []
+    for entry in entries:
+        name = _clean_text(entry.get("title"), MAX_TITLE)
+        if not name:
+            continue
+        url = _http_url(entry.get("url"))
+        if not url:
+            continue
+        sub = _source_sub("Toronto", entry.get("date"), entry.get("venue"))
+        item = _track(name, sub, url, ART + "rave.png")
+        item["date"] = entry.get("date") or ""
+        item["venue"] = entry.get("venue") or ""
+        item["duration"] = entry.get("duration") or ""
+        _mark_download(item, "toronto", url)
+        items.append(item)
+    return jsonify({"title": title, "items": items})
+
+
 @app.get("/api/ravearchive")
 def api_ravearchive():
     """Rave Archive UK releases (year/DJs from categories), each with a player."""
@@ -1847,7 +1895,6 @@ def api_legacy():
     return jsonify({"title": "Legacy Sites", "items": [
         _folder("RaveTapePacks.com", "Full tape packs", "/api/legacy/ravetapepacks", ART + "tapepacks.png"),
         _folder("JungleTapes.com", "Toronto jungle radio shows", "/api/legacy/jungletapes", ART + "jungle.png"),
-        _folder("Toronto Rave Mixtape Archive", "1990s mixtapes", "/api/legacy/toronto", ART + "rave.png"),
     ]})
 
 
@@ -2797,6 +2844,13 @@ def _download_allowed(source, url):
         known = {_http_url(entry.get("stream_url")) for entry in pirate.entries()}
         if url not in known:
             return False, "not a curated pirate archive file"
+    elif source == "toronto":
+        if not (host == "torontoravemixtapearchive.com"
+                or host.endswith(".torontoravemixtapearchive.com")):
+            return False, "not a Toronto Rave Mixtape Archive file"
+        if not (parts.path.startswith("/files/mixtape/")
+                or parts.path.startswith("/files/xstatic/")):
+            return False, "not a Toronto direct MP3"
     return True, ""
 
 

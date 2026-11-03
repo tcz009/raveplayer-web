@@ -805,6 +805,7 @@
       soundcloud: "/api/soundcloud",
       moxser: "/api/moxser",
       hardscore: "/api/hardscore",
+      toronto: "/api/toronto",
       ravearchive: "/api/ravearchive",
       getdarker: "/api/getdarker",
       pirates: "/api/pirate",

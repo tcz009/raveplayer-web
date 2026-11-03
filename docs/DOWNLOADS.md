@@ -1,7 +1,7 @@
 # Downloads / offline + background jobs (web, 1.6.23)
 
 Explicit, direct-file saves for the web player, scoped per signed-in identity since 1.6.26. Nothing is fetched until the
-user presses **Download** on an eligible row, and only the four curated direct
+user presses **Download** on an eligible row, and only the five curated direct
 sources can ever be saved. The same rule is shared with the Kodi add-on so both
 platforms offer the same rows.
 
@@ -16,10 +16,11 @@ and the posted URL passes `app._download_allowed`:
 | `moxser` | `enceladus.feralhosting.com` / `*.feralhosting.com` | `.mp3`, `.m4a` |
 | `hardscore` | `hardscore.com` / `*.hardscore.com` | `.mp3`, `.m4a` |
 | `pirate` | exact `stream_url`s in `resources/pirate-radio.json` | `.mp3`, `.m4a` |
+| `toronto` | `torontoravemixtapearchive.com` `/files/mixtape/*.mp3`, `/files/xstatic/*.mp3` | `.mp3` |
 
 Always rejected: Mixcloud/SoundCloud/YouTube/Vimeo widget or page URLs, player
-and API pages, live radio/HLS/`.m3u8`, podcast/RSS enclosures, Legacy-scraper
-tracks and GetDarker rows (phase 1 scope), non-http(s) schemes, URLs with
+and API pages, live radio/HLS/`.m3u8`, podcast/RSS enclosures, Legacy-scraper tracks (the
+promoted Toronto source is eligible) and GetDarker rows (phase 1 scope), non-http(s) schemes, URLs with
 credentials, and non-file paths. Every redirect hop is re-validated by the
 stream proxy's `_open_stream` (public addresses only, DNS pinned).
 
@@ -107,7 +108,7 @@ completion toast when you are elsewhere.
 
 ## Scope / later phases
 
-Direct-file eligibility is exactly the four sources above; background jobs use
+Direct-file eligibility is exactly the five sources above; background jobs use
 the same predicate. Background jobs are in-process workers whose state lives in the shared auth
 SQLite `download_jobs` table (WAL; no external queue/broker). A restart/worker
 death marks interrupted rows failed rather than resuming them. Multi-user accounting is only the owner/friends

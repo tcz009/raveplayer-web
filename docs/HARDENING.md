@@ -1,10 +1,10 @@
-# Hardening pass — Rave Player web (`raveplayer-web` 1.6.37)
+# Hardening pass — Rave Player web (`raveplayer-web` 1.6.38)
 
-**Branch:** `feature/1.6.37-light-theme` (not pushed) · **Base:** `main` @ `fb24a50` (1.6.36)
+**Branch:** `feature/1.6.38-toronto` (not pushed) · **Base:** `main` @ `94cc40f` (1.6.37)
 **Scope:** `app.py`, `core/`, `static/app.js`, `scripts/deploy.sh`, `docs/`, `test/`,
 `test_e2e/`, `VERSION`. No UX or content changes. No `data/` or advert files touched.
 
-**Result:** `205 → 396 passed` (`.venv/bin/python -m pytest -q test`), all
+**Result:** `205 → 405 passed` (`.venv/bin/python -m pytest -q test`), all
 offline; browser suite `test_e2e` **30 passed** (system Chrome, Playwright 1.60);
 `node --check static/app.js` and `sh -n scripts/deploy.sh` clean.
 
@@ -12,6 +12,19 @@ Inputs folded in: the internal task-22 brief and the adversarial pre-review
 (`docs/ADVERSARIAL-REVIEW.md`, web findings W1–W8). The review's "what is solid" list
 (stream SSRF guard, SPA escaping, CSP, content-type gate, atomic writes) was kept intact.
 
+
+## 1.6.38 — Toronto Rave Mixtape Archive source
+
+- `core/toronto.py` scrapes the site's four genre pages (jungle, house, studio,
+  X-Static) from offline fixtures into title/date/venue/direct-MP3 rows; pages
+  are cached 6 h and requests throttled to ≤1/s, failures soft.
+- `/api/toronto` hub + genre rows + `q` search; added to Mixes & Shows, the
+  section list/client map and `/api/menu`; direct play via `/api/stream`.
+- Direct download eligibility extended to the Toronto host/path (`/files/...`,
+  host checked) through the existing proxied download path; no platform URLs.
+- Promoted from Legacy Sites credit to source (old legacy route retained for
+  bookmarks); docs `docs/TORONTO.md` + README/credits/downloads.
+- Tests: 405 offline (+9 Toronto fixtures), e2e 30 unchanged.
 
 ## 1.6.37 — light theme + appearance switch
 
@@ -593,10 +606,10 @@ that the module layout matches.
 
 ```sh
 cd "Rave Player"
-.venv/bin/python -m pytest -q test        # 396 passed
+.venv/bin/python -m pytest -q test        # 405 passed
 node --check static/app.js
 sh -n scripts/deploy.sh
-git diff --stat main..feature/1.6.37-light-theme
+git diff --stat main..feature/1.6.38-toronto
 ```
 
 ## Post-merge fix — deploy.sh heredoc escaping (found on first real deploy)

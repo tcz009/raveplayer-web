@@ -1,7 +1,7 @@
 # Independent code review — brief
 
 **Project:** Rave Player — web app (`raveplayer-web`)
-**Version under review:** 1.6.37 (`feature/1.6.37-light-theme`, based on `main @ fb24a50` / 1.6.36)
+**Version under review:** 1.6.38 (`feature/1.6.38-toronto`, based on 1.6.37 / `main @ 94cc40f`)
 **Reviewer target:** `app.py`, `core/`, `static/`, `templates/`, `test/`; ignore `data/`, `__pycache__/`, `.venv/`.
 
 ## What it is
@@ -71,7 +71,7 @@ A prepared `.venv` exists in this checkout.
   wordmark and character unchanged; no innerHTML, CSP unchanged; section/rail
   paths are cross-checked between Python and `app.js` in tests.
 - **1.6.16 Downloads/offline (web side, phase 1)** (`docs/DOWNLOADS.md`): explicit
-  direct-file saves for the four eligible sources (Archive, Moxser, Hardscore,
+  direct-file saves for the five eligible sources (Archive, Moxser, Hardscore,
   Pirate) through a proxy that reuses `_open_stream` (SSRF/DNS pinning/redirect
   checks), per-file/total/free-space guards, atomic writes and safe filenames;
   offline library with size/delete/play (Range) and a Content-Disposition save
@@ -163,7 +163,12 @@ A prepared `.venv` exists in this checkout.
   same-origin `static/theme.js` before CSS to avoid flash, paper-stock
   `html[data-theme="light"]` token remap with WCAG-AA checked pairs, no inline
   script/CSP change; OS-following System mode and localStorage-only choice.
-- Tests: `205 → 396` offline (`pytest -q test`) and **30 browser e2e**
+- **1.6.38 Toronto Rave Mixtape Archive**: first-class source (`core/toronto.py`)
+  for the site's four genre pages, direct MP3s only, cached 6 h / throttled
+  1 req/s, `/api/toronto?genre=&q=`, Mixes & Shows hub, search and an eligible
+  direct-download source; fixtures cover parsing/search/routes and platform
+  URLs are never emitted. Legacy Toronto is de-listed (old route retained).
+- Tests: `205 → 405` offline (`pytest -q test`) and **30 browser e2e**
   (`pytest test_e2e`, see `docs/E2E.md`).
 
 ## Areas worth scrutiny

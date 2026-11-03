@@ -444,7 +444,7 @@ def test_year_listing(web, archive_search):
 def test_legacy_sites(web):
     payload = web.get("/api/legacy").get_json()
     assert [item["open"] for item in payload["items"]] == [
-        "/api/legacy/ravetapepacks", "/api/legacy/jungletapes", "/api/legacy/toronto"]
+        "/api/legacy/ravetapepacks", "/api/legacy/jungletapes"]
 
 
 def test_legacy_ravetapepacks_list(web, monkeypatch):
