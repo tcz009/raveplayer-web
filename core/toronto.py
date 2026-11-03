@@ -26,7 +26,7 @@ from . import fetch
 BASE = "https://torontoravemixtapearchive.com"
 PAGE_TTL = 6 * 3600
 MIN_INTERVAL = 1.0
-DEFAULT_LIMIT = 60
+DEFAULT_LIMIT = 1000
 
 GENRES = (
     ("jungle", "Jungle & Hardcore", "jungle.html"),
@@ -224,7 +224,7 @@ def _genre_rows(genre):
 
 def genre_items(genre, limit=DEFAULT_LIMIT):
     try:
-        limit = max(1, min(int(limit), 200))
+        limit = max(1, min(int(limit), 1000))
     except (TypeError, ValueError):
         limit = DEFAULT_LIMIT
     return _genre_rows(genre)[:limit]
