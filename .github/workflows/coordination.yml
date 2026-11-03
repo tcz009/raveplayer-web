@@ -1,0 +1,78 @@
+name: coordination
+
+# Posts one line to Telegram on every PR and on pushes to main:
+#   repo | branch | event | actor | sha | title | url
+# Uses the repository secrets TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.
+# When a secret is absent (including pull requests from forks, which never
+# receive secrets) the job logs a note and exits 0 - it must never fail a PR
+# or a push just because alerting is not configured yet.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coordination-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  telegram:
+    name: telegram
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post coordination alert
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          REPO: ${{ github.repository }}
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+          EVENT: ${{ github.event_name }}
+          ACTOR: ${{ github.actor }}
+          SHA: ${{ github.sha }}
+          TITLE: ${{ github.event.pull_request.title || github.event.head_commit.message }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          set -eu
+
+          if [ -z "${TELEGRAM_BOT_TOKEN:-}" ] || [ -z "${TELEGRAM_CHAT_ID:-}" ]; then
+            echo "Telegram secrets are not configured for this repository; skipping alert."
+            exit 0
+          fi
+
+          short_sha="${SHA:0:12}"
+          # One line only: first line of the title, no pipes, tabs or newlines.
+          title=$(printf '%s' "${TITLE:-}" | head -n 1 | tr '\t' ' ' | tr '|' '/' | cut -c 1-140)
+          # Push events have no PR URL; point at the commit page instead.
+          url="${PR_URL:-https://github.com/${REPO}/commit/${SHA}}"
+          text="${REPO} | ${BRANCH} | ${EVENT} | ${ACTOR} | ${short_sha} | ${title} | ${url}"
+
+          if ! command -v jq >/dev/null 2>&1; then
+            echo "jq is required to build the JSON payload" >&2
+            exit 1
+          fi
+          payload=$(jq -n --arg chat_id "$TELEGRAM_CHAT_ID" --arg text "$text" \
+            '{chat_id: $chat_id, text: $text, disable_web_page_preview: true}')
+
+          # The request URL embeds the bot token: never echo it, never pass it
+          # through a shell tracing option.
+          response_file="${RUNNER_TEMP:-/tmp}/telegram-response.json"
+          if ! code=$(curl -sS -m 10 -o "$response_file" -w '%{http_code}' \
+              -X POST -H 'Content-Type: application/json' \
+              --data-binary "$payload" \
+              "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage"); then
+            echo "Telegram request failed (network)" >&2
+            exit 1
+          fi
+
+          if [ "${code#2}" = "$code" ]; then
+            echo "Telegram rejected the message (HTTP ${code})" >&2
+            jq -r '.description // empty' "$response_file" 2>/dev/null || true
+            exit 1
+          fi
+          echo "Telegram alert sent (HTTP ${code})."
