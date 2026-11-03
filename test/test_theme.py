@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""1.6.35 — light "rave flyer" theme, appearance switch and WCAG tokens.
+"""1.6.37 — light "rave flyer" theme, appearance switch and WCAG tokens.
 
 The offline checks cover the contract the browser cannot cheaply prove:
 - the light palette is a token block and every text/control pair clears AA;
@@ -120,7 +120,7 @@ def test_text_and_control_pairs_pass_wcag_aa_in_both_modes():
 
 def test_light_mode_uses_ink_offsets_and_softens_the_print_texture():
     css = _read("static/app.css")
-    light = css[css.index("1.6.35 — LIGHT"):]
+    light = css[css.index("1.6.37 — LIGHT"):]
     # No magenta/cyan hard sticker offsets survive in the light block.
     assert not re.search(r"box-shadow:[^;]*var\(--magenta\)", light)
     assert not re.search(r"box-shadow:[^;]*var\(--cyan\)", light)

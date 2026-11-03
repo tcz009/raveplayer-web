@@ -6,6 +6,31 @@
 bling what exists, don't redesign it. The logo, wordmark and character are
 untouched.
 
+## Light mode + Appearance switch (1.6.37)
+
+The dark brutalist theme remains the default; 1.6.37 adds a paper-stock light
+"rave flyer" theme and a user-facing appearance switch.
+
+- **Switch:** Help → **Appearance** offers real Dark / Light / System radios
+  (44 px labels, keyboard focus ring). The choice is stored only in
+  `localStorage["raveplayer.theme"]`; System follows the OS live and re-resolves
+  on reload. Nothing is sent to the server.
+- **Light palette:** `html[data-theme="light"]` remaps the existing tokens to
+  paper `#f2eee3`, ink `#07070b`, acid/magenta/cyan stickers, ink hard shadows;
+  every text/control pair is WCAG AA checked. No second stylesheet/font, no
+  inline script, CSP unchanged.
+- **No flash:** `static/theme.js` is a blocking same-origin head script loaded
+  before the stylesheet; it sets `data-theme`/`data-theme-mode` and updates
+  `theme-color`/`color-scheme` meta before first paint.
+- **Files:** `static/theme.js`, light-theme token/selector block and appearance
+  CSS in `static/app.css`, appearance markup/JS in `templates/index.html` and
+  `static/app.js`, `test/test_theme.py`, `test/js/theme_spec.js`,
+  `test_e2e/test_smoke.py`.
+- **Screenshots:** generated with `RAVEWEB_ARTIFACTS_DIR` under
+  `rave-player-space/reports/web-1.6.37/` (dark/light desktop + phone, Help
+  light phone); like earlier theme shots these are review artifacts, not
+  committed.
+
 ## What changed
 
 | Surface | Change |

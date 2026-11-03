@@ -1057,7 +1057,7 @@ body:not(.has-player) .toast {
   letter-spacing: 0.18em;
   text-transform: uppercase;
 }
-/* 1.6.35 — Appearance: Dark / Light / System (static/theme.js owns the mode).
+/* 1.6.37 — Appearance: Dark / Light / System (static/theme.js owns the mode).
    Real radio inputs, 44 px labels, and a visible focus ring on the label. */
 .help-appearance {
   margin: 0 0 18px;
@@ -1989,7 +1989,7 @@ body.loading-active .status { opacity: 0; }
 }
 
 /* ============================================================================
-   1.6.35 — LIGHT "RAVE FLYER" THEME
+   1.6.37 — LIGHT "RAVE FLYER" THEME
    ----------------------------------------------------------------------------
    Paper stock, ink type, acid/magenta/cyan kept as spot colours. The dark
    theme above is untouched and remains the default. static/theme.js writes

@@ -1,17 +1,30 @@
-# Hardening pass — Rave Player web (`raveplayer-web` 1.6.34)
+# Hardening pass — Rave Player web (`raveplayer-web` 1.6.37)
 
-**Branch:** `feature/1.6.34-playback` (not pushed) · **Base:** `main` @ `6188344` (1.6.33)
+**Branch:** `feature/1.6.37-light-theme` (not pushed) · **Base:** `main` @ `fb24a50` (1.6.36)
 **Scope:** `app.py`, `core/`, `static/app.js`, `scripts/deploy.sh`, `docs/`, `test/`,
 `test_e2e/`, `VERSION`. No UX or content changes. No `data/` or advert files touched.
 
-**Result:** `205 → 388 passed` (`.venv/bin/python -m pytest -q test`), all
-offline; browser suite `test_e2e` **27 passed** (system Chrome, Playwright 1.60);
+**Result:** `205 → 396 passed` (`.venv/bin/python -m pytest -q test`), all
+offline; browser suite `test_e2e` **30 passed** (system Chrome, Playwright 1.60);
 `node --check static/app.js` and `sh -n scripts/deploy.sh` clean.
 
 Inputs folded in: the internal task-22 brief and the adversarial pre-review
 (`docs/ADVERSARIAL-REVIEW.md`, web findings W1–W8). The review's "what is solid" list
 (stream SSRF guard, SPA escaping, CSP, content-type gate, atomic writes) was kept intact.
 
+
+## 1.6.37 — light theme + appearance switch
+
+- Help → Appearance exposes Dark / Light / System; selection persists in
+  `localStorage` only, System follows `prefers-color-scheme` live, and the
+  blocking same-origin `static/theme.js` applies it before first paint.
+- Paper-stock light palette remaps existing tokens (ink/paper/acid/magenta/cyan,
+  hard ink shadows), WCAG-AA pairs checked; no second stylesheet/font, no inline
+  script or CSP change. Layout/logo/wordmark untouched.
+- Clean branch rebuilt directly on `main @ fb24a50` (1.6.36), version 1.6.37;
+  only light-theme code/tests/docs plus the version bump, no duplicate assets.
+- Tests: 396 offline, 30 e2e incl. persisted Dark/Light, System media changes,
+  390 px targets/overflow and focus ring.
 
 ## 1.6.34 — owner playback presence
 
@@ -580,10 +593,10 @@ that the module layout matches.
 
 ```sh
 cd "Rave Player"
-.venv/bin/python -m pytest -q test        # 388 passed
+.venv/bin/python -m pytest -q test        # 396 passed
 node --check static/app.js
 sh -n scripts/deploy.sh
-git diff --stat main..feature/1.6.34-playback
+git diff --stat main..feature/1.6.37-light-theme
 ```
 
 ## Post-merge fix — deploy.sh heredoc escaping (found on first real deploy)

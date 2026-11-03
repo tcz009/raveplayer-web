@@ -239,6 +239,14 @@ The data directory is best effort: if it is read-only, favourites still list
 and the app keeps working, it just cannot save new ones. Stale cache entries
 are pruned at startup (14 days), so a long-lived volume does not fill up.
 
+## Appearance
+
+Help (topbar **?**) → **Appearance** switches **Dark** (default), **Light**
+(paper “rave flyer”) and **System** (follows the OS). The choice is stored only
+on this device (`localStorage`), applies before first paint via
+`static/theme.js`, needs no server round-trip and never changes CSP. Light-mode
+tokens and contrast are checked in `test/test_theme.py`.
+
 ## Sign in
 
 The app is closed by default: one of two fixed identities unlocks the page,
@@ -376,9 +384,9 @@ typography, hero and texture language — is documented in
 
 ## Tests
 
-### Offline suite (388 cases)
+### Offline suite (396 cases)
 
-The offline suite is 388 cases (all providers mocked) and uses the Flask test
+The offline suite is 396 cases (all providers mocked) and uses the Flask test
 client. `pytest` is a test-only dependency:
 
 ```sh
@@ -408,7 +416,7 @@ the cached app shell for any same-origin navigation, never caching
 bookmarks — remove and re-add once, as described in [`docs/PWA.md`](docs/PWA.md)
 (which also covers the plain-HTTP LAN limitation and what Cockney Player needs).
 
-### Browser smoke tests (27 cases)
+### Browser smoke tests (30 cases)
 
 `test_e2e/` drives the real app in headless Chromium through Playwright. It
 covers what the offline suite cannot: boot with the grouped 9-button rail and

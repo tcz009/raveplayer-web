@@ -1,7 +1,7 @@
 # Independent code review — brief
 
 **Project:** Rave Player — web app (`raveplayer-web`)
-**Version under review:** 1.6.34 (`feature/1.6.34-playback`, based on 1.6.33 / `main @ 6188344`)
+**Version under review:** 1.6.37 (`feature/1.6.37-light-theme`, based on `main @ fb24a50` / 1.6.36)
 **Reviewer target:** `app.py`, `core/`, `static/`, `templates/`, `test/`; ignore `data/`, `__pycache__/`, `.venv/`.
 
 ## What it is
@@ -159,7 +159,11 @@ A prepared `.venv` exists in this checkout.
   retention, event cap, `play_event` audit); owner-only now/history/export with
   masked session ids and no URLs/tokens; friends 403. Client sends on
   play/pause/stop/seek, every 30 s and pagehide/unload.
-- Tests: `205 → 388` offline (`pytest -q test`) and **27 browser e2e**
+- **1.6.37 light appearance**: Dark/Light/System switch in Help, early
+  same-origin `static/theme.js` before CSS to avoid flash, paper-stock
+  `html[data-theme="light"]` token remap with WCAG-AA checked pairs, no inline
+  script/CSP change; OS-following System mode and localStorage-only choice.
+- Tests: `205 → 396` offline (`pytest -q test`) and **30 browser e2e**
   (`pytest test_e2e`, see `docs/E2E.md`).
 
 ## Areas worth scrutiny

@@ -1,4 +1,4 @@
-/* Rave Player appearance (web 1.6.35).
+/* Rave Player appearance (web 1.6.37).
  *
  * Dark is the default and lives in app.css :root. The Help dialog writes
  * "dark" | "light" | "system" to localStorage["raveplayer.theme"] and this

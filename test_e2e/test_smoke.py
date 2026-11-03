@@ -1090,3 +1090,198 @@ def test_help_dialog_is_themed_and_mobile_safe(browser_page):
     page.locator("#help-close").click()
     page.wait_for_selector("#help", state="hidden")
     assert browser_page.page_errors == []
+
+
+# --------------------------------------------------------------------------- 1.6.37 appearance
+
+
+def _open_help(page):
+    page.click("#help-btn")
+    page.wait_for_selector("#help", state="visible")
+
+
+def _choose_appearance(page, label, mode):
+    page.locator(".appearance-option", has_text=label).click()
+    page.wait_for_function(
+        "(mode) => document.documentElement.dataset.themeMode === mode",
+        arg=mode,
+    )
+
+
+def _theme_state(page):
+    return page.evaluate("""() => ({
+        theme: document.documentElement.dataset.theme,
+        mode: document.documentElement.dataset.themeMode,
+        stored: localStorage.getItem('raveplayer.theme'),
+        bg: getComputedStyle(document.documentElement).getPropertyValue('--bg').trim(),
+        text: getComputedStyle(document.body).color,
+        card: getComputedStyle(document.querySelector('.help-card')).backgroundColor,
+        meta: document.querySelector('meta[name="theme-color"]').getAttribute('content'),
+    })""")
+
+
+def test_appearance_light_and_dark_persist_with_screenshots(browser_page):
+    """1.6.35: Dark/Light in the Help dialog, persisted, with review shots."""
+    page = browser_page.page
+    state = page.evaluate("""() => ({
+        theme: document.documentElement.dataset.theme,
+        mode: document.documentElement.dataset.themeMode,
+        stored: localStorage.getItem('raveplayer.theme'),
+    })""")
+    assert state == {"theme": "dark", "mode": "dark", "stored": None}
+    _open_help(page)
+    assert page.locator('input[name="appearance"]').count() == 3
+    assert page.locator(".appearance-option.is-checked").inner_text().strip() == "DARK"
+
+    _choose_appearance(page, "Light", "light")
+    light = _theme_state(page)
+    assert light["theme"] == "light" and light["mode"] == "light"
+    assert light["stored"] == "light"
+    assert light["bg"] == "#f2eee3"
+    assert light["text"] == "rgb(7, 7, 11)"
+    assert light["meta"] == "#f2eee3"
+    assert light["card"] == "rgb(251, 248, 239)"
+    # The selected option is a real radio, 44 px and visibly checked.
+    selected = page.locator(".appearance-option.is-checked")
+    assert _text(selected) == "Light"
+    assert selected.bounding_box()["height"] >= 44
+    page.locator("#help-close").click()
+    page.wait_for_selector("#help", state="hidden")
+    _shot(browser_page, "16-theme-light-desktop")
+
+    # Reload: the blocking head script applies Light before the CSS paints.
+    page.reload(wait_until="domcontentloaded")
+    page.wait_for_selector("#nav button")
+    reloaded = page.evaluate("""() => ({
+        theme: document.documentElement.dataset.theme,
+        mode: document.documentElement.dataset.themeMode,
+        stored: localStorage.getItem('raveplayer.theme'),
+    })""")
+    assert reloaded == {"theme": "light", "mode": "light", "stored": "light"}
+
+    _open_help(page)
+    _choose_appearance(page, "Dark", "dark")
+    dark = _theme_state(page)
+    assert dark["theme"] == "dark" and dark["mode"] == "dark"
+    assert dark["bg"] == "#07070b"
+    assert dark["text"] == "rgb(242, 238, 227)"
+    assert dark["meta"] == "#0a0a0f"
+    page.locator("#help-close").click()
+    page.wait_for_selector("#help", state="hidden")
+    _shot(browser_page, "15-theme-dark-desktop")
+
+    # Phone: both themes, 390 px, no horizontal overflow.
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.wait_for_timeout(100)
+    _shot(browser_page, "17-theme-dark-phone")
+    _open_help(page)
+    _choose_appearance(page, "Light", "light")
+    page.locator("#help-close").click()
+    page.wait_for_selector("#help", state="hidden")
+    overflow = page.evaluate("""() => ({
+        docWidth: document.documentElement.scrollWidth,
+        innerWidth: window.innerWidth,
+        bg: getComputedStyle(document.documentElement).getPropertyValue('--bg').trim(),
+        text: getComputedStyle(document.body).color,
+    })""")
+    assert overflow["docWidth"] <= overflow["innerWidth"] + 1
+    assert overflow["bg"] == "#f2eee3"
+    assert overflow["text"] == "rgb(7, 7, 11)"
+    _shot(browser_page, "18-theme-light-phone")
+    assert browser_page.page_errors == []
+
+
+def test_appearance_system_follows_prefers_color_scheme(browser_page):
+    page = browser_page.page
+    page.emulate_media(color_scheme="light")
+    page.reload(wait_until="domcontentloaded")
+    page.wait_for_selector("#nav button")
+    _open_help(page)
+    _choose_appearance(page, "System", "system")
+    assert page.evaluate("() => localStorage.getItem('raveplayer.theme')") == "system"
+    page.wait_for_function(
+        "() => document.documentElement.dataset.theme === 'light'"
+    )
+    assert _theme_state(page)["mode"] == "system"
+    page.locator("#help-close").click()
+    page.wait_for_selector("#help", state="hidden")
+
+    # The OS changes while the page is open: System follows it live.
+    page.emulate_media(color_scheme="dark")
+    page.wait_for_function(
+        "() => document.documentElement.dataset.theme === 'dark'"
+    )
+    page.emulate_media(color_scheme="light")
+    page.wait_for_function(
+        "() => document.documentElement.dataset.theme === 'light'"
+    )
+
+    # An explicit Dark choice stops following the OS.
+    _open_help(page)
+    _choose_appearance(page, "Dark", "dark")
+    page.locator("#help-close").click()
+    page.wait_for_selector("#help", state="hidden")
+    page.emulate_media(color_scheme="dark")
+    page.emulate_media(color_scheme="light")
+    page.wait_for_timeout(150)
+    assert page.evaluate("() => document.documentElement.dataset.theme") == "dark"
+
+    # And System survives a reload, following the (now dark) device.
+    _open_help(page)
+    _choose_appearance(page, "System", "system")
+    page.locator("#help-close").click()
+    page.emulate_media(color_scheme="dark")
+    page.reload(wait_until="domcontentloaded")
+    page.wait_for_selector("#nav button")
+    assert page.evaluate("() => document.documentElement.dataset.themeMode") == "system"
+    assert page.evaluate("() => document.documentElement.dataset.theme") == "dark"
+    assert page.evaluate("() => localStorage.getItem('raveplayer.theme')") == "system"
+    assert browser_page.page_errors == []
+
+
+def test_appearance_is_mobile_safe_and_keyboard_focus_visible(browser_page):
+    page = browser_page.page
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.reload(wait_until="domcontentloaded")
+    page.wait_for_selector("#nav button")
+    _open_help(page)
+    _choose_appearance(page, "Light", "light")
+
+    boxes = page.locator(".appearance-option").evaluate_all(
+        "els => els.map(el => { const b = el.getBoundingClientRect();"
+        " return {w: b.width, h: b.height, x: b.x, right: b.right}; })"
+    )
+    assert len(boxes) == 3
+    for box in boxes:
+        assert box["h"] >= 44, box
+        assert box["w"] > 80, box
+        assert box["x"] >= 0 and box["right"] <= 390, box
+    assert page.evaluate(
+        "() => document.documentElement.scrollWidth <= window.innerWidth + 1"
+    )
+
+    # Keyboard focus lands on the real radio and the label draws the ring.
+    page.locator('input[name="appearance"][value="system"]').focus()
+    focus = page.evaluate("""() => {
+        const input = document.querySelector('input[name="appearance"][value="system"]');
+        const label = input.closest('.appearance-option');
+        const style = getComputedStyle(label);
+        return {
+            focused: document.activeElement === input,
+            outlineStyle: style.outlineStyle,
+            outlineWidth: style.outlineWidth,
+            outlineColor: style.outlineColor,
+        };
+    }""")
+    assert focus["focused"] is True
+    assert focus["outlineStyle"] == "solid"
+    assert focus["outlineWidth"] == "2px"
+    assert focus["outlineColor"] == "rgb(7, 7, 11)"
+
+    # The debug switch still exists beside it and keeps its 44 px target.
+    assert page.locator("#debug-toggle").is_visible()
+    assert page.locator("#debug-toggle").bounding_box()["height"] >= 44
+    _shot(browser_page, "19-theme-light-help-phone")
+    page.locator("#help-close").click()
+    page.wait_for_selector("#help", state="hidden")
+    assert browser_page.page_errors == []
