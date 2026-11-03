@@ -38,7 +38,7 @@ def test_menu_shape(web):
     assert ids[0] == "latest"
     assert "favourites" in ids and "search" in ids
     assert len(ids) == len(app.SECTIONS)
-    assert "ukg" in ids
+    assert "uk-garage" in ids
     assert payload["site"]["title"] == "Rave Player"
     for section in payload["sections"]:
         assert set(section) == {"id", "label", "icon", "sub", "path"}

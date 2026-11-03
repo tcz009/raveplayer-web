@@ -852,7 +852,7 @@ def test_legacy_playable_does_not_double_the_header_suffix():
     assert legacy.playable(with_suffix) == with_suffix
 
 
-# --------------------------------------------------------------------------- W11 — /api/ukg cleaning
+# --------------------------------------------------------------------------- W11 — /api/uk-garage cleaning
 
 
 def test_ukg_rows_are_cleaned_and_bounded(web, monkeypatch):
@@ -866,7 +866,7 @@ def test_ukg_rows_are_cleaned_and_bounded(web, monkeypatch):
         "identifier": "pack-2",
         "title": "x" * 5000,
     }], 2))
-    response = web.get("/api/ukg")
+    response = web.get("/api/uk-garage")
     assert response.status_code == 200
     items = response.get_json()["items"]
     labels = [item["label"] for item in items]

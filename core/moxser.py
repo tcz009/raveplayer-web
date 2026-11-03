@@ -86,13 +86,29 @@ def _pretty_slug(slug):
     return text[:1].upper() + text[1:] if text else ""
 
 
+def _decode(value):
+    """Decode HTML entities, including titles a CMS encoded twice.
+
+    Scrapers see ``&amp;`` in a text node and ``&amp;#x2013;`` when the source
+    encoded the entity itself.  Loop until stable (bounded) so the rendered
+    title carries ``&`` and ``–``, never the entity source.
+    """
+    text = str(value or "")
+    for _ in range(3):
+        decoded = html.unescape(text)
+        if decoded == text:
+            break
+        text = decoded
+    return text
+
+
 def _pretty_title(value):
-    text = urllib.parse.unquote_plus(html.unescape(str(value or "")))
+    text = _decode(urllib.parse.unquote_plus(str(value or "")))
     return re.sub(r"\s+", " ", text).strip()
 
 
 def _title_text(value):
-    text = html.unescape(str(value or ""))
+    text = _decode(str(value or ""))
     text = re.sub(r"<[^>]+>", "", text)
     return re.sub(r"\s+", " ", text).strip()
 

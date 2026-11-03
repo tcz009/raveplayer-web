@@ -77,7 +77,8 @@ def test_section_paths_agree_between_server_and_client():
     source = _read("static/app.js")
     block = re.search(r"const map = \{(.*?)\};", source, re.S)
     assert block, "section map not found in app.js"
-    client = dict(re.findall(r'([a-z-]+):\s*"(/api/[^"]+)"', block.group(1)))
+    client = dict(re.findall(r'["\']?([a-z-]+)["\']?:\s*"(/api/[^"]+)"',
+                             block.group(1)))
     assert client == app_module.SECTION_PATHS
 
 

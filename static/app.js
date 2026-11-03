@@ -799,7 +799,7 @@
       packs: "/api/packs",
       podcasts: "/api/podcasts",
       dnb: "/api/dnb",
-      ukg: "/api/ukg",
+      "uk-garage": "/api/uk-garage",
       years: "/api/years",
       mixcloud: "/api/mixcloud_hub",
       soundcloud: "/api/soundcloud",

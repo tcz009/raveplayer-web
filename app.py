@@ -281,7 +281,7 @@ RADIO_SECTIONS = [
     ("dnb", "Drum & Bass", "drum and bass"),
     ("hardcore", "Hardcore", "hardcore"),
     ("house", "House", "house"),
-    ("ukg", "UK Garage", "uk garage"),
+    ("uk-garage", "UK Garage", "uk garage"),
     ("breakbeat", "Breakbeat", "breakbeat"),
 ]
 
@@ -294,7 +294,7 @@ SECTIONS = [
     ("packs", "Tape Packs", "tapepacks.png", "The ravetapes collection"),
     ("podcasts", "Podcasts & Mixes", "podcasts.png", "Present-day shows"),
     ("dnb", "DNB Radio", "dnb.png", "Recent jungle/DnB shows"),
-    ("ukg", "UK Garage", "garage.png", "DJ EZ, garage sets, live"),
+    ("uk-garage", "UK Garage", "radio-uk-garage.png", "DJ EZ, garage sets, live"),
     ("mixcloud", "Mixcloud Sets", "mixcloud.png", "Live club and rave sets"),
     ("soundcloud", "SoundCloud Sets", "soundcloud.png", "Curated live sets"),
     ("moxser", "Moxser Mixes", "moxser.png", "Underground radio mixes, direct MP3"),
@@ -320,7 +320,7 @@ PACK_ART = {
     "jungle": "jungle.png",
     "hardcore": "hardcore.png",
     "house": "house.png",
-    "pirate": "pirate-radio.png",
+    "pirate": "pirate-stations.png",
     "tapepacks": "tapepacks-all.png",
     "garage": "garage.png",
 }
@@ -330,7 +330,7 @@ LIVE_ART = {
     "dnb": "radio-dnb.png",
     "hardcore": "radio-hardcore.png",
     "house": "radio-house.png",
-    "ukg": "radio-ukg.png",
+    "uk-garage": "radio-uk-garage.png",
     "breakbeat": "radio-breakbeat.png",
 }
 FILTER_ART = {
@@ -363,7 +363,7 @@ SECTION_PATHS = {
     "packs": "/api/packs",
     "podcasts": "/api/podcasts",
     "dnb": "/api/dnb",
-    "ukg": "/api/ukg",
+    "uk-garage": "/api/uk-garage",
     "mixcloud": "/api/mixcloud_hub",
     "soundcloud": "/api/soundcloud",
     "moxser": "/api/moxser",
@@ -391,7 +391,7 @@ RAIL = [
     {"id": "shows", "label": "Mixes & Shows", "icon": "mixes.png",
      "children": ["podcasts", "dnb", "moxser", "hardscore", "toronto"], "sub": "Shows, mixes and radio archives"},
     {"id": "sets", "label": "Club & Rave Sets", "icon": "sets.png",
-     "children": ["mixcloud", "getdarker", "ravearchive", "ukg", "raves"],
+     "children": ["mixcloud", "getdarker", "ravearchive", "uk-garage", "raves"],
      "sub": "Embedded sets and rave nights"},
     {"id": "soundcloud", "label": "SoundCloud Picks", "icon": "soundcloud.png",
      "path": "/api/soundcloud", "children": ["soundcloud"], "sub": "Curated live sets"},
@@ -1473,8 +1473,8 @@ def api_mixcloud():
     return jsonify({"title": "Mixcloud: %s" % query, "items": items})
 
 
-@app.get("/api/ukg")
-def api_ukg():
+@app.get("/api/uk-garage")
+def api_uk_garage():
     """UK garage hub: Mixcloud DJ EZ sets (embeds) plus Archive garage packs."""
     items = []
     for entry in mixcloud.search("DJ EZ", limit=18):
@@ -1486,6 +1486,13 @@ def api_ukg():
     docs, _ = archive.search(ARCHIVE_SECTIONS[-1][2], rows=30)
     items.extend(_pack_items(docs))
     return jsonify({"title": "UK Garage", "items": items})
+
+
+@app.get("/api/ukg")
+def api_ukg_legacy():
+    """Pre-1.6.43 spelling: keep old bookmarks working, but the canonical
+    route (and every app link) is now /api/uk-garage."""
+    return redirect("/api/uk-garage", code=301)
 
 
 MIXCLOUD_QUERIES = [

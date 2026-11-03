@@ -8,13 +8,13 @@ browser suite"). Branch `hardening/1.6.13` (this e2e change was test+docs only;
 
 | Run | Command | Result |
 |---|---|---|
-| Offline suite (baseline) | `.venv/bin/python -m pytest -q test` | **423 passed** |
+| Offline suite (baseline) | `.venv/bin/python -m pytest -q test` | **433 passed** |
 | Browser suite, no local browser | `.venv/bin/python -m pytest test_e2e -q` | 7 skipped (clean skip, as designed) |
 | Browser suite, system Chrome | see command below | **30 passed** |
 
 ```
 $ .venv/bin/python -m pytest -q test
-423 passed
+433 passed
 
 $ RAVEWEB_REQUIRE_BROWSER=1 RAVEWEB_PLAYWRIGHT_NO_SANDBOX=1 \
   RAVEWEB_CHROMIUM_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
@@ -136,7 +136,7 @@ RAVEWEB_ARTIFACTS_DIR="$PWD/rave-player-space/reports/web-1.6.17" \
 ```sh
 cd "Rave Player"
 # offline suite (what ships with the image):
-.venv/bin/python -m pytest -q test                       # 423 passed
+.venv/bin/python -m pytest -q test                       # 433 passed
 
 # browser suite here (system Chrome; CI uses `playwright install chromium`):
 RAVEWEB_REQUIRE_BROWSER=1 RAVEWEB_PLAYWRIGHT_NO_SANDBOX=1 \
@@ -185,7 +185,7 @@ installed in this sandbox):
 
 ```
 $ .venv/bin/python -m pytest -q test
-423 passed
+433 passed
 
 $ RAVEWEB_REQUIRE_BROWSER=1 RAVEWEB_PLAYWRIGHT_NO_SANDBOX=1 \
   RAVEWEB_CHROMIUM_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \

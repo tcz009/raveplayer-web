@@ -6,6 +6,7 @@ existing, and the enclosures inside it are plain MP3s that Kodi can stream
 directly. New feeds are added as data in resources/feeds.json.
 """
 
+import html
 import json
 import math
 import os
@@ -71,13 +72,29 @@ def _elements(node, tag):
     return node.find(ATOM + tag)
 
 
+def _decode(value):
+    """Decode HTML entities, including titles a CMS encoded twice.
+
+    Scrapers see ``&amp;`` in a text node and ``&amp;#x2013;`` when the source
+    encoded the entity itself.  Loop until stable (bounded) so the rendered
+    title carries ``&`` and ``–``, never the entity source.
+    """
+    text = str(value or "")
+    for _ in range(3):
+        decoded = html.unescape(text)
+        if decoded == text:
+            break
+        text = decoded
+    return text
+
+
 def _text(node, *tags):
     for tag in tags:
         found = _elements(node, tag)
         if found is not None:
             value = " ".join(found.itertext()).strip()
             if value:
-                return " ".join(value.split())
+                return " ".join(_decode(value).split())
     return ""
 
 

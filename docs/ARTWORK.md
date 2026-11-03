@@ -280,7 +280,7 @@ file in `app.py`; the mapping lives in `SECTIONS`, `RAIL`, `PACK_ART`,
 |---|---|
 | Brand / root | `rave.png` (Latest), `radio.png` (Live Radio), `tapepacks.png` (Tape Packs), `search.png`, `favourites.png`, `downloads.png`, `about.png` |
 | Rail hubs | `mixes.png` (Mixes & Shows), `curated.png` (Curated Gems), `sets.png` (Club & Rave Sets) |
-| Stations | `kool.png`, `rinse.png`, `oldskool.png`, `radio-jungle.png`, `radio-dnb.png`, `radio-hardcore.png`, `radio-house.png`, `radio-ukg.png`, `radio-breakbeat.png` |
+| Stations | `kool.png`, `rinse.png`, `oldskool.png`, `radio-jungle.png`, `radio-dnb.png`, `radio-hardcore.png`, `radio-house.png`, `radio-uk-garage.png`, `radio-breakbeat.png` |
 | Tape genres | `rave-tapes.png`, `jungle.png`, `hardcore.png`, `house.png`, `garage.png`, `pirate-radio.png`, `tapepacks-all.png`, `years.png`, `series.png`, `rave-nights.png` |
 | Shows / sources | `podcasts.png`, `dnb.png`, `moxser.png`, `hardscore.png`, `toronto.png`, `getdarker.png`, `rave-archive.png`, `pirate-archive.png`, `legacy.png`, `ravetapepacks.png`, `jungletapes.png` |
 | Sets widgets | `mixcloud.png`, `soundcloud.png` |

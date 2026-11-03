@@ -297,7 +297,7 @@ an owner session or `Authorization: Bearer $RAVEWEB_WIDGET_TOKEN`; friends are
 | `/api/live`, `/api/live/<tag>` | radio |
 | `/api/mixcloud?q=` | Mixcloud search; items carry the widget `embed` URL |
 | `/api/mixcloud_hub` | Mixcloud Sets hub (topic folders) |
-| `/api/ukg` | UK Garage hub: Mixcloud sets + Archive packs |
+| `/api/uk-garage` | UK Garage hub: Mixcloud sets + Archive packs (`/api/ukg` 301s here) |
 | `/api/soundcloud?q=` | curated SoundCloud sets, or API search when configured |
 | `/api/raves`, `/api/rave/<key>` | Rave Nights catalogue and one entry |
 | `/api/moxser`, `/api/moxser/<slug>` | Moxser mixes; `<slug>` resolves to `{url}` (played via `/api/stream`) |
@@ -473,7 +473,7 @@ changes ranked by value.
 
 ## Listing caps
 
-All browsable sources render their complete upstream list by default (1.6.42):
+All browsable sources render their complete upstream list by default (1.6.43):
 Moxser, Hardscore mixes/events, podcast episodes, Toronto genres, Rave Archive
 releases and GetDarker sets no longer stop at 30/48/60/200. Internet Archive
 sections already use `next` pagination. `?limit=` remains an explicit opt-in

@@ -67,7 +67,7 @@ def test_ukg_hub_merges_mixcloud_and_archive(web, monkeypatch):
     ])
     monkeypatch.setattr(app.archive, "search", lambda *a, **k: (
         [{"identifier": "garage-nation-pack", "title": "Garage Nation Pack", "year": "1999"}], 1))
-    response = web.get("/api/ukg")
+    response = web.get("/api/uk-garage")
     assert response.status_code == 200
     items = response.get_json()["items"]
     embedded = [item for item in items if "embed" in item]
@@ -139,7 +139,7 @@ def test_uk_garage_archive_section_registered():
     keys = {entry[0] for entry in app.ARCHIVE_SECTIONS}
     assert "garage" in keys
     radio_keys = {entry[0] for entry in app.RADIO_SECTIONS}
-    assert "ukg" in radio_keys
+    assert "uk-garage" in radio_keys
 
 
 def test_soundcloud_registry_and_embed():
@@ -219,13 +219,12 @@ def test_client_embed_iframes_are_allowed_by_the_csp():
 
 
 def test_every_server_section_has_a_client_route():
-    """Regression: 'ukg' was missing from the JS map, so UK Garage opened
-    Latest and both showed as active."""
+    """Regression: a section id missing from the JS map opens Latest instead."""
     import re
     source = open(os.path.join(os.path.dirname(HERE), "static", "app.js"), encoding="utf-8").read()
     block = re.search(r"const map = \{(.*?)\};", source, re.S)
     assert block, "section map not found"
-    mapped = set(re.findall(r"([a-z-]+):\s*\"/api/", block.group(1)))
+    mapped = set(re.findall(r"[\"\']?([a-z-]+)[\"\']?:\s*\"/api/", block.group(1)))
     for section_id, *_ in app.SECTIONS:
         assert section_id in mapped, "no client route for section %r" % section_id
 

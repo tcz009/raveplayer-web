@@ -87,15 +87,32 @@ def _get(url):
     return fetch.fetch(url, timeout=25, ttl=PAGE_TTL)
 
 
+def _decode(value):
+    """Decode HTML entities, including titles a CMS encoded twice.
+
+    Scrapers see ``&amp;`` in a text node and ``&amp;#x2013;`` when the source
+    encoded the entity itself.  Loop until stable (bounded) so the rendered
+    title carries ``&`` and ``–``, never the entity source.
+    """
+    text = str(value or "")
+    for _ in range(3):
+        decoded = html.unescape(text)
+        if decoded == text:
+            break
+        text = decoded
+    return text
+
+
 def _clean(value, limit=300):
-    text = html.unescape(str(value or ""))
+    text = _decode(value)
     text = _TAG_RE.sub(" ", text)
+    text = _decode(text)
     return re.sub(r"\s+", " ", text).strip()[:limit]
 
 
 def _attr(tag, pattern):
     match = pattern.search(tag)
-    return html.unescape(match.group(1)).strip() if match else ""
+    return _decode(match.group(1)).strip() if match else ""
 
 
 def _year(raw):
