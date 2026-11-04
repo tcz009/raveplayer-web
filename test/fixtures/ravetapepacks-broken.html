@@ -1,0 +1,27 @@
+<html><body>
+<h2>Broken shapes seen on RaveTapePacks.com pages</h2>
+
+<!-- relative + spaces + parentheses -->
+<figure class="wp-block-audio"><audio controls src="/music/Pack One/Tape 1 (Side A) - Swan-E.mp3"></audio></figure>
+
+<!-- absolute https, single-encoded ampersand (the file is "DJ SS & Twisted Individual.mp3") -->
+<figure class="wp-block-audio"><audio controls src="https://www.ravetapepacks.com/music/PackTwo/DJ_SS_&amp;_Twisted_Individual.mp3"></audio></figure>
+
+<!-- double-encoded: the file name itself contains the literal "&amp;" text -->
+<figure class="wp-block-audio"><audio controls src="http://www.ravetapepacks.com/music/PackThree/Literal_&amp;amp;_Name.mp3"></audio></figure>
+
+<!-- protocol-relative and a relative href with no leading slash -->
+<figure class="wp-block-audio"><audio controls src="//www.ravetapepacks.com/music/PackFour/Protocol.mp3"></audio></figure>
+<a href="music/PackFive/Relative.mp3">Relative</a>
+
+<!-- the JSON playlist WordPress prints uses escaped slashes and a raw & -->
+<script>
+var rtptrackURLs = ["https:\/\/www.ravetapepacks.com\/music\/PackSix\/JS_Escaped_&_Raw.mp3"];
+</script>
+
+<!-- must all be rejected -->
+<audio src="https://evil.example/music/Bad/Remote.mp3"></audio>
+<audio src="file:///tmp/local.mp3"></audio>
+<audio src="/music/..%2F..%2Fetc/passwd.mp3"></audio>
+<audio src="https://www.ravetapepacks.com/other/Pack/Nope.mp3"></audio>
+</body></html>

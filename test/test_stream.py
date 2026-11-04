@@ -268,6 +268,30 @@ def test_kodi_suffix_becomes_headers(web, upstream):
     assert connections[0].headers["User-Agent"] == "Mozilla/5.0"
 
 
+def test_ravetapepacks_403_retries_with_the_pack_directory_referer(web, upstream):
+    connections = upstream([
+        FakeResponse(status=403, headers={"Content-Type": "text/html"}),
+        FakeResponse(headers={"Content-Type": "audio/mpeg"}, chunks=[b"ID3"]),
+    ])
+    url = ("https://www.ravetapepacks.com/music/Pack/DJ_SS_%26_Twisted.mp3"
+           "|Referer=https://www.ravetapepacks.com/&User-Agent=Mozilla/5.0")
+    response = stream(web, url)
+    assert response.status_code == 200
+    assert response.data == b"ID3"
+    assert len(connections) == 2
+    assert connections[1].headers["Referer"] == \
+        "https://www.ravetapepacks.com/music/Pack/"
+
+
+def test_non_ravetapepacks_403_is_not_retried(web, upstream):
+    connections = upstream([
+        FakeResponse(status=403, headers={"Content-Type": "text/html"}),
+    ])
+    response = stream(web, "https://example.com/a.mp3")
+    assert response.status_code == 403
+    assert len(connections) == 1
+
+
 # --------------------------------------------------------------------------- redirects
 
 

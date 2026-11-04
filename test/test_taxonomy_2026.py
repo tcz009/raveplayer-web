@@ -117,7 +117,7 @@ def test_ravetapepacks_category_page_lists_its_packs(monkeypatch):
     monkeypatch.setattr(legacy, "category", lambda kind, cat_id: {"id": cat_id, "name": "Brockie"})
     monkeypatch.setattr(legacy, "categories", lambda: {
         "events": [], "djs": [{"id": "106", "name": "Brockie"}], "mcs": [], "years": []})
-    monkeypatch.setattr(legacy.http, "fetch", lambda url, timeout=None, ttl=0:
+    monkeypatch.setattr(legacy.http, "fetch", lambda url, timeout=None, ttl=0, headers=None:
                         _fixture("ravetapepacks-category.html"))
     packs = legacy.category_packs("djs", "106")
     assert packs and all(pack["tracks"] for pack in packs)

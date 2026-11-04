@@ -58,14 +58,31 @@ def _content(item):
     return _text(item, "description")
 
 
-def media_urls(*values):
-    """All http(s) audio URLs found in the given HTML/text blobs."""
+def media_urls(*values, decode=True):
+    """All http(s) audio URLs found in the given HTML/text blobs.
+
+    Third-party markup can hide a ``file:``/``javascript:`` URL inside a feed,
+    and a post can repeat the same enclosure.  Keep only absolute http(s) URLs
+    and de-duplicate them; the stream/download proxy applies its own host
+    checks on top.
+
+    ``decode=False`` is for an RSS ``<enclosure url>``: XML parsing has
+    already decoded the attribute, so unescaping it again would turn a literal
+    ``&amp;`` filename into ``&``.
+    """
     found = []
     for value in values:
         if not isinstance(value, str) or not value:
             continue
         for match in MEDIA_RE.finditer(value):
-            url = html.unescape(match.group(0)).rstrip(").,;'\"")
+            url = (html.unescape(match.group(0)) if decode else match.group(0))
+            url = url.rstrip(").,;'\"")
+            try:
+                split = urllib.parse.urlsplit(url)
+            except ValueError:
+                continue
+            if split.scheme.lower() not in ("http", "https") or not split.netloc:
+                continue
             if url not in found:
                 found.append(url)
     return found
@@ -121,7 +138,10 @@ def parse_rss(xml_text, limit=None):
         enclosure_url = ""
         if enclosure is not None:
             enclosure_url = (enclosure.get("url") or "").strip()
-        media = media_urls(content, enclosure_url)
+        media = media_urls(content)
+        for url in media_urls(enclosure_url, decode=False):
+            if url not in media:
+                media.append(url)
         episodes.append({
             "title": clean_text(_text(item, "title")),
             "link": _text(item, "link"),

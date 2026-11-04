@@ -2034,17 +2034,34 @@ def api_legacy_rtp_category(kind, cat_id):
     if not packs:
         return _json_error("no packs in that RaveTapePacks category", 404)
     return jsonify({"title": "RaveTapePacks.com · category", "items": [
+        # Carry the category on the pack link: the homepage packs() list is
+        # only a fraction of the site's catalogue, so a category pack must be
+        # resolved from the category that listed it (otherwise: 404).
         _folder(entry.get("name") or entry["key"],
                 _source_sub("RaveTapePacks.com", "%d tapes" % len(entry.get("tracks") or [])),
-                "/api/legacy/ravetapepacks/%s" % urllib.parse.quote(entry["key"]),
+                "/api/legacy/ravetapepacks/%s?cat=%s&kind=%s" % (
+                    urllib.parse.quote(entry["key"]), cat_id, kind),
                 ART + "ravetapepacks.png")
         for entry in packs]})
 
 
+def _rtp_pack_entry(pack):
+    """Find one pack on the homepage index, then in a category if requested."""
+    for item in legacy.packs():
+        if isinstance(item, dict) and item.get("key") == pack:
+            return item
+    kind = request.args.get("kind", "")
+    cat_id = request.args.get("cat", "")
+    if kind in ("events", "djs", "mcs", "years") and cat_id.isdigit():
+        for item in legacy.category_packs(kind, cat_id):
+            if isinstance(item, dict) and item.get("key") == pack:
+                return item
+    return None
+
+
 @app.get("/api/legacy/ravetapepacks/<path:pack>")
 def api_legacy_rtp_pack(pack):
-    entry = next((item for item in legacy.packs()
-                  if isinstance(item, dict) and item.get("key") == pack), None)
+    entry = _rtp_pack_entry(pack)
     if not entry:
         return _json_error("unknown pack", 404)
     items = []
@@ -2486,6 +2503,31 @@ def _upstream_headers(target, options, requested_range, ref_override):
     return headers
 
 
+# Hosts whose hotlink guard has historically accepted a Referer but may
+# tighten it to the exact pack page.  When the first attempt is refused, retry
+# once with the file's own directory as Referer before giving up.
+_REFERER_RETRY_HOSTS = ("ravetapepacks.com",)
+
+
+def _referer_retry_headers(target, headers):
+    """Return headers for one directory-Referer retry, or None when unsuitable."""
+    try:
+        split = urllib.parse.urlsplit(target)
+    except ValueError:
+        return None
+    host = (split.hostname or "").lower()
+    if not any(host == allowed or host.endswith("." + allowed)
+               for allowed in _REFERER_RETRY_HOSTS):
+        return None
+    directory = split.path.rsplit("/", 1)[0] + "/"
+    referer = "%s://%s%s" % (split.scheme or "https", split.netloc, directory)
+    if headers.get("Referer") == referer:
+        return None
+    retry = dict(headers)
+    retry["Referer"] = referer
+    return retry
+
+
 def _open_stream(url, headers, deadline):
     """GET url, following public redirects by hand.  Returns (conn, resp, url)."""
     current = url
@@ -2584,6 +2626,19 @@ def api_stream():
                                     request.args.get("ref"))
         deadline = time.monotonic() + STREAM_DEADLINE
         conn, resp, final_url = _open_stream(target, headers, deadline)
+        if resp.status in (401, 403):
+            # The hotlink guard may want the pack directory rather than the
+            # site root.  One SSRF-checked retry with the stricter Referer is
+            # cheap; a second refusal is reported normally below.
+            retry = _referer_retry_headers(target, headers)
+            if retry is not None:
+                try:
+                    resp.close()
+                except Exception:
+                    pass
+                conn.close()
+                conn, resp, final_url = _open_stream(target, retry, deadline)
+                headers = retry
     except BlockedURL:
         release()
         return _stream_error(400, "blocked or missing url")
