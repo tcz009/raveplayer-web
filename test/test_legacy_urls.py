@@ -182,8 +182,8 @@ def test_jungle_tracks_validate_upgrade_and_dedupe(monkeypatch):
     monkeypatch.setattr(legacy.http, "fetch", lambda *a, **k: page)
     urls = [track["url"] for track in legacy.jungle_tracks("show")]
     assert urls == [
-        "https://www.jungletapes.com/a.mp3",
-        "https://www.jungletapes.com/a.mp3?x=1&y=2",
+        "https://jungletapes.com/a.mp3",
+        "https://jungletapes.com/a.mp3?x=1&y=2",
     ]
 
 
