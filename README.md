@@ -350,6 +350,13 @@ are observed through a small postMessage bridge as a second guard. The dock is
 inline, not modal. See
 [`docs/AUDIO-SINGLE-SOURCE.md`](docs/AUDIO-SINGLE-SOURCE.md).
 
+## Blocked source recovery
+
+If RaveTapePacks blocks the connection, the player shows the source-specific
+message and retries once after five seconds; **Check again** performs one more
+attempt. Other sources keep the generic failure path. See
+[`docs/STREAM-SOURCE-BLOCKED.md`](docs/STREAM-SOURCE-BLOCKED.md).
+
 ## iPhone and AirPlay
 
 Open the LAN address, not `localhost` or a Tailscale-only `100.x` address: an
@@ -416,9 +423,9 @@ build-time tool only; it is not in `requirements.txt`).
 
 ## Tests
 
-### Offline suite (417 cases)
+### Offline suite (482 cases)
 
-The offline suite is 417 cases (all providers mocked) and uses the Flask test
+The offline suite is 482 cases (all providers mocked) and uses the Flask test
 client. `pytest` is a test-only dependency:
 
 ```sh
@@ -448,7 +455,7 @@ the cached app shell for any same-origin navigation, never caching
 bookmarks — remove and re-add once, as described in [`docs/PWA.md`](docs/PWA.md)
 (which also covers the plain-HTTP LAN limitation and what Cockney Player needs).
 
-### Browser smoke tests (34 cases)
+### Browser smoke tests (36 cases)
 
 `test_e2e/` drives the real app in headless Chromium through Playwright. It
 covers what the offline suite cannot: boot with the grouped 9-button rail and

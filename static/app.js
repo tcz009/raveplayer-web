@@ -35,6 +35,9 @@
   // SoundCloud/Mixcloud postMessage protocols without loading their API
   // scripts, which the unchanged `script-src 'self'` CSP would block.
   const EMBED_API = window.RaveEmbed || null;
+  const SOURCE_BLOCKED_TEXT = "RaveTapePacks is temporarily blocking this connection — try again in a few minutes or reboot your router.";
+  const SOURCE_BLOCKED_CODE = "source_blocked";
+  const SOURCE_BLOCKED_RETRY_MS = 5000;
 
   function debugEvent(kind, data) {
     if (DEBUG && DEBUG.enabled) DEBUG.record(kind, data);
@@ -54,6 +57,10 @@
     seq: 0,
     depth: 0,
     rail: [],
+    blocked: null,
+    blockedTimer: 0,
+    probeController: null,
+    probeToken: 0,
   };
 
   const MEDIA_SESSION = "mediaSession" in navigator && typeof MediaMetadata !== "undefined";
@@ -1177,10 +1184,12 @@
       `Show play queue (${position} of ${total})`);
   }
 
-  function setPlayerStatus(text) {
+  function setPlayerStatus(text, showRetry) {
     const el = $("p-status");
     el.textContent = text || "";
     el.hidden = !text;
+    const retry = $("p-retry");
+    if (retry) retry.hidden = !(text && showRetry);
   }
 
   function setPlayIcon(playing) {
@@ -1217,10 +1226,114 @@
     return `/api/stream?u=${encodeURIComponent(url)}`;
   }
 
+  function isRaveTapePacksUrl(url) {
+    try {
+      const clean = String(url || "").split("|", 1)[0];
+      const host = new URL(clean, window.location.href).hostname.toLowerCase();
+      return host === "ravetapepacks.com" || host.endsWith(".ravetapepacks.com");
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function clearBlockedRetry() {
+    clearTimeout(state.blockedTimer);
+    state.blockedTimer = 0;
+    if (state.probeController) {
+      try { state.probeController.abort(); } catch (_) { /* ignore */ }
+    }
+    state.probeController = null;
+    state.probeToken += 1;
+    state.blocked = null;
+    const retry = $("p-retry");
+    if (retry) retry.hidden = true;
+  }
+
+  function startMainAudio(url) {
+    audio.src = audioSource(url);
+    updatePositionState.last = 0;
+    const started = audio.play();
+    if (started && typeof started.catch === "function") {
+      started.catch((error) => {
+        if (!error || error.name === "AbortError") return;
+        if (error.name === "NotAllowedError") setPlayerStatus("Tap play to start audio");
+        else setPlayerStatus("Stream not started — tap play to retry");
+        setPlayIcon(false);
+        mediaSessionState("paused");
+      });
+    }
+  }
+
+  function sourceBlockedRetry() {
+    const blocked = state.blocked;
+    if (!blocked || state.currentKey !== itemKey(blocked.item)) return;
+    clearTimeout(state.blockedTimer);
+    state.blockedTimer = 0;
+    if (state.probeController) {
+      try { state.probeController.abort(); } catch (_) { /* ignore */ }
+    }
+    setPlayerStatus("Checking RaveTapePacks…");
+    probeRaveTapePacks(blocked.item, blocked.url, blocked.index, true);
+  }
+
+  function scheduleBlockedRetry() {
+    if (!state.blocked || state.blocked.retried) return;
+    state.blocked.retried = true;
+    state.blockedTimer = setTimeout(sourceBlockedRetry, SOURCE_BLOCKED_RETRY_MS);
+  }
+
+  function probeRaveTapePacks(item, url, index, afterRetry) {
+    const token = ++state.probeToken;
+    const controller = new AbortController();
+    state.probeController = controller;
+    const timer = setTimeout(() => controller.abort(), 25000);
+    fetch(audioSource(url), {
+      method: "GET",
+      headers: { Range: "bytes=0-1" },
+      credentials: "same-origin",
+      cache: "no-store",
+      signal: controller.signal,
+    }).then(async (response) => {
+      if (token !== state.probeToken || state.currentKey !== itemKey(item)) return;
+      if (response.ok) {
+        if (response.body && typeof response.body.cancel === "function") {
+          try { await response.body.cancel(); } catch (_) { /* ignore */ }
+        }
+        clearBlockedRetry();
+        setPlayerStatus("");
+        startMainAudio(url);
+        return;
+      }
+      let payload = null;
+      try { payload = await response.json(); } catch (_) { payload = null; }
+      if (token !== state.probeToken || state.currentKey !== itemKey(item)) return;
+      if (payload && payload.code === SOURCE_BLOCKED_CODE) {
+        state.blocked = {
+          item, url, index,
+          retried: !!afterRetry,
+        };
+        setPlayerStatus(SOURCE_BLOCKED_TEXT, !!afterRetry);
+        if (!afterRetry) scheduleBlockedRetry();
+        return;
+      }
+      clearBlockedRetry();
+      setPlayerStatus((payload && payload.error) || "Stream not started — tap play to retry");
+    }).catch((error) => {
+      if (token !== state.probeToken || state.currentKey !== itemKey(item)) return;
+      clearBlockedRetry();
+      if (!error || error.name === "AbortError") return;
+      setPlayerStatus("Stream not started — tap play to retry");
+    }).finally(() => {
+      clearTimeout(timer);
+      if (state.probeController === controller) state.probeController = null;
+    });
+  }
+
   function playItem(item, url, index) {
     // Starting the main player must tear down any widget so it cannot keep
     // playing underneath. Remove the iframe src before loading the audio.
     closeEmbed();
+    clearBlockedRetry();
     if (index == null || index < 0) {
       if (!state.queue.length || state.queueSource !== state.path) {
         state.queue = queueFrom(state.items);
@@ -1257,20 +1370,20 @@
     paintNowPlaying();
     document.title = `${item.label || "Rave Player"} — Rave Player`;
 
-    audio.src = audioSource(url);
-    updatePositionState.last = 0;
+    // Do not let an older stream keep playing while a new selection probes.
+    try { audio.pause(); } catch (_) { /* ignore */ }
+    audio.removeAttribute("src");
+    try { audio.load(); } catch (_) { /* ignore */ }
     setMediaSession(item);
     refreshAirPlayButton();
-    const started = audio.play();
-    if (started && typeof started.catch === "function") {
-      started.catch((error) => {
-        if (!error || error.name === "AbortError") return;
-        if (error.name === "NotAllowedError") setPlayerStatus("Tap play to start audio");
-        else setPlayerStatus("Stream not started — tap play to retry");
-        setPlayIcon(false);
-        mediaSessionState("paused");
-      });
+    if (isRaveTapePacksUrl(url)) {
+      // The upstream IP block returns an HTML/JSON page that <audio> only
+      // reports as a generic media error. Probe the same-origin proxy first so
+      // we can detect source_blocked, retry once and offer "Check again".
+      probeRaveTapePacks(item, url, index, false);
+      return;
     }
+    startMainAudio(url);
   }
 
   function playAt(index) {
@@ -1295,6 +1408,10 @@
 
   function togglePlay() {
     closeEmbed();
+    if (state.blocked) {
+      sourceBlockedRetry();
+      return;
+    }
     if (!state.current) {
       const queue = queueFrom(state.items);
       if (!queue.length) { toast("Pick a track to start"); return; }
@@ -1321,6 +1438,7 @@
   function retryPlayback() {
     if (!state.current) return;
     closeEmbed();
+    clearBlockedRetry();
     setPlayerStatus("Retrying…");
     audio.src = audioSource(state.current.url);
     const started = audio.play();
@@ -1343,6 +1461,7 @@
   }
 
   function closePlayer() {
+    clearBlockedRetry();
     sendPlayback("stopped", true);
     stopPlaybackHeartbeat();
     state.current = null;
@@ -2377,6 +2496,7 @@
   $("p-close").addEventListener("click", closePlayer);
   $("embed-close").addEventListener("click", () => closeEmbed({ restoreFocus: true }));
   $("p-queue").addEventListener("click", () => toggleQueue());
+  $("p-retry").addEventListener("click", sourceBlockedRetry);
   $("queue-close").addEventListener("click", () => { toggleQueue(false); $("p-queue").focus(); });
   window.addEventListener("pagehide", () => { sendPlayback("stopped", true); stopPlaybackHeartbeat(); });
   window.addEventListener("beforeunload", () => { sendPlayback("stopped", true); stopPlaybackHeartbeat(); });

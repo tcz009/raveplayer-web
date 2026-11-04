@@ -1535,3 +1535,104 @@ def test_embed_dock_layout_at_390_and_1280(browser_page):
         "() => document.documentElement.scrollWidth <= window.innerWidth + 1")
     _shot(browser_page, "31-embed-dock-390")
     assert browser_page.page_errors == []
+
+
+class _BlockedStreamResponse:
+    def __init__(self, status, body=b"", content_type="audio/mpeg"):
+        self.status = status
+        self._body = body
+        self._headers = {"content-type": content_type,
+                         "content-length": str(len(body))}
+        self.sent = False
+
+    def getheader(self, name, default=None):
+        return self._headers.get((name or "").lower(), default)
+
+    def read1(self, amount):
+        if self.status != 200 or self.sent:
+            return b""
+        self.sent = True
+        return self._body
+
+    def close(self):
+        pass
+
+
+class _BlockedStreamConnection:
+    class sock:
+        @staticmethod
+        def settimeout(value):
+            return None
+
+    def close(self):
+        pass
+
+
+def _rtp_legacy_pack():
+    return [{
+        "key": "FakePack", "name": "Fake Pack",
+        "tracks": [{
+            "name": "Tape 1",
+            "url": "https://www.ravetapepacks.com/music/FakePack/Tape_1.mp3",
+        }],
+    }]
+
+
+def test_ravetapepacks_source_blocked_auto_retries_once(browser_page, monkeypatch):
+    """1.6.47: 403 then 200 -> one 5 s retry, then the track loads."""
+    import app as app_module
+
+    calls = {"n": 0}
+
+    def opener(url, headers, deadline):
+        calls["n"] += 1
+        status = 403 if calls["n"] <= 2 else 200
+        return (_BlockedStreamConnection(),
+                _BlockedStreamResponse(status, b"ID3" + b"\x00" * 512),
+                url)
+
+    monkeypatch.setattr(app_module.legacy, "packs", _rtp_legacy_pack)
+    monkeypatch.setattr(app_module, "_open_stream", opener)
+    page = browser_page.page
+    page.evaluate("() => { location.hash = '#/api/legacy/ravetapepacks/FakePack'; }")
+    page.wait_for_function(
+        "() => document.querySelector('#title').textContent === 'Fake Pack'")
+    _wait_for_rows(page, 1)
+    page.locator("#list .row").first.click()
+    page.wait_for_function(
+        "() => document.querySelector('#p-status').textContent.includes('RaveTapePacks')")
+    page.wait_for_function(
+        "() => !!document.querySelector('#audio').getAttribute('src')", timeout=15000)
+    assert calls["n"] >= 3
+    assert page.locator("#p-retry").is_hidden()
+    assert "RaveTapePacks" not in _text(page.locator("#p-status"))
+
+
+def test_ravetapepacks_source_blocked_manual_check_again(browser_page, monkeypatch):
+    """1.6.47: after the silent retry fails, 'Check again' retries once, no loop."""
+    import app as app_module
+
+    calls = {"n": 0}
+
+    def opener(url, headers, deadline):
+        calls["n"] += 1
+        return (_BlockedStreamConnection(),
+                _BlockedStreamResponse(403), url)
+
+    monkeypatch.setattr(app_module.legacy, "packs", _rtp_legacy_pack)
+    monkeypatch.setattr(app_module, "_open_stream", opener)
+    page = browser_page.page
+    page.evaluate("() => { location.hash = '#/api/legacy/ravetapepacks/FakePack'; }")
+    page.wait_for_function(
+        "() => document.querySelector('#title').textContent === 'Fake Pack'")
+    _wait_for_rows(page, 1)
+    page.locator("#list .row").first.click()
+    page.wait_for_selector("#p-retry", state="visible", timeout=12000)
+    before = calls["n"]
+    assert before >= 4
+    page.locator("#p-retry").click()
+    page.wait_for_timeout(800)
+    assert calls["n"] > before
+    assert page.locator("#p-retry").is_visible()
+    page.wait_for_timeout(1000)
+    assert calls["n"] <= before + 2  # manual attempt only; no automatic loop

@@ -478,3 +478,37 @@ def test_truncated_stream_does_not_carry_a_stale_content_length(web, upstream):
     assert response.status_code == 200
     assert response.data == b"abc"
     assert "Content-Length" not in response.headers
+
+
+# --------------------------------------------------------------------------- RaveTapePacks source blocked
+
+
+def test_ravetapepacks_403_is_structured_source_blocked(web, upstream):
+    upstream([FakeResponse(status=403, headers={"Content-Type": "text/html"})])
+    response = stream(web, "https://www.ravetapepacks.com/music/Pack/Tape.mp3")
+    assert response.status_code == 403
+    payload = response.get_json()
+    assert payload["code"] == "source_blocked"
+    assert payload["error"].startswith("RaveTapePacks is temporarily blocking")
+
+
+def test_ravetapepacks_timeout_is_structured_source_blocked(web, upstream, monkeypatch):
+    def slow(*args, **kwargs):
+        raise socket.timeout("timed out")
+
+    upstream([FakeResponse()])
+    monkeypatch.setattr(FakeConnection, "getresponse", slow)
+    response = stream(web, "https://www.ravetapepacks.com/music/Pack/Tape.mp3")
+    assert response.status_code == 504
+    payload = response.get_json()
+    assert payload["code"] == "source_blocked"
+    assert payload["error"].startswith("RaveTapePacks is temporarily blocking")
+
+
+def test_other_sources_keep_generic_errors(web, upstream):
+    upstream([FakeResponse(status=403, headers={"Content-Type": "text/html"})])
+    response = stream(web, "https://example.com/a.mp3")
+    payload = response.get_json()
+    assert response.status_code == 403
+    assert "code" not in payload
+    assert payload["error"] == "upstream refused access"

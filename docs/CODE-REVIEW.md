@@ -1,7 +1,7 @@
 # Independent code review — brief
 
 **Project:** Rave Player — web app (`raveplayer-web`)
-**Version under review:** 1.6.45 (`feature/1.6.45-single-audio`, based on 1.6.44 / `main @ 615fa29`)
+**Version under review:** 1.6.47 (`feature/1.6.47-source-blocked`, based on current main `b2c8af5`)
 **Reviewer target:** `app.py`, `core/`, `static/`, `templates/`, `test/`; ignore `data/`, `__pycache__/`, `.venv/`.
 
 ## What it is
@@ -187,7 +187,11 @@ A prepared `.venv` exists in this checkout.
   play/pause events under the unchanged `script-src 'self'` CSP, with exact
   source/origin checks; cross-origin limits are documented. E2E covers both
   directions, widget events, no modal role, close/Escape and 390/1280 layout.
-- Tests: `205 → 453` offline (`pytest -q test`) and **34 browser e2e**
+- **1.6.47 RaveTapePacks blocked-source recovery**: RTP 401/403/timeout maps
+  to `code:"source_blocked"` with the actionable message; client probes before
+  assigning audio, retries once after 5 s, then offers **Check again** (one
+  manual attempt, no loop). Other sources keep generic errors.
+- Tests: `205 → 482` offline (`pytest -q test`) and **36 browser e2e**
   (`pytest test_e2e`, see `docs/E2E.md`).
 
 ## Areas worth scrutiny

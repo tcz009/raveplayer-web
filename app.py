@@ -2590,11 +2590,32 @@ def _is_media_type(content_type):
     return content_type in _MEDIA_EXACT
 
 
-def _stream_error(code, message, retry=None):
+SOURCE_BLOCKED_MESSAGE = (
+    "RaveTapePacks is temporarily blocking this connection — try again in a "
+    "few minutes or reboot your router."
+)
+
+
+def _is_ravetapepacks_url(url):
+    try:
+        host = (urllib.parse.urlsplit(str(url or "")).hostname or "").lower().rstrip(".")
+    except ValueError:
+        return False
+    return host == "ravetapepacks.com" or host.endswith(".ravetapepacks.com")
+
+
+def _stream_error(code, message, retry=None, error_code=None):
     headers = {}
     if retry is not None:
         headers["Retry-After"] = str(retry)
-    return _json_error(message, code, headers)
+    data = {"error": message}
+    if error_code:
+        data["code"] = error_code
+    response = jsonify(data)
+    response.status_code = code
+    for name, value in headers.items():
+        response.headers[name] = value
+    return response
 
 
 @app.get("/api/stream")
@@ -2644,6 +2665,9 @@ def api_stream():
         return _stream_error(400, "blocked or missing url")
     except UpstreamTimeout:
         release()
+        if _is_ravetapepacks_url(target):
+            return _stream_error(504, SOURCE_BLOCKED_MESSAGE,
+                                 error_code="source_blocked")
         return _stream_error(504, "upstream timed out")
     except UpstreamError:
         release()
@@ -2657,6 +2681,10 @@ def api_stream():
     status = resp.status
     try:
         if status in (401, 403):
+            if _is_ravetapepacks_url(final_url or target):
+                return _close_and_error(conn, resp, release, 403,
+                                        SOURCE_BLOCKED_MESSAGE,
+                                        error_code="source_blocked")
             return _close_and_error(conn, resp, release, 403, "upstream refused access")
         if status in (404, 410):
             return _close_and_error(conn, resp, release, 404, "upstream media not found")
@@ -2747,9 +2775,10 @@ def _close_quietly(conn, resp, release):
     release()
 
 
-def _close_and_error(conn, resp, release, code, message, headers_out=None):
+def _close_and_error(conn, resp, release, code, message, headers_out=None,
+                     error_code=None):
     _close_quietly(conn, resp, release)
-    response = _json_error(message, code)
+    response = _stream_error(code, message, error_code=error_code)
     for name, value in (headers_out or {}).items():
         response.headers[name] = value
     return response

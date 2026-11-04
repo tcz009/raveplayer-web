@@ -1,4 +1,4 @@
-# Browser e2e run — `test_e2e` (Playwright), 1.6.45 tree
+# Browser e2e run — `test_e2e` (Playwright), 1.6.47 tree
 
 Owner: motion-1x1 · Task: close the last deferred web item ("actually run the
 browser suite"). Branch `hardening/1.6.13` (this e2e change was test+docs only;
@@ -8,13 +8,13 @@ browser suite"). Branch `hardening/1.6.13` (this e2e change was test+docs only;
 
 | Run | Command | Result |
 |---|---|---|
-| Offline suite (baseline) | `.venv/bin/python -m pytest -q test` | **453 passed** |
+| Offline suite (baseline) | `.venv/bin/python -m pytest -q test` | **482 passed** |
 | Browser suite, no local browser | `.venv/bin/python -m pytest test_e2e -q` | 7 skipped (clean skip, as designed) |
-| Browser suite, system Chrome | see command below | **34 passed** |
+| Browser suite, system Chrome | see command below | **36 passed** |
 
 ```
 $ .venv/bin/python -m pytest -q test
-453 passed
+482 passed
 
 $ RAVEWEB_REQUIRE_BROWSER=1 RAVEWEB_PLAYWRIGHT_NO_SANDBOX=1 \
   RAVEWEB_CHROMIUM_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
@@ -24,7 +24,7 @@ $ RAVEWEB_REQUIRE_BROWSER=1 RAVEWEB_PLAYWRIGHT_NO_SANDBOX=1 \
 
 `RAVEWEB_REQUIRE_BROWSER=1` turns the "no browser" skip into a failure, so a
 broken install cannot pass silently (the CI browser job already sets it). The
-test module covers 34 cases: boot + the grouped 9-button rail, hub and section
+test module covers 36 cases: boot + the grouped 9-button rail, hub and section
 navigation, the rail fitting 1440×900 with Favourites visible, the pinned 48 px
 back button under scroll, Surprise Me opening a random pack/show, the phone
 rail/back layout, the Download action → Downloads library → offline playback → delete
@@ -138,7 +138,7 @@ RAVEWEB_ARTIFACTS_DIR="$PWD/rave-player-space/reports/web-1.6.17" \
 ```sh
 cd "Rave Player"
 # offline suite (what ships with the image):
-.venv/bin/python -m pytest -q test                       # 453 passed
+.venv/bin/python -m pytest -q test                       # 482 passed
 
 # browser suite here (system Chrome; CI uses `playwright install chromium`):
 RAVEWEB_REQUIRE_BROWSER=1 RAVEWEB_PLAYWRIGHT_NO_SANDBOX=1 \
@@ -217,7 +217,7 @@ committed).
 Run on `feature/1.6.45-single-audio` with system Chrome (Playwright 1.60):
 
 ```
-453 passed                       # .venv/bin/python -m pytest -q test
+482 passed                       # .venv/bin/python -m pytest -q test
 34 passed                        # pytest test_e2e -q
 ```
 
