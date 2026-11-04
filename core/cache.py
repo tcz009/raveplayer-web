@@ -184,8 +184,35 @@ def get(key, ttl, now=None):
     return copy.deepcopy(value)
 
 
-def put(key, value):
-    """Store a JSON-serialisable value.  Returns True on success."""
+def has(key, ttl, now=None):
+    """True when :func:`get` would return a value, without copying it.
+
+    ``fetch.is_cached`` uses this on multi-hundred-KB scraped pages: a warm
+    Toronto/Moxser view must not deep-copy the body just to decide whether to
+    sleep for the courtesy gap.
+    """
+    now = time.time() if now is None else now
+    with _MEMORY_LOCK:
+        record = _MEMORY.get(key)
+        if record is not None:
+            if _fresh(record[0], ttl, now):
+                return True
+            _MEMORY.pop(key, None)
+    result = _read(key)
+    if result is MISSING:
+        return False
+    timestamp, _value = result
+    return _fresh(timestamp, ttl, now)
+
+
+def put(key, value, sync=True):
+    """Store a JSON-serialisable value.  Returns True on success.
+
+    ``sync=False`` skips ``fsync`` for derived/recomputable entries (parsed
+    pages).  The atomic rename still makes readers see either the old or the
+    new file; a power loss may drop a derived entry, and the next read simply
+    re-parses.  HTTP bodies keep the default durable write.
+    """
     if value is None:
         return False
     path = path_for(key)
@@ -202,7 +229,8 @@ def put(key, value):
                 handle, ensure_ascii=False, separators=(",", ":"),
             )
             handle.flush()
-            os.fsync(handle.fileno())
+            if sync:
+                os.fsync(handle.fileno())
         os.replace(temporary, path)
         _memory_put(key, time.time(), value)
         return True

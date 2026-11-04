@@ -8,10 +8,12 @@ RaveTapePacks.com's MP3s are hotlink-protected — a bare GET returns 403 — so
 playback URLs carry a Referer suffix that Kodi turns into a real header.
 """
 
+import hashlib
 import html
 import re
 import urllib.parse
 
+from . import cache
 from . import fetch as http
 
 BASE = "https://www.ravetapepacks.com/"
@@ -26,6 +28,14 @@ PACKS_TTL = 6 * 60 * 60
 SITEMAP_TTL = 24 * 60 * 60
 SHOW_TTL = 6 * 60 * 60
 TORONTO_TTL = 6 * 60 * 60
+
+# Parsed page objects live beside the raw body in the same cache.  The body is
+# still read (and fingerprinted) so a fixture/mock that changes the page cannot
+# be served a stale parse; a matching fingerprint skips the regex pass.  Keys
+# are versioned so a parser change does not reuse an old shape.
+RTP_PACKS_KEY = "legacy:rtp:packs:v1"
+RTP_CATEGORIES_KEY = "legacy:rtp:categories:v1"
+RTP_CATEGORY_KEY = "legacy:rtp:category:v1:%s"
 
 # The site mixes three shapes: <audio src> with absolute or relative URLs,
 # ordinary <a href> links on category pages, and a JSON playlist whose slashes
@@ -45,14 +55,18 @@ MUSIC_RE = re.compile(
 )
 
 
-def _space_words(value):
-    """Unquote, unescape and split camelCase/letter-digit joins."""
-    text = html.unescape(urllib.parse.unquote(str(value or "")))
-    text = text.replace("_", " ")
+def _words(text):
+    """Space out camelCase/letter-digit joins in already-decoded text."""
+    text = str(text or "").replace("_", " ")
     text = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", text)
     text = re.sub(r"(?<=[0-9])(?=[A-Z])", " ", text)
     text = re.sub(r"(?<=[A-Za-z])(?=[0-9])", " ", text)
     return re.sub(r"\s+", " ", text).strip()
+
+
+def _space_words(value):
+    """Unquote, unescape and split camelCase/letter-digit joins."""
+    return _words(html.unescape(urllib.parse.unquote(str(value or ""))))
 
 
 def _url_path(value):
@@ -71,12 +85,23 @@ def _url_path(value):
 
 
 def _pretty(text):
+    """Raw-input helper (kept for callers/tests); parsing uses :func:`_display`."""
     return _space_words(text)
 
 
 def _pack_name(raw):
     """Folder names are camel-cased and run words together; space them out."""
     return _space_words(raw) or str(raw)
+
+
+def _display(value):
+    """Name for a value the URL resolver already decoded exactly once.
+
+    Re-running ``html.unescape``/``unquote`` here would turn a literal
+    ``&amp;`` filename back into ``&`` (and a literal ``%20`` into a space),
+    which is the double-decode bug this pass removes.
+    """
+    return _words(value)
 
 
 def _decode_url(value):
@@ -169,8 +194,12 @@ def _music_refs(page):
 def _packs_from_html(page):
     grouped = {}
     for pack, filename, url in _music_refs(page):
-        entry = grouped.setdefault(pack, {"key": pack, "name": _pack_name(pack), "tracks": []})
-        entry["tracks"].append({"name": _pretty(filename.rsplit(".", 1)[0]), "url": url})
+        entry = grouped.setdefault(
+            pack, {"key": pack, "name": _display(pack) or str(pack), "tracks": []})
+        # ``filename`` comes from the resolver's one unquote/entity decode; do
+        # not decode it again (a literal ``&amp;``/``%20`` must survive).
+        entry["tracks"].append(
+            {"name": _display(filename.rsplit(".", 1)[0]), "url": url})
     result = []
     for entry in grouped.values():
         entry["tracks"].sort(key=lambda track: track["name"])
@@ -179,9 +208,50 @@ def _packs_from_html(page):
     return result
 
 
+def _fingerprint(page):
+    """Stable (cross-process) fingerprint of the exact page text."""
+    return hashlib.blake2b(page.encode("utf-8", "replace"), digest_size=8).hexdigest()
+
+
+def _cached_parse(key, ttl, page, parser):
+    """Parse ``page`` once per page version, cache the parsed object.
+
+    The body is still read (from the existing HTTP cache) so the fingerprint
+    can prove the parse matches this page.  That keeps tests/fixtures that swap
+    the body from getting a stale parse, while a normal warm call pays only a
+    cache read instead of the regex pass.
+    """
+    if page is None:
+        return None
+    fingerprint = _fingerprint(page)
+    record = cache.get(key, ttl)
+    if isinstance(record, dict) and record.get("fingerprint") == fingerprint:
+        value = record.get("value")
+        if isinstance(value, (list, dict)):
+            return value
+    value = parser(page)
+    cache.put(key, {"fingerprint": fingerprint, "value": value}, sync=False)
+    return value
+
+
+EMPTY_CATEGORIES = {"events": [], "djs": [], "mcs": [], "years": []}
+
+
+def _homepage():
+    """Fetch the homepage once, with the browser headers the site requires.
+
+    Both ``packs()`` and ``categories()`` read this one cache entry.  The old
+    ``packs()`` sent the default RavePlayer UA, so it cached under a different
+    header key and a pack-detail click fetched/parsed the homepage a second
+    time (and could be 403'd by the bot filter).
+    """
+    return http.fetch(BASE, timeout=25, ttl=PACKS_TTL, headers=PAGE_HEADERS)
+
+
 def packs():
     """Return [{'key': folder, 'name': label, 'tracks': [...]}, ...] sorted by name."""
-    return _packs_from_html(http.fetch(BASE, timeout=25, ttl=PACKS_TTL))
+    page = _homepage()
+    return _cached_parse(RTP_PACKS_KEY, PACKS_TTL, page, _packs_from_html) or []
 
 
 _CATEGORY_HEADINGS = {
@@ -213,9 +283,14 @@ def parse_categories(page):
     return groups
 
 
+def _build_categories(page):
+    return parse_categories(page)
+
+
 def categories():
-    return parse_categories(http.fetch(BASE, timeout=25, ttl=PACKS_TTL,
-                                       headers=PAGE_HEADERS))
+    page = _homepage()
+    parsed = _cached_parse(RTP_CATEGORIES_KEY, PACKS_TTL, page, _build_categories)
+    return parsed if isinstance(parsed, dict) else dict(EMPTY_CATEGORIES)
 
 
 def category(kind, cat_id):
@@ -228,12 +303,42 @@ CATEGORY_TTL = 6 * 60 * 60
 
 
 def category_packs(kind, cat_id):
-    """Packs carrying one RaveTapePacks category id."""
-    if not category(kind, cat_id):
+    """Packs carrying one RaveTapePacks category id.
+
+    The id is validated as digits and then fetched directly.  The old code
+    first looked the id up in the homepage nav, which on a cold deep link made
+    a category view fetch and parse the homepage before the category page — the
+    duplicate page fetch this pass removes.
+    """
+    if kind not in ("events", "djs", "mcs", "years"):
         return []
-    page = http.fetch(BASE + "?cat=" + str(cat_id), timeout=25, ttl=CATEGORY_TTL,
+    cat_id = str(cat_id or "")
+    if not cat_id.isdigit():
+        return []
+    page = http.fetch(BASE + "?cat=" + cat_id, timeout=25, ttl=CATEGORY_TTL,
                       headers=PAGE_HEADERS)
-    return _packs_from_html(page)
+    return _cached_parse(RTP_CATEGORY_KEY % cat_id, CATEGORY_TTL,
+                         page, _packs_from_html) or []
+
+
+def pack(key, kind=None, cat_id=None):
+    """Resolve one pack, preferring the category that linked it.
+
+    A category link carries ``kind``/``cat``: checking that (cached) category
+    page first means a cold pack detail does not parse the whole homepage
+    index.  Links without a category (the "All Packs" list) use the index.
+    """
+    key = str(key or "")
+    if not key:
+        return None
+    if kind in ("events", "djs", "mcs", "years") and str(cat_id or "").isdigit():
+        for entry in category_packs(kind, cat_id):
+            if isinstance(entry, dict) and entry.get("key") == key:
+                return entry
+    for entry in packs():
+        if isinstance(entry, dict) and entry.get("key") == key:
+            return entry
+    return None
 
 
 def playable(url):
@@ -337,5 +442,5 @@ def jungle_tracks(slug):
             continue
         seen.add(url)
         filename = urllib.parse.unquote(url.rsplit("/", 1)[-1]).rsplit(".", 1)[0]
-        tracks.append({"name": _pretty(filename), "url": url})
+        tracks.append({"name": _display(filename), "url": url})
     return tracks

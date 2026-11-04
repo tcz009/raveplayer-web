@@ -83,7 +83,10 @@ def _throttle():
 
 
 def _get(url):
-    _throttle()
+    # Only a real upstream request needs the courtesy gap; a warm page is a
+    # cache read and used to still pay a full second here.
+    if not fetch.is_cached(url, PAGE_TTL):
+        _throttle()
     return fetch.fetch(url, timeout=25, ttl=PAGE_TTL)
 
 

@@ -36,3 +36,12 @@ def test_memory_layer_is_bounded(tmp_path, monkeypatch):
     keys = list(cache._MEMORY.keys())
     assert len(keys) == 2
     assert "bench:bounded:0" not in keys
+
+
+def test_has_matches_get_for_fresh_and_stale_entries(tmp_path, monkeypatch):
+    monkeypatch.setenv("RAVEPLAYER_CACHE_DIR", str(tmp_path / "cache"))
+    cache.clear_memory()
+    assert cache.has("bench:has", 60) is False
+    cache.put("bench:has", {"value": 1})
+    assert cache.has("bench:has", 60) is True
+    assert cache.has("bench:has", 1, now=cache.time.time() + 10) is False

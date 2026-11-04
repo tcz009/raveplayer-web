@@ -526,6 +526,33 @@ def _next_link(base, page, total):
     return "%s%spage=%d" % (base, separator, page + 1)
 
 
+def _optional_slice(items, base):
+    """Apply ``?limit=&offset=`` to a complete source list.
+
+    The default stays the complete list (LIST-CAPS.md): a client that wants a
+    smaller first response opts in explicitly, and gets a ``next`` link.  The
+    legacy indexes are bounded by the site nav (hundreds of rows), so no
+    implicit cap is imposed.
+    """
+    raw_limit = request.args.get("limit")
+    if raw_limit in (None, ""):
+        return items, None
+    try:
+        limit = max(1, min(int(raw_limit), 500))
+    except (TypeError, ValueError):
+        return items, None
+    try:
+        offset = max(0, int(request.args.get("offset") or 0))
+    except (TypeError, ValueError):
+        offset = 0
+    page = items[offset:offset + limit]
+    nxt = None
+    if offset + limit < len(items):
+        separator = "&" if "?" in base else "?"
+        nxt = "%s%slimit=%d&offset=%d" % (base, separator, limit, offset + limit)
+    return page, nxt
+
+
 # Independent provider calls (archive widen, SoundCloud, Mixcloud) run together
 # so a cold /api/search costs the slowest, not their sum.
 SEARCH_WORKERS = 3
@@ -2000,14 +2027,19 @@ def api_legacy_rtp():
 
 @app.get("/api/legacy/ravetapepacks/all")
 def api_legacy_rtp_all():
-    return jsonify({"title": "RaveTapePacks.com", "items": [
+    items = [
         _folder("%s (%d tapes)" % (entry.get("name") or entry["key"],
                                    len(entry.get("tracks") or [])),
                 "RaveTapePacks.com",
                 "/api/legacy/ravetapepacks/%s" % urllib.parse.quote(entry["key"]),
                 ART + "ravetapepacks.png")
         for entry in legacy.packs()
-        if isinstance(entry, dict) and entry.get("key")]})
+        if isinstance(entry, dict) and entry.get("key")]
+    items, nxt = _optional_slice(items, "/api/legacy/ravetapepacks/all")
+    payload = {"title": "RaveTapePacks.com", "items": items}
+    if nxt:
+        payload["next"] = nxt
+    return jsonify(payload)
 
 
 @app.get("/api/legacy/ravetapepacks/index/<kind>")
@@ -2018,12 +2050,17 @@ def api_legacy_rtp_index(kind):
     if not categories:
         return _json_error("RaveTapePacks index unavailable", 502)
     labels = {"events": "By Event", "djs": "By DJ", "mcs": "By MC", "years": "By Year"}
-    return jsonify({"title": "%s · RaveTapePacks.com" % labels[kind], "items": [
+    items = [
         _folder(entry["name"], "RaveTapePacks.com",
                 "/api/legacy/ravetapepacks/index/%s/%s" % (kind, entry["id"]),
                 ART + {"events": "rave-nights.png", "djs": "by-dj.png",
                        "mcs": "by-mc.png", "years": "years.png"}[kind])
-        for entry in categories]})
+        for entry in categories]
+    items, nxt = _optional_slice(items, "/api/legacy/ravetapepacks/index/%s" % kind)
+    payload = {"title": "%s · RaveTapePacks.com" % labels[kind], "items": items}
+    if nxt:
+        payload["next"] = nxt
+    return jsonify(payload)
 
 
 @app.get("/api/legacy/ravetapepacks/index/<kind>/<cat_id>")
@@ -2033,7 +2070,7 @@ def api_legacy_rtp_category(kind, cat_id):
     packs = legacy.category_packs(kind, cat_id)
     if not packs:
         return _json_error("no packs in that RaveTapePacks category", 404)
-    return jsonify({"title": "RaveTapePacks.com · category", "items": [
+    items = [
         # Carry the category on the pack link: the homepage packs() list is
         # only a fraction of the site's catalogue, so a category pack must be
         # resolved from the category that listed it (otherwise: 404).
@@ -2042,21 +2079,24 @@ def api_legacy_rtp_category(kind, cat_id):
                 "/api/legacy/ravetapepacks/%s?cat=%s&kind=%s" % (
                     urllib.parse.quote(entry["key"]), cat_id, kind),
                 ART + "ravetapepacks.png")
-        for entry in packs]})
+        for entry in packs]
+    items, nxt = _optional_slice(
+        items, "/api/legacy/ravetapepacks/index/%s/%s" % (kind, cat_id))
+    payload = {"title": "RaveTapePacks.com · category", "items": items}
+    if nxt:
+        payload["next"] = nxt
+    return jsonify(payload)
 
 
 def _rtp_pack_entry(pack):
-    """Find one pack on the homepage index, then in a category if requested."""
-    for item in legacy.packs():
-        if isinstance(item, dict) and item.get("key") == pack:
-            return item
+    """Find one pack via the category that linked it, else the homepage index.
+
+    ``core.legacy.pack()`` owns the cache lookup; a category link therefore
+    avoids the full homepage index parse on a cold pack detail.
+    """
     kind = request.args.get("kind", "")
     cat_id = request.args.get("cat", "")
-    if kind in ("events", "djs", "mcs", "years") and cat_id.isdigit():
-        for item in legacy.category_packs(kind, cat_id):
-            if isinstance(item, dict) and item.get("key") == pack:
-                return item
-    return None
+    return legacy.pack(pack, kind=kind, cat_id=cat_id)
 
 
 @app.get("/api/legacy/ravetapepacks/<path:pack>")

@@ -2,6 +2,7 @@
 """Tiny HTTP layer: standard library only, JSON in, friendly failures out."""
 
 import codecs
+import contextlib
 import gzip
 import http.client
 import io
@@ -10,6 +11,7 @@ import json
 import os
 import re
 import socket
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -20,6 +22,43 @@ from . import cache, kodi
 
 USER_AGENT = "RavePlayer/3.0 (Kodi; +https://github.com/tcz009/plugin.audio.raveplayer)"
 DEFAULT_TIMEOUT = 20
+
+# One page at a time per host, with a minimum gap, for the scraped sources the
+# site owners have asked us to go easy on.  The gate is only entered on a cache
+# miss (``fetch`` returns before ``_request`` on a hit), and it wraps the whole
+# request so two threads can never have two pages open to the same host.  This
+# is deliberately per-process: a multi-worker deployment still caps each worker
+# at one page, and the cache absorbs the duplicate work.
+POLITE_HOSTS = {
+    "www.ravetapepacks.com": 1.0,
+    "ravetapepacks.com": 1.0,
+}
+_HOST_LOCKS = {}
+_HOST_LAST_END = {}
+_HOST_META_LOCK = threading.Lock()
+
+
+@contextlib.contextmanager
+def _host_slot(url):
+    """Serialise requests to a polite host and keep ``gap`` seconds between."""
+    try:
+        host = (urllib.parse.urlsplit(str(url)).hostname or "").lower()
+    except ValueError:
+        host = ""
+    gap = POLITE_HOSTS.get(host)
+    if not gap:
+        yield
+        return
+    with _HOST_META_LOCK:
+        lock = _HOST_LOCKS.setdefault(host, threading.Lock())
+    with lock:
+        wait = gap - (time.monotonic() - _HOST_LAST_END.get(host, 0.0))
+        if wait > 0:
+            time.sleep(wait)
+        try:
+            yield
+        finally:
+            _HOST_LAST_END[host] = time.monotonic()
 
 # Redirects are followed by urllib, i.e. outside the stream proxy's SSRF guard.
 # A third-party feed/API host could otherwise bounce the server into the LAN
@@ -319,8 +358,9 @@ def _request(url, timeout, headers):
     deadline = time.monotonic() + budget
     request.raveweb_deadline = deadline
     try:
-        with _OPENER.open(request, timeout=budget) as response:
-            return _decode(response, deadline)
+        with _host_slot(url):
+            with _OPENER.open(request, timeout=budget) as response:
+                return _decode(response, deadline)
     except urllib.error.HTTPError as exc:
         try:
             exc.close()
@@ -351,6 +391,22 @@ def fetch(url, timeout=DEFAULT_TIMEOUT, headers=None, ttl=0):
         return _request(url, timeout, headers)
     key = _cache_key("text", url, headers)
     return cache.remember(key, ttl, lambda: _request(url, timeout, headers))
+
+
+def is_cached(url, ttl, headers=None):
+    """True when ``fetch(url, ..., ttl=ttl)`` would be served from cache.
+
+    Providers that stretch requests to <=1/s use this so a warm page (already
+    cached) does not still sleep for the courtesy gap.  Classification is
+    best-effort; a false negative only costs one extra throttle.
+    """
+    if not ttl:
+        return False
+    try:
+        key = _cache_key("text", url, headers)
+        return cache.has(key, ttl)
+    except Exception:  # noqa: BLE001 - cache trouble must never break a fetch
+        return False
 
 
 def _parse_json(url, body):

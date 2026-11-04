@@ -127,3 +127,41 @@ def test_no_legacy_bucket_or_legacy_toronto_route(web):
     assert web.get("/api/legacy").status_code == 404
     assert web.get("/api/legacy/toronto").status_code == 404
     assert "legacy" not in [row[0] for row in app_module.SECTIONS]
+
+
+def test_ravetapepacks_index_is_complete_by_default_and_sliceable(web, monkeypatch):
+    cats = {"events": [], "djs": [], "mcs": [], "years": []}
+    cats["djs"] = [{"id": str(100 + index), "name": "DJ %02d" % index}
+                   for index in range(12)]
+    monkeypatch.setattr(legacy, "categories", lambda: cats)
+
+    full = web.get("/api/legacy/ravetapepacks/index/djs").get_json()
+    assert len(full["items"]) == 12
+    assert "next" not in full
+
+    first = web.get("/api/legacy/ravetapepacks/index/djs?limit=5").get_json()
+    assert len(first["items"]) == 5
+    assert first["next"].endswith("limit=5&offset=5")
+
+    second = web.get("/api/legacy/ravetapepacks/index/djs?limit=5&offset=5").get_json()
+    assert len(second["items"]) == 5
+    assert second["next"].endswith("limit=5&offset=10")
+
+    last = web.get("/api/legacy/ravetapepacks/index/djs?limit=5&offset=10").get_json()
+    assert len(last["items"]) == 2
+    assert "next" not in last
+    assert (first["items"] + second["items"] + last["items"]) == full["items"]
+
+
+def test_ravetapepacks_all_is_complete_by_default_and_sliceable(web, monkeypatch):
+    packs = [{"key": "Pack%02d" % index, "name": "Pack %02d" % index,
+              "tracks": [{"name": "Tape", "url": "https://example/%d.mp3" % index}]}
+             for index in range(8)]
+    monkeypatch.setattr(legacy, "packs", lambda: packs)
+
+    full = web.get("/api/legacy/ravetapepacks/all").get_json()
+    assert len(full["items"]) == 8
+    sliced = web.get("/api/legacy/ravetapepacks/all?limit=3&offset=6").get_json()
+    assert len(sliced["items"]) == 2
+    assert "next" not in sliced
+    assert sliced["items"] == full["items"][6:]

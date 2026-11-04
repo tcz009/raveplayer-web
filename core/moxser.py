@@ -69,7 +69,9 @@ def _throttle():
 
 
 def _get(url, ttl):
-    _throttle()
+    # A cached sitemap/page must not pay the <=1/s courtesy sleep.
+    if not fetch.is_cached(url, ttl):
+        _throttle()
     return fetch.fetch(url, timeout=25, ttl=ttl)
 
 
