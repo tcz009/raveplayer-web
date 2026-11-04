@@ -50,6 +50,9 @@ trap 'rm -f "$AUTH_ENV_FILE" /tmp/raveplayer-web.tgz' EXIT INT TERM
    if [ -n "$WIDGET_TOKEN" ]; then
        printf 'RAVEWEB_WIDGET_TOKEN=%s\n' "$WIDGET_TOKEN"
    fi
+   if [ -n "${RTP_EGRESS_PROXY:-}" ]; then
+       printf 'RTP_EGRESS_PROXY=%s\n' "$RTP_EGRESS_PROXY"
+   fi
  } > "$AUTH_ENV_FILE")
 scp -q -i "$KEY" -o BatchMode=yes "$AUTH_ENV_FILE" "$HOST:/tmp/raveplayer-web-auth.env"
 
