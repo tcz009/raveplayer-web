@@ -35,7 +35,6 @@
   // SoundCloud/Mixcloud postMessage protocols without loading their API
   // scripts, which the unchanged `script-src 'self'` CSP would block.
   const EMBED_API = window.RaveEmbed || null;
-  const SOURCE_BLOCKED_TEXT = "RaveTapePacks is temporarily blocking this connection — try again in a few minutes or reboot your router.";
   const SOURCE_BLOCKED_CODE = "source_blocked";
   const SOURCE_BLOCKED_RETRY_MS = 5000;
 
@@ -1184,12 +1183,10 @@
       `Show play queue (${position} of ${total})`);
   }
 
-  function setPlayerStatus(text, showRetry) {
+  function setPlayerStatus(text) {
     const el = $("p-status");
     el.textContent = text || "";
     el.hidden = !text;
-    const retry = $("p-retry");
-    if (retry) retry.hidden = !(text && showRetry);
   }
 
   function setPlayIcon(playing) {
@@ -1245,8 +1242,6 @@
     state.probeController = null;
     state.probeToken += 1;
     state.blocked = null;
-    const retry = $("p-retry");
-    if (retry) retry.hidden = true;
   }
 
   function startMainAudio(url) {
@@ -1272,7 +1267,6 @@
     if (state.probeController) {
       try { state.probeController.abort(); } catch (_) { /* ignore */ }
     }
-    setPlayerStatus("Checking RaveTapePacks…");
     probeRaveTapePacks(blocked.item, blocked.url, blocked.index, true);
   }
 
@@ -1312,7 +1306,16 @@
           item, url, index,
           retried: !!afterRetry,
         };
-        setPlayerStatus(SOURCE_BLOCKED_TEXT, !!afterRetry);
+        // Silent like the Kodi client: rows/links stay, the player stays idle,
+        // and only the opt-in debug log records the blocked source.
+        debugEvent("playback", {
+          action: "source_blocked",
+          source: "ravetapepacks",
+          retry: afterRetry ? 1 : 0,
+        });
+        setPlayerStatus("");
+        setPlayIcon(false);
+        mediaSessionState("paused");
         if (!afterRetry) scheduleBlockedRetry();
         return;
       }
@@ -1320,9 +1323,21 @@
       setPlayerStatus((payload && payload.error) || "Stream not started — tap play to retry");
     }).catch((error) => {
       if (token !== state.probeToken || state.currentKey !== itemKey(item)) return;
-      clearBlockedRetry();
-      if (!error || error.name === "AbortError") return;
-      setPlayerStatus("Stream not started — tap play to retry");
+      if (!error || error.name === "AbortError") {
+        clearBlockedRetry();
+        return;
+      }
+      // RTP unreachable (DNS/connection): same silent policy as source_blocked.
+      state.blocked = {item, url, index, retried: !!afterRetry};
+      debugEvent("playback", {
+        action: "source_blocked",
+        source: "ravetapepacks",
+        retry: afterRetry ? 1 : 0,
+      });
+      setPlayerStatus("");
+      setPlayIcon(false);
+      mediaSessionState("paused");
+      if (!afterRetry) scheduleBlockedRetry();
     }).finally(() => {
       clearTimeout(timer);
       if (state.probeController === controller) state.probeController = null;
@@ -1379,7 +1394,7 @@
     if (isRaveTapePacksUrl(url)) {
       // The upstream IP block returns an HTML/JSON page that <audio> only
       // reports as a generic media error. Probe the same-origin proxy first so
-      // we can detect source_blocked, retry once and offer "Check again".
+      // we can detect source_blocked and retry silently in the background.
       probeRaveTapePacks(item, url, index, false);
       return;
     }
@@ -2496,7 +2511,6 @@
   $("p-close").addEventListener("click", closePlayer);
   $("embed-close").addEventListener("click", () => closeEmbed({ restoreFocus: true }));
   $("p-queue").addEventListener("click", () => toggleQueue());
-  $("p-retry").addEventListener("click", sourceBlockedRetry);
   $("queue-close").addEventListener("click", () => { toggleQueue(false); $("p-queue").focus(); });
   window.addEventListener("pagehide", () => { sendPlayback("stopped", true); stopPlaybackHeartbeat(); });
   window.addEventListener("beforeunload", () => { sendPlayback("stopped", true); stopPlaybackHeartbeat(); });

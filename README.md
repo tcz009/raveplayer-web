@@ -355,9 +355,10 @@ inline, not modal. See
 
 ## Blocked source recovery
 
-If RaveTapePacks blocks the connection, the player shows the source-specific
-message and retries once after five seconds; **Check again** performs one more
-attempt. Other sources keep the generic failure path. See
+If RaveTapePacks is unreachable, the web client stays silent like Kodi: rows and
+links remain, the player is left idle, and one background retry happens after
+five seconds. No banner/toast is shown; only the opt-in debug log records
+`source_blocked`. The 1.6.49 VPN egress remains active. See
 [`docs/STREAM-SOURCE-BLOCKED.md`](docs/STREAM-SOURCE-BLOCKED.md).
 
 ## iPhone and AirPlay
@@ -426,9 +427,9 @@ build-time tool only; it is not in `requirements.txt`).
 
 ## Tests
 
-### Offline suite (482 cases)
+### Offline suite (493 cases)
 
-The offline suite is 482 cases (all providers mocked) and uses the Flask test
+The offline suite is 493 cases (all providers mocked) and uses the Flask test
 client. `pytest` is a test-only dependency:
 
 ```sh

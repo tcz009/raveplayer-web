@@ -1,11 +1,11 @@
-# Hardening pass — Rave Player web (`raveplayer-web` 1.6.47)
+# Hardening pass — Rave Player web (`raveplayer-web` 1.6.50)
 
-**Branch:** `feature/1.6.47-source-blocked` (not pushed until review) · **Base:** current main `b2c8af5` (1.6.46)
+**Branch:** `feature/1.6.50-silent-rtp` (deploying) · **Base:** current main `12aae6d` (1.6.49)
 **Scope:** `app.py`, `core/`, `static/app.js`, `static/embed.js`, `static/app.css`,
 `templates/index.html`, `scripts/deploy.sh`, `docs/`, `test/`, `test_e2e/`,
 `VERSION`. No provider/content changes; no `data/` or advert files touched.
 
-**Result:** `205 → 482 passed` (`.venv/bin/python -m pytest -q test`), all
+**Result:** `205 → 493 passed` (`.venv/bin/python -m pytest -q test`), all
 offline; browser suite `test_e2e` **36 passed** (system Chrome, Playwright 1.60);
 `node --check static/app.js static/embed.js` and `sh -n scripts/deploy.sh` clean.
 
@@ -14,15 +14,15 @@ Inputs folded in: the internal task-22 brief and the adversarial pre-review
 (stream SSRF guard, SPA escaping, CSP, content-type gate, atomic writes) was kept intact.
 
 
-## 1.6.47 — RaveTapePacks source-blocked recovery
+## 1.6.50 — silent RaveTapePacks failures
 
-- RTP upstream 401/403/timeout now returns `code:"source_blocked"` with the
-  exact actionable message; other sources keep generic payloads.
-- Client probes RTP streams via `/api/stream` before assigning audio, retries
-  once silently after 5 s, then offers **Check again** (one manual attempt, no
-  automatic loop). Play button also retries while blocked.
-- Tests: 482 offline (+5), 36 e2e (+2: 403→200 auto retry and always-403
-  manual). Docs `STREAM-SOURCE-BLOCKED.md`.
+- RTP upstream 401/403/timeout still returns `code:"source_blocked"` for API
+  clients; the web UI now suppresses the banner/pop-up entirely.
+- RTP rows/links stay; the player is left idle (no src/status), one silent
+  background retry after 5 s, then no further automatic attempts. Only the
+  opt-in debug log records `source_blocked`.
+- VPN egress from 1.6.49 remains active; other sources keep generic errors.
+- Tests: 493 offline, 36 e2e (silent 403→200 retry; always-403 idle/no loop).
 
 ## 1.6.45 — inline embed dock + single audio source
 
@@ -665,7 +665,7 @@ that the module layout matches.
 
 ```sh
 cd "Rave Player"
-.venv/bin/python -m pytest -q test        # 482 passed
+.venv/bin/python -m pytest -q test        # 493 passed
 node --check static/app.js static/embed.js
 sh -n scripts/deploy.sh
 git diff --stat b2c8af5..feature/1.6.47-source-blocked

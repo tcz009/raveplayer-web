@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""1.6.47 client contract for RaveTapePacks source-blocked errors."""
+"""1.6.50: RaveTapePacks failures are silent like the Kodi client."""
 
 import os
 
@@ -12,24 +12,22 @@ def _read(name):
         return handle.read()
 
 
-def test_retry_banner_copy_and_action_are_wired():
+def test_rtp_failure_has_no_visible_banner_or_retry_action():
     html = _read("templates/index.html")
+    css = _read("static/app.css")
     js = _read("static/app.js")
-    assert 'id="p-retry"' in html and "Check again" in html
-    assert 'role="status"' in html
-    assert "RaveTapePacks is temporarily blocking this connection" in js
-    assert "or reboot your router." in js
+    assert "p-retry" not in html and "Check again" not in html
+    assert "p-retry" not in css and ".p-retry" not in css
+    assert "RaveTapePacks is temporarily blocking" not in js
+    assert "SOURCE_BLOCKED_TEXT" not in js
+
+
+def test_rtp_failure_logs_debug_only_and_retries_once():
+    js = _read("static/app.js")
+    assert 'const SOURCE_BLOCKED_CODE = "source_blocked";' in js
+    assert 'action: "source_blocked"' in js
     assert "SOURCE_BLOCKED_RETRY_MS = 5000" in js
-    assert 'payload.code === SOURCE_BLOCKED_CODE' in js
-    assert "probeRaveTapePacks" in js
-    # Exactly one scheduled silent retry; manual retries use sourceBlockedRetry.
     assert js.count("setTimeout(sourceBlockedRetry") == 1
     assert "state.blocked.retried" in js
-    assert '$("p-retry").addEventListener("click", sourceBlockedRetry)' in js
-
-
-def test_retry_is_only_used_for_ravetapepacks_urls():
-    js = _read("static/app.js")
-    assert "isRaveTapePacksUrl" in js
-    assert "ravetapepacks.com" in js
-    assert 'if (isRaveTapePacksUrl(url)) {' in js
+    # The blocked paths clear the visible status rather than display a banner.
+    assert js.count('setPlayerStatus("");') >= 2

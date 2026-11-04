@@ -1578,8 +1578,8 @@ def _rtp_legacy_pack():
     }]
 
 
-def test_ravetapepacks_source_blocked_auto_retries_once(browser_page, monkeypatch):
-    """1.6.47: 403 then 200 -> one 5 s retry, then the track loads."""
+def test_ravetapepacks_source_blocked_auto_retries_silently(browser_page, monkeypatch):
+    """1.6.50: 403 then 200 -> one silent 5 s retry, then the track loads."""
     import app as app_module
 
     calls = {"n": 0}
@@ -1600,25 +1600,21 @@ def test_ravetapepacks_source_blocked_auto_retries_once(browser_page, monkeypatc
     _wait_for_rows(page, 1)
     page.locator("#list .row").first.click()
     page.wait_for_function(
-        "() => document.querySelector('#p-status').textContent.includes('RaveTapePacks')")
-    page.wait_for_function(
         "() => !!document.querySelector('#audio').getAttribute('src')", timeout=15000)
     assert calls["n"] >= 3
-    assert page.locator("#p-retry").is_hidden()
     assert "RaveTapePacks" not in _text(page.locator("#p-status"))
+    assert page.locator("#toast").is_hidden()
+    assert page.locator("#p-retry").count() == 0
 
 
-def test_ravetapepacks_source_blocked_manual_check_again(browser_page, monkeypatch):
-    """1.6.47: after the silent retry fails, 'Check again' retries once, no loop."""
+def test_ravetapepacks_source_blocked_stays_silent_no_loop(browser_page, monkeypatch):
+    """1.6.50: unreachable RTP leaves the player idle; one silent retry, no banner."""
     import app as app_module
-
     calls = {"n": 0}
-
     def opener(url, headers, deadline):
         calls["n"] += 1
         return (_BlockedStreamConnection(),
                 _BlockedStreamResponse(403), url)
-
     monkeypatch.setattr(app_module.legacy, "packs", _rtp_legacy_pack)
     monkeypatch.setattr(app_module, "_open_stream", opener)
     page = browser_page.page
@@ -1627,12 +1623,13 @@ def test_ravetapepacks_source_blocked_manual_check_again(browser_page, monkeypat
         "() => document.querySelector('#title').textContent === 'Fake Pack'")
     _wait_for_rows(page, 1)
     page.locator("#list .row").first.click()
-    page.wait_for_selector("#p-retry", state="visible", timeout=12000)
-    before = calls["n"]
-    assert before >= 4
-    page.locator("#p-retry").click()
-    page.wait_for_timeout(800)
-    assert calls["n"] > before
-    assert page.locator("#p-retry").is_visible()
-    page.wait_for_timeout(1000)
-    assert calls["n"] <= before + 2  # manual attempt only; no automatic loop
+    page.wait_for_function(
+        "() => !document.querySelector('#player').hidden && !document.querySelector('#audio').getAttribute('src')")
+    page.wait_for_timeout(6500)  # initial attempt + one 5 s background retry
+    assert calls["n"] == 4
+    assert page.locator("#p-status").is_hidden()
+    assert page.locator("#toast").is_hidden()
+    assert page.locator("#p-retry").count() == 0
+    page.wait_for_timeout(1500)
+    assert calls["n"] == 4  # no automatic loop
+    assert not page.locator("#audio").evaluate("(el) => el.getAttribute('src')")

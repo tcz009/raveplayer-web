@@ -746,21 +746,6 @@ body.has-player .stage { padding-bottom: calc(var(--player) + 26px); }
   white-space: normal;
   overflow: hidden;
 }
-.p-retry {
-  margin-top: 4px;
-  min-height: 32px;
-  padding: 0 10px;
-  border: 1px solid var(--orange);
-  border-radius: 6px;
-  background: transparent;
-  color: var(--orange);
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  cursor: pointer;
-}
-.p-retry:hover, .p-retry:focus-visible { background: var(--orange); color: var(--ink); outline: 2px solid var(--cyan); outline-offset: 2px; }
 
 .p-controls { display: flex; align-items: center; gap: 8px; }
 .p-controls button {
