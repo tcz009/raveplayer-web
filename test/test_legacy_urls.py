@@ -41,6 +41,10 @@ class _Handler(BaseHTTPRequestHandler):
             )
             self._send(200, page.encode("utf-8"), "text/html; charset=utf-8")
             return
+        if self.path == "/redirect/music/PackNine/Redirect.mp3":
+            self._send(302, b"", "text/plain",
+                       {"Location": "/music/PackNine/Final.mp3"})
+            return
         if self.path == "/retry/music/PackThree/Needs_Directory.mp3":
             # Only the pack directory Referer is accepted: exercises the
             # proxy's one 403 retry without weakening the normal check.
@@ -95,7 +99,8 @@ def test_packs_normalises_relative_http_entity_and_json_shapes(monkeypatch):
     assert "https://www.ravetapepacks.com/music/PackFour/Protocol.mp3" in urls
     assert "https://www.ravetapepacks.com/music/PackFive/Relative.mp3" in urls
     assert "https://www.ravetapepacks.com/music/PackSix/JS_Escaped_%26_Raw.mp3" in urls
-    assert len(urls) == 6
+    assert "https://www.ravetapepacks.com/music/PackSeven/Caf%C3%A9%20%C3%89t%C3%A9.mp3" in urls
+    assert len(urls) == 7
     assert all(url.startswith("https://www.ravetapepacks.com/") for url in urls)
 
 
@@ -231,3 +236,16 @@ def test_hardscore_enclosure_is_not_double_decoded():
     assert "https://hardscore.com/mixes/A_&amp;_B.mp3" in episode["media"]
     assert "https://hardscore.com/mixes/C_&amp;_D.mp3" in episode["media"]
     assert "https://hardscore.com/mixes/A_&_B.mp3" not in episode["media"]
+
+
+def test_proxy_follows_a_public_redirect_for_a_built_url(web, monkeypatch, fixture_site):
+    server, base = fixture_site
+    import app as app_module
+
+    monkeypatch.setattr(app_module, "ALLOW_PRIVATE", True)
+    target = base + "redirect/music/PackNine/Redirect.mp3"
+    response = web.get("/api/stream", query_string={"u": legacy.playable(target)},
+                       headers={"Range": "bytes=0-"})
+    assert response.status_code == 206, response.get_data(as_text=True)
+    assert response.headers["Content-Type"].startswith("audio/")
+    assert response.data.startswith(b"ID3")
