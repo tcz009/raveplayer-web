@@ -18,6 +18,7 @@ every hop goes through the same checks.  Concurrency is capped so a pile of
 slow streams cannot take every gunicorn thread away from the API.
 """
 
+import base64
 import datetime
 import http.client
 import ipaddress
@@ -44,8 +45,9 @@ from werkzeug.exceptions import HTTPException
 from flask.sessions import SecureCookieSessionInterface
 
 from core import (archive, audit, auth, cache, dnbradio, download_jobs, downloads,
-                  favourites, feeds, getdarker, hardscore, latest, legacy, mixcloud,
-                  moxser, pirate, playback, radio, raves, ravearchive, soundcloud, toronto)
+                  favourites, feeds, fetch as fetch_core, getdarker, hardscore,
+                  latest, legacy, mixcloud, moxser, pirate, playback, radio, raves,
+                  ravearchive, soundcloud, toronto)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.config["JSON_SORT_KEYS"] = False
@@ -2518,6 +2520,45 @@ def _new_connection(scheme, host, port, ip):
     return conn
 
 
+def _proxy_parts(proxy):
+    """Return (host, port, auth_headers) for a proxy URL, or None."""
+    try:
+        parts = urllib.parse.urlsplit(proxy)
+        host = parts.hostname
+        port = parts.port or (443 if parts.scheme == "https" else 80)
+    except ValueError:
+        return None
+    if not host or not 1 <= port <= 65535:
+        return None
+    auth = {}
+    if parts.username is not None:
+        raw = "%s:%s" % (urllib.parse.unquote(parts.username),
+                         urllib.parse.unquote(parts.password or ""))
+        auth["Proxy-Authorization"] = "Basic " + base64.b64encode(
+            raw.encode("utf-8")).decode("ascii")
+    return host, port, auth
+
+
+def _new_proxy_connection(scheme, host, port, proxy):
+    """Connection to ``proxy``; HTTPS targets are tunnelled with CONNECT.
+
+    The SSRF checks already ran against the target in ``_resolve_target``.
+    For a proxied hop the proxy performs its own DNS lookup, so the proxy is
+    the trust boundary there: it only accepts RaveTapePacks hostnames.
+    """
+    parts = _proxy_parts(proxy)
+    if not parts:
+        raise OSError("invalid egress proxy URL")
+    proxy_host, proxy_port, auth = parts
+    if scheme == "https":
+        conn = http.client.HTTPSConnection(
+            proxy_host, proxy_port, timeout=CONNECT_TIMEOUT, context=_SSL_CONTEXT)
+        conn.set_tunnel(host, port, headers=auth)
+        return conn, auth
+    return http.client.HTTPConnection(
+        proxy_host, proxy_port, timeout=CONNECT_TIMEOUT), auth
+
+
 def _upstream_headers(target, options, requested_range, ref_override):
     headers = {
         "User-Agent": USER_AGENT,
@@ -2569,7 +2610,12 @@ def _referer_retry_headers(target, headers):
 
 
 def _open_stream(url, headers, deadline):
-    """GET url, following public redirects by hand.  Returns (conn, resp, url)."""
+    """GET url, following public redirects by hand.  Returns (conn, resp, url).
+
+    RaveTapePacks hosts use the configured egress proxy (the site firewalls
+    the home WAN IP); every other host keeps the direct pinned-IP path.  A
+    dead proxy falls back to direct once per hop, inside the same deadline.
+    """
     current = url
     for _ in range(MAX_REDIRECTS + 1):
         if time.monotonic() >= deadline:
@@ -2582,17 +2628,50 @@ def _open_stream(url, headers, deadline):
                                    _safe_log_url(url))
                 raise UpstreamError()
             raise
-        conn = _new_connection(scheme, host, port, ip)
-        try:
-            conn.request("GET", _request_target(current), headers=headers)
-            resp = conn.getresponse()
-        except (socket.timeout, TimeoutError):
-            conn.close()
-            raise UpstreamTimeout()
-        except (http.client.HTTPException, ssl.SSLError, OSError, ValueError) as exc:
-            conn.close()
-            app.logger.info("upstream connect failed id=%s for %s: %s",
-                            _current_request_id(), _safe_log_url(current), exc)
+        proxy = fetch_core.egress_proxy_for(current)
+        attempts = [proxy, ""] if proxy else [""]
+        conn = resp = None
+        for proxy_url in attempts:
+            auth = {}
+            if proxy_url:
+                try:
+                    conn, auth = _new_proxy_connection(scheme, host, port, proxy_url)
+                except OSError:
+                    continue
+            else:
+                conn = _new_connection(scheme, host, port, ip)
+            try:
+                target = _request_target(current)
+                request_headers = headers
+                if proxy_url and scheme == "http":
+                    # A plain-HTTP proxy expects the absolute URL; RTP itself
+                    # is HTTPS, so this path is only for completeness/tests.
+                    target = current
+                    if auth:
+                        request_headers = dict(headers)
+                        request_headers.update(auth)
+                conn.request("GET", target, headers=request_headers)
+                resp = conn.getresponse()
+                break
+            except (socket.timeout, TimeoutError):
+                conn.close()
+                if proxy_url and len(attempts) > 1:
+                    app.logger.info(
+                        "RTP egress proxy timed out for %s; trying direct",
+                        _safe_log_url(current))
+                    continue
+                raise UpstreamTimeout()
+            except (http.client.HTTPException, ssl.SSLError, OSError, ValueError) as exc:
+                conn.close()
+                if proxy_url and len(attempts) > 1:
+                    app.logger.info(
+                        "RTP egress proxy unavailable for %s (%s); trying direct",
+                        _safe_log_url(current), type(exc).__name__)
+                    continue
+                app.logger.info("upstream connect failed id=%s for %s: %s",
+                                _current_request_id(), _safe_log_url(current), exc)
+                raise UpstreamError()
+        if resp is None:
             raise UpstreamError()
         if resp.status in _REDIRECT_CODES:
             location = resp.getheader("Location") or ""

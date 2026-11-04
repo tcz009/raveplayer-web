@@ -34,6 +34,110 @@ POLITE_HOSTS = {
     "ravetapepacks.com": 1.0,
 }
 _HOST_LOCKS = {}
+
+# ---------------------------------------------------------------- RTP egress
+# RaveTapePacks' edge firewall drops this network's WAN address at TCP level
+# (SYN timeout), so no amount of retrying/referer work fixes the page fetch.
+# When RTP_EGRESS_PROXY is set, requests to the hosts below - and only those -
+# are sent through the homelab VPN host's HTTP CONNECT proxy.  Everything
+# else keeps the normal direct path.  The proxy itself is host-allowlisted,
+# so a redirect away from RTP goes direct and cannot turn it into an open
+# proxy.  Every redirect hop is still validated by _SafeRedirectHandler.
+EGRESS_PROXY_ENV = "RTP_EGRESS_PROXY"
+EGRESS_HOSTS_ENV = "RTP_EGRESS_HOSTS"
+EGRESS_FALLBACK_ENV = "RTP_EGRESS_FALLBACK"
+DEFAULT_EGRESS_HOSTS = ("ravetapepacks.com",)
+
+
+def _egress_hosts():
+    raw = os.environ.get(EGRESS_HOSTS_ENV, "")
+    hosts = tuple(
+        host.strip().lower().lstrip(".") for host in raw.split(",") if host.strip()
+    )
+    return hosts or DEFAULT_EGRESS_HOSTS
+
+
+def is_egress_host(value):
+    """True when ``value`` (URL or hostname) belongs on the RTP egress route."""
+    try:
+        text = str(value or "").strip()
+        if not text:
+            return False
+        if "://" in text:
+            host = urllib.parse.urlsplit(text).hostname or ""
+        else:
+            host = text
+        host = host.lower().rstrip(".")
+    except (ValueError, AttributeError):
+        return False
+    return any(host == suffix or host.endswith("." + suffix)
+               for suffix in _egress_hosts())
+
+
+def egress_proxy():
+    """Return the configured proxy URL (``http://host:port``), or ``""``.
+
+    ``host:port`` without a scheme is accepted for convenience.  Credentials,
+    if any, stay inside the URL and are never logged.  An invalid value is
+    treated as "not configured" so a typo cannot break every RTP fetch.
+    """
+    raw = (os.environ.get(EGRESS_PROXY_ENV, "") or "").strip()
+    if not raw:
+        return ""
+    if "://" not in raw:
+        raw = "http://" + raw
+    try:
+        parts = urllib.parse.urlsplit(raw)
+    except ValueError:
+        return ""
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        return ""
+    if parts.path not in ("", "/") or parts.query or parts.fragment:
+        return ""
+    try:
+        port = parts.port
+    except ValueError:
+        return ""
+    if port is not None and not 1 <= port <= 65535:
+        return ""
+    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, "", "", ""))
+
+
+def egress_proxy_for(url):
+    """Proxy URL for ``url`` when it is an RTP host, else ``""``."""
+    if not is_egress_host(url):
+        return ""
+    return egress_proxy()
+
+
+def _egress_fallback_enabled():
+    value = (os.environ.get(EGRESS_FALLBACK_ENV, "1") or "1").strip().lower()
+    return value not in ("0", "false", "no", "off")
+
+
+class _EgressProxyHandler(urllib.request.ProxyHandler):
+    """Per-request proxy routing: only the configured hosts use the proxy."""
+
+    def proxy_open(self, req, proxy, type):
+        if not is_egress_host(req.full_url):
+            return None
+        return urllib.request.ProxyHandler.proxy_open(self, req, proxy, type)
+
+
+_EGRESS_OPENERS = {}
+_EGRESS_OPENER_LOCK = threading.Lock()
+
+
+def _egress_opener(proxy):
+    with _EGRESS_OPENER_LOCK:
+        opener = _EGRESS_OPENERS.get(proxy)
+        if opener is None:
+            opener = urllib.request.build_opener(
+                _SafeRedirectHandler(),
+                _EgressProxyHandler({"http": proxy, "https": proxy}),
+            )
+            _EGRESS_OPENERS[proxy] = opener
+        return opener
 _HOST_LAST_END = {}
 _HOST_META_LOCK = threading.Lock()
 
@@ -341,44 +445,82 @@ class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 _OPENER = urllib.request.build_opener(_SafeRedirectHandler())
 
+# Transport failures that mean "the proxy/tunnel did not answer" (as opposed to
+# an HTTP status from the target).  Only these trigger the direct fallback.
+_TRANSPORT_ERRORS = (
+    urllib.error.URLError,
+    http.client.HTTPException,
+    socket.timeout,
+    OSError,
+    ValueError,
+    EOFError,
+    zlib.error,
+)
+
 
 def _request(url, timeout, headers):
     """Perform one request and return the decoded body, or None on failure.
 
     ``timeout`` is a budget for the whole fetch (connect + headers + body +
-    redirects), not just one socket receive.
+    redirects), not just one socket receive.  RTP hosts take the configured
+    egress proxy; if that proxy is unreachable the request falls back to the
+    direct path (the site still blocks it, but a stale proxy config must not
+    break other diagnostics) within the same budget.
     """
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    for key, value in (headers or {}).items():
-        request.add_header(key, value)
     try:
         budget = max(0.5, float(timeout if timeout is not None else DEFAULT_TIMEOUT))
     except (TypeError, ValueError):
         budget = float(DEFAULT_TIMEOUT)
     deadline = time.monotonic() + budget
-    request.raveweb_deadline = deadline
-    try:
-        with _host_slot(url):
-            with _OPENER.open(request, timeout=budget) as response:
-                return _decode(response, deadline)
-    except urllib.error.HTTPError as exc:
+    proxy = egress_proxy_for(url)
+    if proxy:
+        request = _build_request(url, headers, deadline)
         try:
-            exc.close()
-        except Exception:
-            pass
+            return _open_request(request, _egress_opener(proxy), budget, deadline)
+        except urllib.error.HTTPError as exc:
+            _log_http_error(url, exc)
+            return None
+        except _TRANSPORT_ERRORS as exc:
+            kodi.log("RTP egress proxy unavailable for %s (%s); retrying direct"
+                     % (_safe_url(url), type(exc).__name__), level=30)
+            if not _egress_fallback_enabled():
+                return None
+            remaining = deadline - time.monotonic()
+            if remaining <= 0.5:
+                return None
+            budget = remaining
+            deadline = time.monotonic() + budget
+    request = _build_request(url, headers, deadline)
+    try:
+        return _open_request(request, _OPENER, budget, deadline)
+    except urllib.error.HTTPError as exc:
+        _log_http_error(url, exc)
+        return None
+    except _TRANSPORT_ERRORS as exc:
         kodi.log("fetch failed: %s (%s)" % (_safe_url(url), exc), level=30)
         return None
-    except (
-        urllib.error.URLError,
-        http.client.HTTPException,
-        socket.timeout,
-        OSError,
-        ValueError,
-        EOFError,
-        zlib.error,
-    ) as exc:
-        kodi.log("fetch failed: %s (%s)" % (_safe_url(url), exc), level=30)
-        return None
+
+
+def _build_request(url, headers, deadline):
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    for key, value in (headers or {}).items():
+        request.add_header(key, value)
+    request.raveweb_deadline = deadline
+    return request
+
+
+def _open_request(request, opener, budget, deadline):
+    with _host_slot(request.full_url):
+        with opener.open(request, timeout=budget) as response:
+            return _decode(response, deadline)
+
+
+def _log_http_error(url, exc):
+    try:
+        exc.close()
+    except Exception:
+        pass
+    kodi.log("fetch failed: %s (%s)" % (_safe_url(url), exc), level=30)
 
 
 def fetch(url, timeout=DEFAULT_TIMEOUT, headers=None, ttl=0):

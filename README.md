@@ -234,6 +234,9 @@ genres. Jungle/Drum & Bass and Hardcore/Happy Hardcore are separate doors.
 | `RAVEWEB_DATA` | `/tmp/raveweb` (`/data` in Docker) | Favourites + HTTP cache |
 | `RAVEWEB_ALLOW_PRIVATE` | `0` | Set to `1` to allow LAN/Tailscale stream hosts |
 | `RAVEWEB_STREAM_HOSTS` | empty (any public host) | Comma-separated host suffixes `/api/stream` may fetch, e.g. `archive.org,rinse.fm,media.rss.com`. Empty keeps live radio working; set it to pin the proxy to known media hosts. |
+| `RTP_EGRESS_PROXY` | empty (direct) | Per-host egress for RaveTapePacks only, e.g. `http://vpn-host:8888` (HTTP CONNECT proxy on the VPN host). See `docs/RTP-EGRESS.md`. |
+| `RTP_EGRESS_HOSTS` | `ravetapepacks.com` | Comma-separated host suffixes that use `RTP_EGRESS_PROXY`; every other host stays direct. |
+| `RTP_EGRESS_FALLBACK` | `1` | Set to `0` to fail instead of retrying directly when the egress proxy is unreachable. |
 | `RAVEWEB_DOWNLOAD_BYTES` | `524288000` (500 MiB) | Per-file cap for the Downloads proxy save. |
 | `RAVEWEB_DOWNLOAD_TOTAL` | `2147483648` (2 GiB) | Total cap for the Downloads library under `RAVEWEB_DATA/downloads`. |
 | `RAVEWEB_MAX_STREAMS` | `6` | Concurrent proxied streams per worker |
