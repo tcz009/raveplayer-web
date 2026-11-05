@@ -186,7 +186,9 @@
     const copy = button("Copy", "copy");
     const download = button("Download", "download");
     const clearBtn = button("Clear", "clear");
-    head.append(title, count, copy, download, clearBtn);
+    const closeBtn = button("✕", "close");
+    closeBtn.setAttribute("aria-label", "Close debug log");
+    head.append(title, count, copy, download, clearBtn, closeBtn);
 
     const log = document.createElement("ol");
     log.className = "debug-log";
@@ -209,6 +211,10 @@
       });
     });
     download.addEventListener("click", downloadJSON);
+    closeBtn.addEventListener("click", () => {
+      setEnabled(false);
+      syncToggle();
+    });
     clearBtn.addEventListener("click", () => {
       clear();
       clearBtn.textContent = "Cleared";
