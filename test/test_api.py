@@ -466,14 +466,14 @@ def test_legacy_ravetapepacks_indexes(web, monkeypatch):
 
 
 def test_legacy_ravetapepacks_list(web, monkeypatch):
-    monkeypatch.setattr("app.legacy.packs", lambda: [
-        {"key": "ExposureVol1", "name": "Exposure Vol 1", "tracks": [{"name": "A", "url": "u"}]},
-        {"name": "no key", "tracks": []},
+    monkeypatch.setattr("app.legacy.all_packs", lambda page=1: ([
+        {"id": "2459", "name": "Exposure Vol 1"},
+        {"name": "no id"},
         "junk",
-    ])
+    ], ""))
     payload = web.get("/api/legacy/ravetapepacks/all").get_json()
-    assert payload["items"][0]["label"] == "Exposure Vol 1 (1 tapes)"
-    assert payload["items"][0]["open"] == "/api/legacy/ravetapepacks/ExposureVol1"
+    assert payload["items"][0]["label"] == "Exposure Vol 1"
+    assert payload["items"][0]["open"] == "/api/legacy/ravetapepacks/post/2459"
 
 
 def test_legacy_ravetapepacks_tracks_keep_referer_suffix(web, monkeypatch):
@@ -525,7 +525,7 @@ def test_search_widens_when_thin(web, archive_search, monkeypatch):
 
     def fake_search(query, page=1, rows=50, sort="downloads desc"):
         calls.append(query)
-        if query.startswith("tape AND mediatype:audio"):
+        if query.startswith("title:(tape) AND mediatype:audio"):
             return [{"identifier": "two", "title": "Two"}], 500
         return [{"identifier": "one", "title": "One"}], 2
 
@@ -535,6 +535,9 @@ def test_search_widens_when_thin(web, archive_search, monkeypatch):
     assert [item["open"] for item in payload["items"]] == ["/api/item/one", "/api/item/two"]
     assert "next" not in payload
     assert len(calls) == 2
+    # The fallback is title- and scene-scoped, never every audio item.
+    assert calls[1].startswith("title:(tape) AND mediatype:audio")
+    assert "subject:(rave OR jungle OR hardcore" in calls[1]
 
 
 def test_search_query_is_capped(web, archive_search):

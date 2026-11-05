@@ -185,6 +185,9 @@ CSP = (
 )
 
 ROWS = 40
+# JungleTapes has 300+ sitemap shows; the web list and the Kodi directory both
+# page at 50 so the catalogue is browsable instead of one huge response.
+JT_SHOWS_PER_PAGE = 50
 MAX_PAGE = 500
 MAX_QUERY = 200
 MAX_URL = 2048
@@ -220,7 +223,8 @@ DOWNLOAD_MAX_TOTAL = _env_bytes("RAVEWEB_DOWNLOAD_TOTAL", 2 * 1024 * 1024 * 1024
                                 1024 * 1024, 16 * 1024 * 1024 * 1024)
 DOWNLOAD_MAX_ITEMS = 200
 DOWNLOAD_DEADLINE = 1800  # seconds for one proxy download
-DOWNLOAD_SOURCES = ("archive", "moxser", "hardscore", "pirate", "toronto")
+DOWNLOAD_SOURCES = ("archive", "moxser", "hardscore", "pirate", "toronto",
+                    "ravetapepacks")
 DOWNLOAD_EXTENSIONS = (".mp3", ".m4a")
 DOWNLOAD_JOB_CONCURRENCY = max(1, min(2, int(os.environ.get("RAVEWEB_DOWNLOAD_JOBS", "2") or 2)))
 DOWNLOAD_JOB_MAX = 20
@@ -234,6 +238,7 @@ DOWNLOAD_SOURCE_LABELS = {
     "hardscore": "Hardscore",
     "pirate": "Pirate Radio Archives",
     "toronto": "Toronto Rave Mixtape Archive",
+    "ravetapepacks": "RaveTapePacks.com",
 }
 DOWNLOAD_SOURCE_ART = {
     "archive": ART + "tapepacks-all.png",
@@ -241,6 +246,7 @@ DOWNLOAD_SOURCE_ART = {
     "hardscore": ART + "hardscore.png",
     "pirate": ART + "pirate-archive.png",
     "toronto": ART + "toronto.png",
+    "ravetapepacks": ART + "ravetapepacks.png",
 }
 
 _REDIRECT_CODES = frozenset((301, 302, 303, 307, 308))
@@ -1399,7 +1405,8 @@ def api_latest():
                                 {"kind": "stream", "target": url, "title": title}))
         elif kind == "dnb" and entry.get("id") is not None:
             item = _track(title, "%s · %s" % (entry.get("source", ""), stamp), None,
-                          ART + "dnb.png")
+                          ART + "dnb.png",
+                          {"kind": "dnb", "target": str(entry["id"]), "title": title})
             item["play_via"] = "/api/dnb/%s" % urllib.parse.quote(str(entry["id"]))
             items.append(item)
     return jsonify({"title": "Latest", "items": items})
@@ -1451,8 +1458,12 @@ def api_filter_live(key):
         if not isinstance(station, dict):
             continue
         name, meta = radio.display(station)
-        items.append(_track(name, meta, radio.stream_url(station),
-                            station.get("favicon") or ART + "radio.png"))
+        url = radio.stream_url(station)
+        if not url:
+            continue
+        items.append(_track(name, meta, url,
+                            station.get("favicon") or ART + "radio.png",
+                            {"kind": "stream", "target": url, "title": name}))
     return jsonify({"title": "%s — live" % entry["name"], "items": items})
 
 
@@ -1465,8 +1476,9 @@ def api_live():
                                ("centreforce", "Centreforce 883", "centreforce.png")):
         station = next((entry for entry in radio.curated(token) if entry), None)
         if station:
-            items.append(_track(label, "Live now", radio.stream_url(station),
-                                ART + icon))
+            url = radio.stream_url(station)
+            items.append(_track(label, "Live now", url, ART + icon,
+                                {"kind": "stream", "target": url, "title": label}))
     for key, label, _tag in RADIO_SECTIONS:
         items.append(_folder(label, "Stations on air", "/api/live/%s" % key,
                              ART + LIVE_ART[key]))
@@ -1487,7 +1499,9 @@ def api_live_tag(key):
         url = radio.stream_url(station)
         if not url:
             continue
-        items.append(_track(name, meta, url, station.get("favicon") or ART + "radio.png"))
+        items.append(_track(name, meta, url,
+                            station.get("favicon") or ART + "radio.png",
+                            {"kind": "stream", "target": url, "title": name}))
     return jsonify({"title": section[1], "items": items})
 
 
@@ -1684,7 +1698,8 @@ def api_hardscore():
         sub = _source_sub("Hardscore", entry.get("date"))
         media = _http_url(entry.get("media"))
         if media:
-            item = _track(title, sub, media, ART + "hardscore.png")
+            item = _track(title, sub, media, ART + "hardscore.png",
+                          {"kind": "stream", "target": media, "title": title})
             _mark_download(item, "hardscore", media)
             items.append(item)
         else:
@@ -1736,7 +1751,8 @@ def api_toronto():
         if not url:
             continue
         sub = _source_sub("Toronto", entry.get("date"), entry.get("venue"))
-        item = _track(name, sub, url, ART + "toronto.png")
+        item = _track(name, sub, url, ART + "toronto.png",
+                      {"kind": "stream", "target": url, "title": name})
         item["date"] = entry.get("date") or ""
         item["venue"] = entry.get("venue") or ""
         item["duration"] = entry.get("duration") or ""
@@ -1839,7 +1855,8 @@ def api_pirate_station(slug):
         stream = _http_url(entry.get("stream_url"))
         source = _http_url(entry.get("source_url"))
         if stream:
-            item = _track(title, sub, stream, ART + "pirate-archive.png")
+            item = _track(title, sub, stream, ART + "pirate-archive.png",
+                          {"kind": "stream", "target": stream, "title": title})
             _mark_download(item, "pirate", stream)
             if source:
                 item["external"] = source
@@ -1958,7 +1975,8 @@ def api_dnb():
         if not isinstance(show, dict) or show.get("id") is None:
             continue
         title = _clean_text(show.get("title"), MAX_TITLE) or "Untitled"
-        item = _track(title, _clean_text(show.get("date"), 40), None, ART + "dnb.png")
+        item = _track(title, _clean_text(show.get("date"), 40), None, ART + "dnb.png",
+                      {"kind": "dnb", "target": str(show["id"]), "title": title})
         item["play_via"] = "/api/dnb/%s" % urllib.parse.quote(str(show["id"]))
         items.append(item)
     return jsonify({"title": "DNB Radio", "items": items})
@@ -2029,18 +2047,30 @@ def api_legacy_rtp():
 
 @app.get("/api/legacy/ravetapepacks/all")
 def api_legacy_rtp_all():
+    """The complete RaveTapePacks archive, paginated.
+
+    The homepage only carries a rotating "RANDOM SELECTION" block, so the old
+    implementation served a different handful of packs on every refresh and
+    called itself "All Packs".  ``?cat=0`` is the site's blog archive: every
+    post, in date order, with WordPress pagination.
+    """
+    page = _page_arg()
+    posts, nxt = legacy.all_packs(page)
+    if posts is None:
+        return _json_error("RaveTapePacks index unavailable", 502)
+    if not posts and page == 1:
+        return _json_error("no packs in the RaveTapePacks archive", 404)
     items = [
-        _folder("%s (%d tapes)" % (entry.get("name") or entry["key"],
-                                   len(entry.get("tracks") or [])),
-                "RaveTapePacks.com",
-                "/api/legacy/ravetapepacks/%s" % urllib.parse.quote(entry["key"]),
-                ART + "ravetapepacks.png")
-        for entry in legacy.packs()
-        if isinstance(entry, dict) and entry.get("key")]
-    items, nxt = _optional_slice(items, "/api/legacy/ravetapepacks/all")
+        _folder(post.get("name") or "Pack %s" % post["id"],
+                _source_sub("RaveTapePacks.com", "pack"),
+                "/api/legacy/ravetapepacks/post/%s" % urllib.parse.quote(post["id"]),
+                ART + "ravetapepacks.png",
+                {"kind": "legacy_post", "target": post["id"],
+                 "title": post.get("name") or "Pack %s" % post["id"]})
+        for post in posts if isinstance(post, dict) and post.get("id")]
     payload = {"title": "RaveTapePacks.com", "items": items}
     if nxt:
-        payload["next"] = nxt
+        payload["next"] = "/api/legacy/ravetapepacks/all?page=%d" % (page + 1)
     return jsonify(payload)
 
 
@@ -2076,10 +2106,18 @@ def _rtp_category_name(kind, cat_id):
 
 @app.get("/api/legacy/ravetapepacks/index/<kind>/<cat_id>")
 def api_legacy_rtp_category(kind, cat_id):
+    """One page of a RaveTapePacks category, with a link to the next page."""
     if kind not in ("events", "djs", "mcs", "years") or not cat_id.isdigit():
         return _json_error("unknown RaveTapePacks category", 404)
-    posts = legacy.category(cat_id)
-    if not posts:
+    known = {entry["id"] for entry in legacy.categories().get(kind, [])
+             if isinstance(entry, dict) and entry.get("id")}
+    if known and cat_id not in known:
+        return _json_error("unknown RaveTapePacks category", 404)
+    page = _page_arg()
+    posts, nxt = legacy.category_page(cat_id, page)
+    if posts is None:
+        return _json_error("RaveTapePacks category unavailable", 502)
+    if not posts and page == 1:
         return _json_error("no packs in that RaveTapePacks category", 404)
     name = _rtp_category_name(kind, cat_id)
     title = name or "RaveTapePacks.com · category"
@@ -2087,13 +2125,14 @@ def api_legacy_rtp_category(kind, cat_id):
         _folder(post.get("name") or "Pack %s" % post["id"],
                 _source_sub("RaveTapePacks.com", name or "category"),
                 "/api/legacy/ravetapepacks/post/%s" % urllib.parse.quote(post["id"]),
-                ART + "ravetapepacks.png")
+                ART + "ravetapepacks.png",
+                {"kind": "legacy_post", "target": post["id"],
+                 "title": post.get("name") or "Pack %s" % post["id"]})
         for post in posts if isinstance(post, dict) and post.get("id")]
-    items, nxt = _optional_slice(
-        items, "/api/legacy/ravetapepacks/index/%s/%s" % (kind, cat_id))
     payload = {"title": title, "items": items}
     if nxt:
-        payload["next"] = nxt
+        payload["next"] = ("/api/legacy/ravetapepacks/index/%s/%s?page=%d"
+                           % (kind, cat_id, page + 1))
     return jsonify(payload)
 
 
@@ -2123,9 +2162,11 @@ def api_legacy_rtp_post(post_id):
             continue
         playable = legacy.playable(track["url"])
         name = _clean_text(track.get("name"), MAX_TITLE) or "Tape"
-        items.append(_track(name, _source_sub("RaveTapePacks.com", title), playable,
-                            ART + "tapepacks.png",
-                            {"kind": "stream", "target": playable, "title": name}))
+        item = _track(name, _source_sub("RaveTapePacks.com", title), playable,
+                      ART + "tapepacks.png",
+                      {"kind": "stream", "target": playable, "title": name})
+        _mark_download(item, "ravetapepacks", playable)
+        items.append(item)
     return jsonify({"title": title, "items": items})
 
 
@@ -2140,20 +2181,33 @@ def api_legacy_rtp_pack(pack):
             continue
         playable = legacy.playable(track["url"])
         name = _clean_text(track.get("name"), MAX_TITLE) or "Tape"
-        items.append(_track(name, "Tape", playable, ART + "tapepacks.png",
-                            {"kind": "stream", "target": playable, "title": name}))
+        item = _track(name, "Tape", playable, ART + "tapepacks.png",
+                      {"kind": "stream", "target": playable, "title": name})
+        _mark_download(item, "ravetapepacks", playable)
+        items.append(item)
     return jsonify({"title": entry.get("name") or pack, "items": items})
 
 
 @app.get("/api/legacy/jungletapes")
 def api_legacy_jt():
+    """JungleTapes show list, paginated: the sitemap catalogue is 300+ shows."""
+    page = _page_arg()
+    shows = [show for show in legacy.jungle_shows()
+             if isinstance(show, dict) and isinstance(show.get("key"), str)]
+    total = len(shows)
+    start = (page - 1) * JT_SHOWS_PER_PAGE
+    window = shows[start:start + JT_SHOWS_PER_PAGE]
     items = []
-    for show in legacy.jungle_shows():
-        if not isinstance(show, dict) or not isinstance(show.get("key"), str):
-            continue
-        items.append(_folder(show.get("name") or show["key"], "JungleTapes.com",
-                             "/api/legacy/jungletapes/%s" % urllib.parse.quote(show["key"])))
-    return jsonify({"title": "JungleTapes.com", "items": items})
+    for show in window:
+        name = show.get("name") or show["key"]
+        items.append(_folder(name, "JungleTapes.com",
+                             "/api/legacy/jungletapes/%s" % urllib.parse.quote(show["key"]),
+                             ART + "jungletapes.png",
+                             {"kind": "legacy_jt", "target": show["key"], "title": name}))
+    payload = {"title": "JungleTapes.com", "items": items}
+    if start + JT_SHOWS_PER_PAGE < total:
+        payload["next"] = "/api/legacy/jungletapes?page=%d" % (page + 1)
+    return jsonify(payload)
 
 
 @app.get("/api/legacy/jungletapes/<path:show_key>")
@@ -2217,8 +2271,16 @@ def api_search():
         calls.append(lambda: _search_mixcloud(query))
         names.append("mixcloud")
     if widen_needed:
-        calls.append(lambda: archive.search("%s AND mediatype:audio" % query,
-                                            rows=ROWS)[0])
+        # Widen by *title*, not every audio item: an unscoped
+        # ``dreamscape AND mediatype:audio`` returns audiobooks, sound effects
+        # and meditation tracks before the rave tapes.  Requiring the scene
+        # subject/collections keeps the fallback on-genre.
+        widen_query = (
+            'title:(%s) AND mediatype:audio AND '
+            '(collection:ravetapes OR collection:cassettetapes OR '
+            'subject:(rave OR jungle OR hardcore OR "drum and bass" OR '
+            '"old skool" OR garage))' % query)
+        calls.append(lambda: archive.search(widen_query, rows=ROWS)[0])
         names.append("widen")
     results = dict(zip(names, _gather(calls)))
     if widen_needed:
@@ -2277,6 +2339,19 @@ def api_fav_list():
             item = _folder(title, "Tape pack",
                            "/api/item/%s" % urllib.parse.quote(target),
                            archive.thumb(target))
+        elif entry.get("kind") == "legacy_post":
+            item = _folder(title, "RaveTapePacks pack",
+                           "/api/legacy/ravetapepacks/post/%s"
+                           % urllib.parse.quote(target, safe=""),
+                           ART + "ravetapepacks.png")
+        elif entry.get("kind") == "legacy_jt":
+            item = _folder(title, "JungleTapes show",
+                           "/api/legacy/jungletapes/%s"
+                           % urllib.parse.quote(target, safe=""),
+                           ART + "jungletapes.png")
+        elif entry.get("kind") == "dnb":
+            item = _track(title, "DNB Radio", None, ART + "dnb.png")
+            item["play_via"] = "/api/dnb/%s" % urllib.parse.quote(target, safe="")
         else:
             item = _track(title, "Show", target, ART + "radio.png")
         item["fav_key"] = key
@@ -2286,14 +2361,17 @@ def api_fav_list():
     return jsonify({"title": "Favourites", "items": items})
 
 
+FAVOURITE_KINDS = ("pack", "stream", "legacy_post", "legacy_jt", "dnb")
+
+
 def _fav_payload():
     """Validate a favourites POST body; returns (entry, error)."""
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
         return None, "expected a JSON object"
     kind = payload.get("kind", "pack")
-    if kind not in ("pack", "stream"):
-        return None, "kind must be pack or stream"
+    if kind not in FAVOURITE_KINDS:
+        return None, "unknown favourite kind"
     title = _clean_text(payload.get("title"), MAX_TITLE)
     target = _clean_text(payload.get("target"), MAX_URL)
     if not title:
@@ -2308,6 +2386,15 @@ def _fav_payload():
             return None, "stream target must be an http(s) url"
         if parsed.scheme not in ("http", "https") or not parsed.hostname:
             return None, "stream target must be an http(s) url"
+    elif kind in ("legacy_post", "dnb"):
+        if not re.match(r"^\d{1,12}$", target):
+            return None, "invalid %s id" % kind
+    elif kind == "legacy_jt":
+        if "/" in target or ".." in target or len(target) > 300:
+            return None, "invalid JungleTapes show key"
+    elif kind == "pack":
+        if "/" in target or ".." in target or len(target) > 200:
+            return None, "invalid Archive identifier"
     return {"kind": kind, "target": target, "title": title}, None
 
 
@@ -3159,13 +3246,19 @@ def _human_size(size):
 
 
 def _download_allowed(source, url):
-    """The single direct-file eligibility rule (shared with the Kodi add-on)."""
+    """The single direct-file eligibility rule (shared with the Kodi add-on).
+
+    Legacy providers store Kodi's ``|Referer=...`` suffix on a download URL;
+    validate the clean target and let :func:`_download_chunks` turn the suffix
+    back into headers.
+    """
     if source not in DOWNLOAD_SOURCES:
         return False, "that source cannot be downloaded"
     if not isinstance(url, str) or len(url) > MAX_URL:
         return False, "blocked or missing url"
+    target, _options = _split_kodi_target(url)
     try:
-        parts = urllib.parse.urlsplit(url)
+        parts = urllib.parse.urlsplit(target)
     except ValueError:
         return False, "blocked or missing url"
     if parts.scheme not in ("http", "https"):
@@ -3191,7 +3284,7 @@ def _download_allowed(source, url):
             return False, "not a Hardscore file"
     elif source == "pirate":
         known = {_http_url(entry.get("stream_url")) for entry in pirate.entries()}
-        if url not in known:
+        if target not in known:
             return False, "not a curated pirate archive file"
     elif source == "toronto":
         if not (host == "torontoravemixtapearchive.com"
@@ -3200,6 +3293,11 @@ def _download_allowed(source, url):
         if not (parts.path.startswith("/files/mixtape/")
                 or parts.path.startswith("/files/xstatic/")):
             return False, "not a Toronto direct MP3"
+    elif source == "ravetapepacks":
+        if not (host == "ravetapepacks.com" or host.endswith(".ravetapepacks.com")):
+            return False, "not a RaveTapePacks file"
+        if not parts.path.startswith("/music/"):
+            return False, "not a RaveTapePacks direct MP3"
     return True, ""
 
 
@@ -3242,11 +3340,12 @@ def _download_chunks(url, destination, max_bytes, seconds, should_cancel=None):
     ``{"received": n, "total": ...}`` roughly ten times a second, then
     ``{"done": True, "size": n}``.  The caller owns cleanup of ``destination``.
     """
-    headers = _upstream_headers(url, {}, None, None)
+    target, options = _split_kodi_target(url)
+    headers = _upstream_headers(target, options, None, None)
     deadline = time.monotonic() + seconds
     conn = resp = handle = None
     try:
-        conn, resp, final_url = _open_stream(url, headers, deadline)
+        conn, resp, final_url = _open_stream(target, headers, deadline)
         status = resp.status
         if status in (401, 403):
             raise DownloadError("upstream refused access", 403)

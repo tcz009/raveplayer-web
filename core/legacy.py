@@ -39,12 +39,20 @@ RTP_PACKS_KEY = "legacy:rtp:packs:v1"
 # a pre-1.6.51 parse from being reused.
 RTP_CATEGORIES_KEY = "legacy:rtp:categories:v2"
 RTP_CATEGORY_KEY = "legacy:rtp:category:v2:%s"
+# 1.6.52: category views fetch one WordPress page at a time so a large
+# category is navigable instead of being silently truncated by the route
+# budget, and "All Packs" walks ?cat=0 (the blog archive) instead of the
+# homepage's rotating "RANDOM SELECTION" block.
+RTP_CATEGORY_PAGE_KEY = "legacy:rtp:category-page:v1:%s:%d"
+RTP_ALL_PACKS_KEY = "legacy:rtp:all-packs:v2:%d"
 RTP_POST_KEY = "legacy:rtp:post:v1:%s"
 CATEGORY_TTL = 6 * 60 * 60
 POST_TTL = 6 * 60 * 60
 # WordPress archives page at 10 posts by default.  A category with hundreds of
 # packs stops here rather than turning one request into a crawl.
 MAX_CATEGORY_PAGES = 20
+# The blog archive (?cat=0) currently holds ~185 posts at nine per page.
+MAX_ALL_PACKS_PAGES = 60
 CATEGORY_KINDS = ("events", "djs", "mcs", "years")
 
 # The site mixes three shapes: <audio src> with absolute or relative URLs,
@@ -500,46 +508,128 @@ def _posts_from_html(page):
     return posts
 
 
+def _packs_from_archive(page):
+    """Parse a blog-archive page and keep only posts that carry audio.
+
+    ``?cat=0`` also contains the site's sticky WELCOME/announcement posts.
+    On this theme each post is one ``<article>``; a real pack embeds at least
+    one ``.mp3`` player.  If the theme stops wrapping posts in ``<article>``
+    (no chunks) fall back to the plain bookmark parse rather than returning
+    nothing.
+    """
+    chunks = re.findall(r"<article\b[^>]*>.*?</article>", page or "",
+                        re.IGNORECASE | re.DOTALL)
+    if not chunks:
+        return _posts_from_html(page)
+    posts, seen = [], set()
+    for chunk in chunks:
+        # The sticky WELCOME post renders the "RANDOM SELECTION" slider, which
+        # contains audio players of its own, so "has an MP3" cannot tell it
+        # apart from a pack.  Its category/sticky marker can.
+        opening = chunk[:chunk.find(">") + 1].lower()
+        if "category-welcome" in opening or "format-status" in opening:
+            continue
+        if not re.search(r'(?:href|src)="[^"]+\.mp3(?:\?[^"]*)?"',
+                         chunk, re.IGNORECASE):
+            continue
+        for post in _posts_from_html(chunk):
+            if post["id"] in seen:
+                continue
+            seen.add(post["id"])
+            posts.append(post)
+    return posts
+
+
+def _page_posts(url, key, parser=None):
+    """Fetch one WordPress archive page; return ``(posts, next_url)``.
+
+    ``(None, "")`` means the fetch itself failed (blocked/offline) so callers
+    can tell "this category is empty" apart from "the source did not answer".
+    """
+    page = http.fetch(url, timeout=25, ttl=CATEGORY_TTL, headers=PAGE_HEADERS)
+    if page is None:
+        return None, ""
+    posts = _cached_parse(key, CATEGORY_TTL, page, parser or _posts_from_html)
+    if not isinstance(posts, list):
+        posts = []
+    return posts, _next_category_url(page, url)
+
+
+def category_page(cat_id, page=1):
+    """Return ``(posts, next_url)`` for one page of a RaveTapePacks category.
+
+    A category is a normal WordPress archive: up to ten posts per page and an
+    "Older posts" link.  Callers page through it instead of asking the source
+    for every page in one request, which used to exceed the route budget and
+    silently show only the first page or two.
+    """
+    cat_id = str(cat_id or "")
+    if not cat_id.isdigit() or len(cat_id) > 12:
+        return [], ""
+    try:
+        page = max(1, min(int(page), MAX_CATEGORY_PAGES))
+    except (TypeError, ValueError):
+        page = 1
+    url = BASE + "?cat=" + cat_id
+    if page > 1:
+        url += "&paged=%d" % page
+    return _page_posts(url, RTP_CATEGORY_PAGE_KEY % (cat_id, page))
+
+
+def all_packs(page=1):
+    """Return ``(posts, next_url)`` for one page of the complete pack archive.
+
+    The homepage only renders a rotating "RANDOM SELECTION" block, so parsing
+    it for an "All Packs" view showed a different handful of packs on every
+    refresh.  ``?cat=0`` is the site's ordinary blog archive and lists every
+    post in date order, paginated.
+    """
+    try:
+        page = max(1, min(int(page), MAX_ALL_PACKS_PAGES))
+    except (TypeError, ValueError):
+        page = 1
+    url = BASE + "?cat=0"
+    if page > 1:
+        url += "&paged=%d" % page
+    return _page_posts(url, RTP_ALL_PACKS_KEY % page, _packs_from_archive)
+
+
 def category(cat_id):
     """Return every pack (post) in one RaveTapePacks category, in page order.
 
-    Each category is a WordPress archive: page 1 lists the ten newest posts,
-    and "Older posts" walks ``?cat=<id>&paged=N``.  All pages are followed up to
-    ``MAX_CATEGORY_PAGES`` and the result is cached against the exact page
-    bodies, so a warm request does not re-fetch or re-parse the archive.
+    Kept as the aggregate helper (screen/other callers); HTTP routes use
+    :func:`category_page` so one directory never spends the whole route budget
+    crawling a long archive.
     """
     cat_id = str(cat_id or "")
     if not cat_id.isdigit() or len(cat_id) > 12:
         return []
-    url = BASE + "?cat=" + cat_id
-    pages, seen_urls = [], set()
+    posts, seen_ids, seen_urls = [], set(), set()
+    next_url = ""
+    page = 1
     for _index in range(MAX_CATEGORY_PAGES):
-        if not url or url in seen_urls:
+        if page > 1:
+            url = BASE + "?cat=" + cat_id + "&paged=%d" % page
+        else:
+            url = BASE + "?cat=" + cat_id
+        if url in seen_urls:
             break
         seen_urls.add(url)
-        page = http.fetch(url, timeout=25, ttl=CATEGORY_TTL, headers=PAGE_HEADERS)
-        if page is None:
+        batch, next_url = category_page(cat_id, page)
+        if batch is None:
             break
-        pages.append(page)
-        url = _next_category_url(page, url)
-    if not pages:
-        return []
-    fingerprint = _fingerprint("\n".join(pages))
-    cached = cache.get(RTP_CATEGORY_KEY % cat_id, CATEGORY_TTL)
-    if isinstance(cached, dict) and cached.get("fingerprint") == fingerprint:
-        value = cached.get("value")
-        if isinstance(value, list):
-            return value
-    posts, seen_ids = [], set()
-    for page in pages:
-        for post in _posts_from_html(page):
+        for post in batch:
             if post["id"] in seen_ids:
                 continue
             seen_ids.add(post["id"])
             posts.append(post)
-    cache.put(RTP_CATEGORY_KEY % cat_id,
-              {"fingerprint": fingerprint, "value": posts}, sync=False)
+        if not next_url:
+            break
+        page += 1
+        if page > MAX_CATEGORY_PAGES:
+            break
     return posts
+
 
 
 def _post_title(page):
@@ -635,6 +725,13 @@ JT_BASE = "https://jungletapes.com"
 JT_SHOW_RE = re.compile(r'href="/show/([^"]+)"[^>]*>.*?</a>', re.IGNORECASE | re.DOTALL)
 JT_MP3_RE = re.compile(
     r'href="([^"]+\.mp3(?:\?[^"]*)?)"', re.IGNORECASE)
+# A show page has two audio fields: "Stream the Jungle Tape Audio" (the
+# digitised upload, one MP3 per side) and "Download Link(s)" (the same sides
+# again as the original tape files plus OGG copies).  Parsing the whole page
+# listed every recording twice; prefer the stream field and only fall back to
+# the downloads field when a page has no stream player.
+JT_STREAM_FIELD = "field-name-field-upload-audio-file"
+JT_DOWNLOAD_FIELD = "field-name-field-audio-files"
 
 
 def jungle_shows():
@@ -673,6 +770,42 @@ def _jt_label(slug):
     return text[:1].upper() + text[1:] if text else slug
 
 
+def _jt_audio_hrefs(page):
+    """MP3 hrefs from a show's *stream* fields, else its download fields.
+
+    A show page repeats the pair "stream player, download links" once per tape
+    side, so every stream field must be collected (stopping at that side's
+    download field) before falling back to the whole page.
+    """
+    text = page or ""
+    hrefs = []
+    start = text.find(JT_STREAM_FIELD)
+    while start >= 0:
+        end = text.find(JT_DOWNLOAD_FIELD, start)
+        segment = text[start:end if end >= 0 else len(text)]
+        hrefs.extend(JT_MP3_RE.findall(segment))
+        if end < 0:
+            break
+        start = text.find(JT_STREAM_FIELD, end)
+    return hrefs or JT_MP3_RE.findall(text)
+
+
+def _jt_canonical(split):
+    """Canonical (scheme, host, path) for one JungleTapes file URL.
+
+    The site emits the same file as ``http://www.jungletapes.com/...``, as a
+    relative path, and as ``https://jungletapes.com/...?uuid=...``.  Dropping
+    the cache-busting ``uuid`` and the ``www``/``http`` variants is what makes
+    the de-dupe key stable; other query parameters are preserved.
+    """
+    host = (split.hostname or "").lower()
+    canonical = "jungletapes.com" if host == "www.jungletapes.com" else host
+    query = [(key, value) for key, value in urllib.parse.parse_qsl(
+        split.query, keep_blank_values=True) if key.lower() != "uuid"]
+    return urllib.parse.urlunsplit(
+        ("https", canonical, split.path, urllib.parse.urlencode(query), ""))
+
+
 def jungle_tracks(slug):
     quoted = _url_path(slug)
     if not quoted:
@@ -681,10 +814,10 @@ def jungle_tracks(slug):
     if not page:
         return []
     tracks, seen = [], set()
-    for url in JT_MP3_RE.findall(page):
+    for raw in _jt_audio_hrefs(page):
         # Decode exactly once (mirrors the add-on): the href may contain
         # ``&amp;`` for a real ampersand or a JSON ``\/`` escape.
-        url = _decode_url(url)
+        url = _decode_url(raw)
         if url.startswith("//"):
             url = "https:" + url
         url = urllib.parse.urljoin(JT_BASE + "/", url)
@@ -694,17 +827,15 @@ def jungle_tracks(slug):
         # both here so the proxy does not follow a redirect per stream.
         host = (split.hostname or "").lower()
         if host.endswith("jungletapes.com"):
-            canonical = "jungletapes.com" if host == "www.jungletapes.com" else host
-            if split.scheme.lower() != "https" or host == "www.jungletapes.com":
-                url = urllib.parse.urlunsplit(
-                    ("https", canonical, split.path, split.query, ""))
-                split = urllib.parse.urlsplit(url)
+            url = _jt_canonical(split)
+            split = urllib.parse.urlsplit(url)
         # Never pass a scraped file:/javascript:/data: URL to the browser.
         if split.scheme.lower() not in ("http", "https") or not split.netloc:
             continue
-        if url in seen:
+        key = _jt_canonical(split) if host.endswith("jungletapes.com") else url
+        if key in seen:
             continue
-        seen.add(url)
+        seen.add(key)
         filename = urllib.parse.unquote(url.rsplit("/", 1)[-1]).rsplit(".", 1)[0]
         tracks.append({"name": _display(filename), "url": url})
     return tracks

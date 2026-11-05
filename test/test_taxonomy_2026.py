@@ -159,8 +159,8 @@ def test_ravetapepacks_category_route_lists_post_folders(web, monkeypatch):
     monkeypatch.setattr(legacy, "categories", lambda: {
         "events": [], "djs": [{"id": "106", "name": "Brockie"}],
         "mcs": [], "years": []})
-    monkeypatch.setattr(legacy, "category", lambda cat_id: [
-        {"id": "899", "name": "Dreamscape 7"}] if cat_id == "106" else [])
+    monkeypatch.setattr(legacy, "category_page", lambda cat_id, page=1: ([
+        {"id": "899", "name": "Dreamscape 7"}] if cat_id == "106" else [], ""))
     payload = web.get("/api/legacy/ravetapepacks/index/djs/106").get_json()
     assert payload["title"] == "Brockie"
     assert _labels(payload) == ["Dreamscape 7"]
@@ -218,15 +218,117 @@ def test_ravetapepacks_index_is_complete_by_default_and_sliceable(web, monkeypat
     assert (first["items"] + second["items"] + last["items"]) == full["items"]
 
 
-def test_ravetapepacks_all_is_complete_by_default_and_sliceable(web, monkeypatch):
-    packs = [{"key": "Pack%02d" % index, "name": "Pack %02d" % index,
-              "tracks": [{"name": "Tape", "url": "https://example/%d.mp3" % index}]}
+def test_ravetapepacks_all_is_paginated_and_complete(web, monkeypatch):
+    posts = [{"id": str(2450 + index), "name": "Pack %02d" % index}
              for index in range(8)]
-    monkeypatch.setattr(legacy, "packs", lambda: packs)
 
-    full = web.get("/api/legacy/ravetapepacks/all").get_json()
-    assert len(full["items"]) == 8
-    sliced = web.get("/api/legacy/ravetapepacks/all?limit=3&offset=6").get_json()
-    assert len(sliced["items"]) == 2
-    assert "next" not in sliced
-    assert sliced["items"] == full["items"][6:]
+    def fake_page(page=1):
+        start = (page - 1) * 3
+        window = posts[start:start + 3]
+        return window, ("more" if start + 3 < len(posts) else "")
+
+    monkeypatch.setattr(legacy, "all_packs", fake_page)
+
+    first = web.get("/api/legacy/ravetapepacks/all").get_json()
+    assert len(first["items"]) == 3
+    assert first["next"].endswith("page=2")
+    assert first["items"][0]["open"] == "/api/legacy/ravetapepacks/post/2450"
+
+    second = web.get(first["next"]).get_json()
+    third = web.get(second["next"]).get_json()
+    assert "next" not in third
+    labels = [item["label"] for page in (first, second, third)
+              for item in page["items"]]
+    assert labels == ["Pack %02d" % index for index in range(8)]
+
+
+def test_ravetapepacks_all_packs_reads_the_blog_archive(monkeypatch):
+    page = _fixture("ravetapepacks-all-packs.html")
+    monkeypatch.setattr(legacy.http, "fetch", lambda *a, **k: page)
+    posts, nxt = legacy.all_packs(1)
+    assert [post["id"] for post in posts] == ["2687", "2669", "2666"]
+    assert posts[0]["name"] == "The Best Of British – The Jubilee Jam"
+    assert nxt == legacy.BASE + "?cat=0&paged=2"
+
+
+def test_ravetapepacks_category_route_pages_with_next(web, monkeypatch):
+    monkeypatch.setattr(legacy, "categories", lambda: {
+        "events": [], "djs": [{"id": "106", "name": "Brockie"}],
+        "mcs": [], "years": []})
+    calls = []
+
+    def fake_page(cat_id, page=1):
+        calls.append((cat_id, page))
+        if page == 1:
+            return ([{"id": "899", "name": "Dreamscape 7"},
+                     {"id": "879", "name": "Dreamscape 6"}], "more")
+        return ([{"id": "37", "name": "Dreamscape 2"}], "")
+
+    monkeypatch.setattr(legacy, "category_page", fake_page)
+    first = web.get("/api/legacy/ravetapepacks/index/djs/106").get_json()
+    assert calls == [("106", 1)]
+    assert _labels(first) == ["Dreamscape 7", "Dreamscape 6"]
+    assert first["next"].endswith("/index/djs/106?page=2")
+
+    second = web.get(first["next"]).get_json()
+    assert calls[-1] == ("106", 2)
+    assert _labels(second) == ["Dreamscape 2"]
+    assert "next" not in second
+
+
+def test_jungletapes_shows_are_paginated(web, monkeypatch):
+    shows = [{"key": "show-%03d" % index, "name": "Show %03d" % index}
+             for index in range(120)]
+    monkeypatch.setattr(legacy, "jungle_shows", lambda: shows)
+    first = web.get("/api/legacy/jungletapes").get_json()
+    assert len(first["items"]) == 50
+    assert first["next"].endswith("page=2")
+    last = web.get("/api/legacy/jungletapes?page=3").get_json()
+    assert len(last["items"]) == 20
+    assert "next" not in last
+
+
+def test_jungletapes_show_dedupes_stream_and_download_fields(monkeypatch):
+    page = _fixture("jungletapes-show.html")
+    monkeypatch.setattr(legacy.http, "fetch", lambda *a, **k: page)
+    tracks = legacy.jungle_tracks("assignment-earth_chry_1055_2000-10-23-000000")
+    assert len(tracks) == 2
+    assert [track["name"].rsplit(" .", 1)[-1] for track in tracks] == ["A", "B"]
+    assert all("jungle_tapes_uploaded_audio_files" in track["url"] for track in tracks)
+
+
+def test_ravetapepacks_track_exposes_a_download(web, monkeypatch):
+    track_url = ("https://www.ravetapepacks.com/music/"
+                 "Dreamscape7/Charlie_Hall.mp3")
+    monkeypatch.setattr(legacy, "post", lambda post_id: {
+        "key": post_id, "name": "Dreamscape 7",
+        "tracks": [{"name": "Charlie Hall", "url": track_url}],
+    } if post_id == "899" else None)
+    payload = web.get("/api/legacy/ravetapepacks/post/899").get_json()
+    item = payload["items"][0]
+    assert item["download"] == {"source": "ravetapepacks"}
+    assert item["play"].startswith(track_url)
+
+
+def test_rtp_download_accepts_the_referer_suffix(web):
+    import app as app_module
+    plain = "https://www.ravetapepacks.com/music/Dreamscape7/Charlie_Hall.mp3"
+    assert app_module._download_allowed("ravetapepacks", plain)[0]
+    assert app_module._download_allowed("ravetapepacks", legacy.playable(plain))[0]
+    assert not app_module._download_allowed(
+        "ravetapepacks", "https://example.com/music/x.mp3")[0]
+    assert not app_module._download_allowed(
+        "ravetapepacks", "https://www.ravetapepacks.com/notes.txt")[0]
+
+
+def test_favourites_round_trip_legacy_kinds(web):
+    for entry in (
+            {"kind": "legacy_post", "target": "899", "title": "Dreamscape 7"},
+            {"kind": "legacy_jt", "target": "show-key", "title": "A show"},
+            {"kind": "dnb", "target": "1234", "title": "A mix"}):
+        assert web.post("/api/favourites", json=entry).get_json()["saved"] is True
+    payload = web.get("/api/favourites").get_json()
+    by_title = {item["label"]: item for item in payload["items"]}
+    assert by_title["Dreamscape 7"]["open"].endswith("/post/899")
+    assert by_title["A show"]["open"].endswith("/jungletapes/show-key")
+    assert by_title["A mix"]["play_via"].endswith("/api/dnb/1234")

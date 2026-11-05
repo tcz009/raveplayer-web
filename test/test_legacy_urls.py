@@ -212,8 +212,10 @@ def test_category_pack_link_opens_its_post_page(web, monkeypatch):
     monkeypatch.setattr(app_module.legacy, "categories", lambda: {
         "events": [], "djs": [{"id": "106", "name": "Brockie"}],
         "mcs": [], "years": []})
-    monkeypatch.setattr(app_module.legacy, "category", lambda cat_id: [
-        {"id": "899", "name": "Dreamscape 7"}] if cat_id == "106" else [])
+    monkeypatch.setattr(app_module.legacy, "category_page",
+                        lambda cat_id, page=1: ([
+                            {"id": "899", "name": "Dreamscape 7"}]
+                            if cat_id == "106" else [], ""))
     monkeypatch.setattr(app_module.legacy, "post",
                         lambda post_id: post if post_id == "899" else None)
 
