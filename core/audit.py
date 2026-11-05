@@ -206,6 +206,44 @@ def session_active(sid):
     return bool(rows)
 
 
+def session_check(sid, identity="", ip="", user_agent="", touch_after=30.0):
+    """Validate a session and the caller's block state in one connection.
+
+    The auth guard used to open three SQLite connections per request
+    (``session_active``, ``is_blocked``, ``touch_session``) and commit an
+    ``UPDATE`` every time.  On the NAS that is a visible per-request cost for
+    every API call.  This reads both facts through one connection, and only
+    writes ``last_seen`` when it is older than ``touch_after`` seconds — the
+    column only feeds the admin session list, so a 30 s resolution is plenty.
+
+    Returns ``(active, blocked)``.  A missing/unreadable store raises (the
+    caller fails closed), exactly like the individual helpers.
+    """
+    if not sid:
+        return False, False
+    sid = str(sid)
+    now = time.time()
+    with closing(_connect()) as conn:
+        row = conn.execute(
+            "SELECT last_seen FROM sessions WHERE id=? AND revoked_at IS NULL "
+            "AND expires_at>?", (sid, now)).fetchone()
+        if row is None:
+            return False, False
+        last_seen = row["last_seen"] if row["last_seen"] is not None else 0
+        if now - float(last_seen) >= max(0.0, float(touch_after or 0)):
+            conn.execute(
+                "UPDATE sessions SET last_seen=?, ip=?, user_agent=? WHERE id=?",
+                (now, _text(ip, 64), _text(user_agent, 300), sid))
+        blocked = False
+        if identity or ip:
+            blocked = conn.execute(
+                "SELECT 1 FROM blocks WHERE until>? AND "
+                "((identity<>'' AND identity=?) OR (ip<>'' AND ip=?)) LIMIT 1",
+                (now, _text(identity, 64), _text(ip, 64))).fetchone() is not None
+        conn.commit()
+    return True, blocked
+
+
 def touch_session(sid, ip="", user_agent=""):
     if not sid:
         return

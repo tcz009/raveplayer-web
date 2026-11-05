@@ -76,7 +76,12 @@ The sections behind the groups:
 
 Performance notes and the 1.6.18 before/after numbers live in
 [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) (warm API p95 ≤3.2 ms, Moxser warm
-~1 ms, JSON gzip). Benchmarks: `scripts/bench_api.py`, `scripts/bench_ui.py`.
+~1 ms, JSON gzip). The 1.6.52 overhaul — one SQLite connection per request,
+parsed-page caches, one-page RTP categories, concurrent JungleTapes catalogue,
+a stale-while-revalidate app shell and cacheable versioned assets — is in
+[`docs/PERF-OVERHAUL.md`](docs/PERF-OVERHAUL.md) (warm API 5–10 ms, cold RTP
+category 375 ms, Moxser detail 3.9 s → 0.7 s). Benchmarks: `scripts/bench_api.py`,
+`scripts/bench_ui.py`, `scripts/bench_sources.py`.
 
 Downloads, section loads and Surprise Me share the Kodi spinning-head art
 (`static/art/spinner/`, 10 frames): a progress panel with filename, lime bar,
@@ -431,9 +436,9 @@ build-time tool only; it is not in `requirements.txt`).
 
 ## Tests
 
-### Offline suite (493 cases)
+### Offline suite (513 cases)
 
-The offline suite is 493 cases (all providers mocked) and uses the Flask test
+The offline suite is 513 cases (all providers mocked) and uses the Flask test
 client. `pytest` is a test-only dependency:
 
 ```sh

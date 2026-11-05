@@ -8,7 +8,6 @@ RaveTapePacks.com's MP3s are hotlink-protected — a bare GET returns 403 — so
 playback URLs carry a Referer suffix that Kodi turns into a real header.
 """
 
-import hashlib
 import html
 import re
 import urllib.parse
@@ -228,7 +227,7 @@ def _packs_from_html(page):
 
 def _fingerprint(page):
     """Stable (cross-process) fingerprint of the exact page text."""
-    return hashlib.blake2b(page.encode("utf-8", "replace"), digest_size=8).hexdigest()
+    return cache.fingerprint(page)
 
 
 def _cached_parse(key, ttl, page, parser):
@@ -239,17 +238,7 @@ def _cached_parse(key, ttl, page, parser):
     the body from getting a stale parse, while a normal warm call pays only a
     cache read instead of the regex pass.
     """
-    if page is None:
-        return None
-    fingerprint = _fingerprint(page)
-    record = cache.get(key, ttl)
-    if isinstance(record, dict) and record.get("fingerprint") == fingerprint:
-        value = record.get("value")
-        if isinstance(value, (list, dict)):
-            return value
-    value = parser(page)
-    cache.put(key, {"fingerprint": fingerprint, "value": value}, sync=False)
-    return value
+    return cache.parsed(key, ttl, page, parser)
 
 
 EMPTY_CATEGORIES = {"events": [], "djs": [], "mcs": [], "years": []}
@@ -405,6 +394,26 @@ def _build_categories(page):
 
 def categories():
     page = _homepage()
+    parsed = _cached_parse(RTP_CATEGORIES_KEY, PACKS_TTL, page, _build_categories)
+    return parsed if isinstance(parsed, dict) else dict(EMPTY_CATEGORIES)
+
+
+def cached_categories():
+    """Category nav from what is already cached — never a new homepage fetch.
+
+    A category view only wants the title (the posts come from their own
+    ``?cat=`` page).  Calling :func:`categories` there made a cold category
+    link fetch the 200 KB homepage as well; this uses the parse cache, or
+    re-parses an already-cached homepage body, and otherwise returns empty.
+    """
+    record = cache.get(RTP_CATEGORIES_KEY, PACKS_TTL)
+    if isinstance(record, dict):
+        value = record.get("value")
+        if isinstance(value, dict):
+            return value
+    page = http.cached_body(BASE, PACKS_TTL, PAGE_HEADERS)
+    if not page:
+        return dict(EMPTY_CATEGORIES)
     parsed = _cached_parse(RTP_CATEGORIES_KEY, PACKS_TTL, page, _build_categories)
     return parsed if isinstance(parsed, dict) else dict(EMPTY_CATEGORIES)
 
@@ -734,6 +743,28 @@ JT_STREAM_FIELD = "field-name-field-upload-audio-file"
 JT_DOWNLOAD_FIELD = "field-name-field-audio-files"
 
 
+def _fetch_jt_catalogue():
+    """Fetch ``/tapes`` and ``/sitemap.xml`` concurrently; ``(index, xml)``.
+
+    The two catalogue pages are independent and JungleTapes has no politeness
+    gap configured, so a cold hub pays one round trip instead of two.  Any
+    executor problem falls back to the old serial order.
+    """
+    urls = (JT_BASE + "/tapes", JT_BASE + "/sitemap.xml")
+
+    def one(url):
+        return http.fetch(url, timeout=30, ttl=SITEMAP_TTL)
+
+    try:
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(one, url) for url in urls]
+            return futures[0].result(), futures[1].result()
+    except Exception:  # noqa: BLE001 - serial is always correct, just slower
+        return one(urls[0]), one(urls[1])
+
+
 def jungle_shows():
     """Toronto jungle/DnB radio shows digitised from cassette — one page each.
 
@@ -743,10 +774,9 @@ def jungle_shows():
     slugs = []
     # /tapes is the current catalogue (400+ entries); the sitemap catches
     # anything older that has dropped off it. Union both, then de-dupe below.
-    index = http.fetch(JT_BASE + "/tapes", timeout=30, ttl=SITEMAP_TTL)
+    index, xml = _fetch_jt_catalogue()
     if index:
         slugs.extend(re.findall(r'href="/show/([^"]+)"', index))
-    xml = http.fetch(JT_BASE + "/sitemap.xml", timeout=30, ttl=SITEMAP_TTL)
     if xml:
         slugs.extend(re.findall(r"<loc>[^<]*?/show/([^<]+)</loc>", xml))
     if not slugs:

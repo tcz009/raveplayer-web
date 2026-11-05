@@ -156,7 +156,9 @@ def test_ravetapepacks_post_page_tracks(monkeypatch):
 
 
 def test_ravetapepacks_category_route_lists_post_folders(web, monkeypatch):
-    monkeypatch.setattr(legacy, "categories", lambda: {
+    # The title comes from the cached nav (perf/overhaul: a category view must
+    # not add a homepage fetch), so that is the helper the route uses.
+    monkeypatch.setattr(legacy, "cached_categories", lambda: {
         "events": [], "djs": [{"id": "106", "name": "Brockie"}],
         "mcs": [], "years": []})
     monkeypatch.setattr(legacy, "category_page", lambda cat_id, page=1: ([

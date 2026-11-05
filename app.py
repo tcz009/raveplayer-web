@@ -667,16 +667,20 @@ def _session_valid():
         return False
     sid = session.get("sid")
     try:
-        if not sid or not audit.session_active(sid):
+        if not sid:
             session.clear()
             return False
-        if audit.is_blocked(session.get("identity") or "", _client_ip()):
+        # One connection for the session lookup, the block check and the
+        # throttled last_seen write (was three connections + a write per API
+        # request, which showed up on every hub navigation).  Deliberately not
+        # memoised: a revoke or a block must deny the very next request.
+        active, blocked = audit.session_check(
+            sid, session.get("identity") or "", _client_ip(),
+            (request.headers.get("User-Agent") or "")[:300])
+        if not active or blocked:
             session.clear()
             return False
-        if not getattr(g, "_audit_touched", False):
-            audit.touch_session(sid, _client_ip(),
-                                (request.headers.get("User-Agent") or "")[:300])
-            g._audit_touched = True
+        g._audit_touched = True
     except Exception:  # an unreadable audit store fails closed
         app.logger.exception("auth: session store unavailable")
         session.clear()
@@ -2096,9 +2100,13 @@ def api_legacy_rtp_index(kind):
 
 
 def _rtp_category_name(kind, cat_id):
-    """Best-effort name for a category id (the homepage nav is already cached)."""
+    """Best-effort name for a category id from the already-cached nav.
+
+    Only the title needs the navigation, so this must never add a homepage
+    fetch to a category view (a cold category link is one page, not two).
+    """
     try:
-        return next((item["name"] for item in legacy.categories().get(kind, [])
+        return next((item["name"] for item in legacy.cached_categories().get(kind, [])
                      if item["id"] == str(cat_id)), "")
     except Exception:  # noqa: BLE001 - a category view must not depend on the nav
         return ""
@@ -3124,6 +3132,16 @@ def _response_headers(response):
             response.headers.setdefault("Report-To", json.dumps(report_to))
     if request.path.startswith("/api/"):
         response.headers.setdefault("Cache-Control", "no-store")
+    elif request.path.startswith("/static/"):
+        # The template appends ?v=<VERSION> to the shell's CSS/JS, so a
+        # versioned URL can never go stale: let the browser keep it for a year
+        # instead of revalidating every asset on every launch.  Un-versioned
+        # assets (artwork referenced by path) stay short-lived so a deploy
+        # still refreshes them quickly.
+        if request.args.get("v") == APP_VERSION:
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        else:
+            response.headers["Cache-Control"] = "public, max-age=300"
     if _request_is_https():
         # Flask's session cookie is configured non-Secure so plain-HTTP LAN
         # installs keep working; upgrade the flag per-request behind TLS.

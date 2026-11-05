@@ -2829,6 +2829,19 @@
     if (!navigator.onLine) {
       showBanner("You're offline. The current list stays usable; playback needs a connection.");
     }
+    // Favourites and the first section do not depend on the rail payload, so
+    // start them now and let /api/menu render in parallel.  Boot used to await
+    // the menu before asking for the first section: two serial round trips
+    // before anything was on screen.
+    const faved = loadFavedKeys();
+    const initial = pathFromHash() || sectionPath("latest");
+    const initialScroll = Math.max(0, Math.round(window.scrollY));
+    state.depth = 0;
+    $("back").hidden = true;
+    try {
+      history.replaceState({ path: initial, depth: 0, scrollY: initialScroll }, "", "#" + initial);
+    } catch (_) { /* ignore */ }
+    const firstSection = navigate(initial, { push: false, scrollY: initialScroll });
     try {
       const menu = await api("/api/menu", { timeout: 15000 });
       // 1.6.15: eight grouped rail buttons instead of 21 flat ones (which
@@ -2886,17 +2899,11 @@
       showBanner(`Could not load the section menu (${messageFor(error)}).`);
     }
 
-    // Start favourites in parallel with the first section; await it only to
-    // sync the hearts after rows exist (it used to delay the first API call).
-    const faved = loadFavedKeys();
-    const initial = pathFromHash() || sectionPath("latest");
-    const initialScroll = Math.max(0, Math.round(window.scrollY));
-    state.depth = 0;
-    $("back").hidden = true;
-    try {
-      history.replaceState({ path: initial, depth: 0, scrollY: initialScroll }, "", "#" + initial);
-    } catch (_) { /* ignore */ }
-    await navigate(initial, { push: false, scrollY: initialScroll });
+    // The rail exists now; teach the in-flight/finished first section which
+    // button is current (navigate() could not, it started before the menu
+    // answered).
+    highlightNav(state.path || initial);
+    await firstSection;
     faved.then(() => syncAllFavButtons()).catch(() => {});
   }
 

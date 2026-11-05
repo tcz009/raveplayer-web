@@ -158,9 +158,16 @@ def _rtp_page(url):
     else:
         query = urllib.parse.parse_qs(split.query)
         cat_id = (query.get("cat") or [""])[0]
-        if not cat_id.isdigit():
+        post_id = (query.get("p") or [""])[0]
+        if cat_id.isdigit():
+            name = "rtp-cat-%s.html" % cat_id
+        elif post_id.isdigit():
+            # No standalone post capture exists; the archived category page is
+            # a real 155 KB RTP body with 48 MP3 links, so it exercises the
+            # same fetch/resolve/parse path a real post page does.
+            name = "rtp-cat-331.html"
+        else:
             return None
-        name = "rtp-cat-%s.html" % cat_id
     path = os.path.join(FIXTURES, name)
     if not os.path.isfile(path):
         return None
