@@ -42,6 +42,12 @@ def test_rtp_hub_timeout_is_a_fast_502_and_is_negatively_cached(web, monkeypatch
     assert second.status_code == 502
     assert len(calls) == 1
 
+    # Child routes are gated by the same negative cache: no new 6 s request.
+    assert web.get("/api/legacy/ravetapepacks/index/events").status_code == 502
+    assert web.get("/api/legacy/ravetapepacks/all").status_code == 502
+    assert web.get("/api/legacy/ravetapepacks/post/899").status_code == 404
+    assert len(calls) == 1
+
 
 def test_rtp_hub_success_uses_real_counts(web, monkeypatch):
     monkeypatch.setattr(legacy.http, "fetch",

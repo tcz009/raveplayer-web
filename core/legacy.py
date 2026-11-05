@@ -32,6 +32,7 @@ TORONTO_TTL = 6 * 60 * 60
 # deadline keeps the hub inside the 8 s error budget, and a 60 s negative
 # cache stops every Retry/child click from paying the timeout again.
 RTP_HOMEPAGE_TIMEOUT = 6
+RTP_PAGE_TIMEOUT = 6
 RTP_FAILURE_KEY = "legacy:rtp:homepage-failure:v1"
 RTP_FAILURE_TTL = 60
 
@@ -596,8 +597,13 @@ def _page_posts(url, key, parser=None):
 
     ``(None, "")`` means the fetch itself failed (blocked/offline) so callers
     can tell "this category is empty" apart from "the source did not answer".
+    While the homepage failure is still fresh, a child page answers from the
+    negative cache instead of starting another 6 s (previously 25 s) request.
     """
-    page = http.fetch(url, timeout=25, ttl=CATEGORY_TTL, headers=PAGE_HEADERS)
+    if homepage_failure_cached():
+        return None, ""
+    page = http.fetch(url, timeout=RTP_PAGE_TIMEOUT, ttl=CATEGORY_TTL,
+                      headers=PAGE_HEADERS)
     if page is None:
         return None, ""
     posts = _cached_parse(key, CATEGORY_TTL, page, parser or _posts_from_html)
@@ -720,8 +726,10 @@ def post(post_id):
     post_id = str(post_id or "")
     if not post_id.isdigit() or len(post_id) > 12:
         return None
-    page = http.fetch(BASE + "?p=" + post_id, timeout=25, ttl=POST_TTL,
-                      headers=PAGE_HEADERS)
+    if homepage_failure_cached():
+        return None
+    page = http.fetch(BASE + "?p=" + post_id, timeout=RTP_PAGE_TIMEOUT,
+                      ttl=POST_TTL, headers=PAGE_HEADERS)
     if page is None:
         return None
     entry = _cached_parse(
