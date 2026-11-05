@@ -2061,7 +2061,8 @@ def api_legacy_rtp():
         _folder("By MC (%d)" % len(cats.get("mcs", [])),
                 "Det, Fearless, Skibadee, Bassman, Five-O…",
                 "/api/legacy/ravetapepacks/index/mcs", ART + "by-mc.png"),
-        _folder("By Year", "1992 · 1993 · … · 2004",
+        _folder("By Year (%d)" % len(cats.get("years", [])),
+                "1992 · 1993 · … · 2004",
                 "/api/legacy/ravetapepacks/index/years", ART + "years.png"),
         _folder("All Packs", "Every RaveTapePacks pack",
                 "/api/legacy/ravetapepacks/all", ART + "ravetapepacks.png"),
@@ -2180,10 +2181,19 @@ def _rtp_pack_entry(pack):
 
 @app.get("/api/legacy/ravetapepacks/post/<post_id>")
 def api_legacy_rtp_post(post_id):
-    """One RaveTapePacks post page: its direct MP3s are the pack's tracks."""
+    """One RaveTapePacks post page: its direct MP3s are the pack's tracks.
+
+    1.6.53 P0-2: a failed fetch is a source outage (502, quiet plate), not a
+    missing pack (404).  The SPA already renders ``source_unavailable``; the
+    old mapping told the user that a valid pack had disappeared.
+    """
     if not re.match(r"^\d{1,12}$", post_id or ""):
         return _json_error("unknown post", 404)
-    entry = legacy.post(post_id)
+    try:
+        entry = legacy.post(post_id)
+    except legacy.SourceUnavailable:
+        return _json_error("RaveTapePacks is unavailable right now", 502,
+                           error_code="source_unavailable")
     if not entry or not entry.get("tracks"):
         return _json_error("no tracks on that RaveTapePacks post", 404)
     title = entry.get("name") or "RaveTapePacks.com"

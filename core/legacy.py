@@ -10,6 +10,7 @@ playback URLs carry a Referer suffix that Kodi turns into a real header.
 
 import html
 import re
+import time
 import urllib.parse
 
 from . import cache
@@ -28,13 +29,33 @@ SITEMAP_TTL = 24 * 60 * 60
 SHOW_TTL = 6 * 60 * 60
 TORONTO_TTL = 6 * 60 * 60
 
-# Audit P0-3: the site intermittently drops the connection.  A 6 s homepage
-# deadline keeps the hub inside the 8 s error budget, and a 60 s negative
-# cache stops every Retry/child click from paying the timeout again.
-RTP_HOMEPAGE_TIMEOUT = 6
-RTP_PAGE_TIMEOUT = 6
-RTP_FAILURE_KEY = "legacy:rtp:homepage-failure:v1"
-RTP_FAILURE_TTL = 60
+# Audit P0-3 / 1.6.53: the homepage is a ~200 KB WordPress page whose measured
+# fetch is 5.5–14.3 s through the egress proxy (not the 3–5 s a warm run
+# suggests).  The old 6 s deadline failed ~3 in 8 cold fetches and then a 60 s
+# negative cache turned one slow read into a minute of "source unavailable".
+# 30 s covers the observed p99 with headroom; one bounded retry absorbs a
+# transient proxy/site hiccup without a second full timeout.
+RTP_HOMEPAGE_TIMEOUT = 30
+RTP_HOMEPAGE_ATTEMPTS = 2
+# Total time both homepage attempts may spend.  The first attempt gets the 30 s
+# deadline; if it fails the retry only gets what is left, so a dead source
+# cannot hold a worker for 60 s.
+RTP_HOMEPAGE_BUDGET = 45
+# Child pages (category/post) are smaller and cold-fetch in 4.6–5.3 s.  Give
+# them the same generous ceiling but no negative-cache gate: a child route must
+# be able to recover on its own even while the hub is failing.
+RTP_PAGE_TIMEOUT = 20
+RTP_PAGE_ATTEMPTS = 2
+RTP_PAGE_BUDGET = 30
+# Only a *definitive* failure (the source answered with an HTTP error) is
+# remembered, and only briefly.  A timeout is a transient network symptom and
+# must not lock the source for every route; 15 s still stops a retry storm.
+RTP_FAILURE_KEY = "legacy:rtp:homepage-failure:v2"
+RTP_FAILURE_TTL = 15
+
+
+class SourceUnavailable(Exception):
+    """The source could not be read (as opposed to a genuinely empty page)."""
 
 # Parsed page objects live beside the raw body in the same cache.  The body is
 # still read (and fingerprinted) so a fixture/mock that changes the page cannot
@@ -253,11 +274,43 @@ EMPTY_CATEGORIES = {"events": [], "djs": [], "mcs": [], "years": []}
 
 
 def homepage_failure_cached():
-    """True while the last homepage fetch failed, inside the 60 s window."""
+    """True while a *definitive* homepage failure is inside the short window.
+
+    A timeout/transport failure is deliberately not stored: the next request
+    must be allowed to try again instead of inheriting one slow read for a
+    minute (1.6.53 P0-1).  HTTP errors (bot filter, 5xx) are definitive enough
+    to remember for :data:`RTP_FAILURE_TTL` seconds.
+    """
     try:
         return cache.get(RTP_FAILURE_KEY, RTP_FAILURE_TTL) is not cache.MISSING
     except Exception:  # noqa: BLE001 - cache trouble must not break a route
         return False
+
+
+def _fetch_with_retry(url, timeout, attempts, budget, ttl, headers=None):
+    """Fetch one page with bounded retries; ``None`` means still unavailable.
+
+    A retry is only useful for a transient timeout/transport failure.  When
+    the source answers with an HTTP status (403 bot filter, 5xx) the answer is
+    definitive and retrying within the same request just burns budget.
+    """
+    deadline = time.monotonic() + max(1.0, float(budget))
+    for attempt in range(max(1, attempts)):
+        remaining = deadline - time.monotonic()
+        if remaining <= 1.0:
+            break
+        page = http.fetch(url, timeout=min(timeout, remaining), ttl=ttl,
+                          headers=headers)
+        if page is not None:
+            return page
+        kind = http.last_failure()
+        if kind and kind[0] == "http":
+            break
+        if attempt + 1 < attempts:
+            # Keep the retry inside the polite host's one-request-at-a-time
+            # slot; a tiny backoff avoids re-hitting a proxy that just reset.
+            time.sleep(min(1.0, max(0.0, remaining - 1.0)))
+    return None
 
 
 def _homepage():
@@ -268,21 +321,26 @@ def _homepage():
     header key and a pack-detail click fetched/parsed the homepage a second
     time (and could be 403'd by the bot filter).
 
-    A failed fetch (timeout/refusal) is remembered for 60 s: repeating the hub
-    or deep-linking a child must not pay another 25 s timeout (audit P0-3).
-    A cached good body always wins over the failure mark.
+    A cached good body always wins.  A cold miss gets :data:`RTP_HOMEPAGE_TIMEOUT`
+    and one bounded retry (1.6.53 P0-1: the old 6 s deadline was below the real
+    5.5–14.3 s response).  Only a definitive HTTP error sets the short negative
+    mark; a timeout is left for the next request to retry.
     """
     cached = http.cached_body(BASE, PACKS_TTL, PAGE_HEADERS)
     if cached:
         return cached
     if homepage_failure_cached():
         return None
-    page = http.fetch(BASE, timeout=RTP_HOMEPAGE_TIMEOUT, ttl=PACKS_TTL,
-                      headers=PAGE_HEADERS)
+    page = _fetch_with_retry(
+        BASE, RTP_HOMEPAGE_TIMEOUT, RTP_HOMEPAGE_ATTEMPTS,
+        RTP_HOMEPAGE_BUDGET, PACKS_TTL, PAGE_HEADERS)
     if page is None:
-        cache.put(RTP_FAILURE_KEY, {"failed": True}, sync=False)
-    else:
-        cache.forget(RTP_FAILURE_KEY)
+        kind = http.last_failure()
+        if kind and kind[0] == "http":
+            cache.put(RTP_FAILURE_KEY, {"failed": True,
+                                        "status": kind[1]}, sync=False)
+        return None
+    cache.forget(RTP_FAILURE_KEY)
     return page
 
 
@@ -597,13 +655,13 @@ def _page_posts(url, key, parser=None):
 
     ``(None, "")`` means the fetch itself failed (blocked/offline) so callers
     can tell "this category is empty" apart from "the source did not answer".
-    While the homepage failure is still fresh, a child page answers from the
-    negative cache instead of starting another 6 s (previously 25 s) request.
+    Child routes always fetch their own page: the 1.6.52 hub failure mark made
+    a deep link answer 502 for a minute even when its own page was reachable
+    (1.6.53 P0-1).
     """
-    if homepage_failure_cached():
-        return None, ""
-    page = http.fetch(url, timeout=RTP_PAGE_TIMEOUT, ttl=CATEGORY_TTL,
-                      headers=PAGE_HEADERS)
+    page = _fetch_with_retry(
+        url, RTP_PAGE_TIMEOUT, RTP_PAGE_ATTEMPTS,
+        RTP_PAGE_BUDGET, CATEGORY_TTL, PAGE_HEADERS)
     if page is None:
         return None, ""
     posts = _cached_parse(key, CATEGORY_TTL, page, parser or _posts_from_html)
@@ -722,16 +780,24 @@ def post(post_id):
     A post (``?p=899``) is the pack detail: it carries the direct MP3 players
     for that pack.  The resolver below is the same one the homepage index uses,
     so the Referer suffix and URL canonicalisation behave identically.
+
+    Raises :class:`SourceUnavailable` when the page could not be fetched at all
+    (timeout/blocked) so the route can answer 502 ``source_unavailable``; a
+    page that loads but has no tracks returns ``None`` (a real 404).  A failed
+    homepage must not turn a valid post into "not found" (1.6.53 P0-2).
     """
     post_id = str(post_id or "")
     if not post_id.isdigit() or len(post_id) > 12:
         return None
-    if homepage_failure_cached():
-        return None
-    page = http.fetch(BASE + "?p=" + post_id, timeout=RTP_PAGE_TIMEOUT,
-                      ttl=POST_TTL, headers=PAGE_HEADERS)
+    page = _fetch_with_retry(
+        BASE + "?p=" + post_id, RTP_PAGE_TIMEOUT, RTP_PAGE_ATTEMPTS,
+        RTP_PAGE_BUDGET, POST_TTL, PAGE_HEADERS)
     if page is None:
-        return None
+        kind = http.last_failure()
+        # A real 404 means this post id does not exist; keep the route's 404.
+        if kind and kind[0] == "http" and kind[1] == 404:
+            return None
+        raise SourceUnavailable(post_id)
     entry = _cached_parse(
         RTP_POST_KEY % post_id, POST_TTL, page,
         lambda body: _post_from_html(body, post_id))

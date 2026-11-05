@@ -461,7 +461,7 @@ def test_legacy_ravetapepacks_indexes(web, monkeypatch):
     monkeypatch.setattr("app.legacy.categories_state", lambda: cats)
     payload = web.get("/api/legacy/ravetapepacks").get_json()
     assert [item["label"] for item in payload["items"]] == [
-        "By Event (1)", "By DJ (1)", "By MC (1)", "By Year", "All Packs"]
+        "By Event (1)", "By DJ (1)", "By MC (1)", "By Year (1)", "All Packs"]
     assert payload["items"][1]["open"].endswith("/index/djs")
     cats = web.get("/api/legacy/ravetapepacks/index/djs").get_json()
     assert cats["items"][0]["label"] == "Brockie"

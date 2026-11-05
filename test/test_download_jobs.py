@@ -263,7 +263,10 @@ def test_terminal_job_history_is_bounded_but_active_rows_survive(web, monkeypatc
     active = store.create("owner", "admin", "active", "archive", URL, entry)
     store.list_jobs("owner", "admin")
     assert store.get(active["id"]) is not None
-    assert store.get(active["id"])["state"] == "queued"
+    # The in-process dispatcher may claim the row immediately (and move it to
+    # "downloading") before this assertion; either state proves the active row
+    # survived history pruning.
+    assert store.get(active["id"])["state"] in ("queued", "downloading")
 
 
 def test_history_is_bounded_per_identity(web, monkeypatch):

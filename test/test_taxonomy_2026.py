@@ -106,7 +106,7 @@ def test_ravetapepacks_index_routes_expose_by_dj_and_by_mc(web, monkeypatch):
     monkeypatch.setattr(app_module.legacy, "categories_state", lambda: cats)
     payload = web.get("/api/legacy/ravetapepacks").get_json()
     assert _labels(payload) == [
-        "By Event (50)", "By DJ (209)", "By MC (90)", "By Year", "All Packs"]
+        "By Event (50)", "By DJ (209)", "By MC (90)", "By Year (13)", "All Packs"]
     assert payload["items"][1]["open"] == "/api/legacy/ravetapepacks/index/djs"
     dj = web.get("/api/legacy/ravetapepacks/index/djs").get_json()
     assert len(dj["items"]) == 209

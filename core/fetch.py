@@ -457,6 +457,38 @@ _TRANSPORT_ERRORS = (
     zlib.error,
 )
 
+# Why the most recent ``fetch`` on *this thread* returned None.  Callers need
+# to tell "the source answered with an error" from "the network timed out":
+# only the former is definitive enough to remember as a source-outage mark.
+# A thread-local keeps parallel provider fetches from overwriting each other.
+_FAILURE = threading.local()
+
+
+def last_failure():
+    """Return ``(kind, detail)`` for this thread's last failed fetch, or None.
+
+    ``kind`` is ``"http"`` when the source itself answered (for example a 403
+    from a bot filter), ``"timeout"`` for a connect/read deadline, or
+    ``"transport"`` for anything else.  A successful fetch clears it.
+    """
+    return getattr(_FAILURE, "value", None)
+
+
+def _set_failure(kind, detail=None):
+    _FAILURE.value = (kind, detail) if kind else None
+
+
+def _failure_kind(exc):
+    """Classify a transport exception without hiding its HTTP status."""
+    if isinstance(exc, urllib.error.HTTPError):
+        return "http"
+    if isinstance(exc, (socket.timeout, TimeoutError)):
+        return "timeout"
+    reason = getattr(exc, "reason", None)
+    if isinstance(reason, (socket.timeout, TimeoutError)):
+        return "timeout"
+    return "transport"
+
 
 def _request(url, timeout, headers):
     """Perform one request and return the decoded body, or None on failure.
@@ -467,6 +499,7 @@ def _request(url, timeout, headers):
     direct path (the site still blocks it, but a stale proxy config must not
     break other diagnostics) within the same budget.
     """
+    _set_failure(None)
     try:
         budget = max(0.5, float(timeout if timeout is not None else DEFAULT_TIMEOUT))
     except (TypeError, ValueError):
@@ -476,11 +509,15 @@ def _request(url, timeout, headers):
     if proxy:
         request = _build_request(url, headers, deadline)
         try:
-            return _open_request(request, _egress_opener(proxy), budget, deadline)
+            body = _open_request(request, _egress_opener(proxy), budget, deadline)
+            _set_failure(None)
+            return body
         except urllib.error.HTTPError as exc:
+            _set_failure("http", getattr(exc, "code", None))
             _log_http_error(url, exc)
             return None
         except _TRANSPORT_ERRORS as exc:
+            _set_failure(_failure_kind(exc), exc)
             kodi.log("RTP egress proxy unavailable for %s (%s); retrying direct"
                      % (_safe_url(url), type(exc).__name__), level=30)
             if not _egress_fallback_enabled():
@@ -492,11 +529,15 @@ def _request(url, timeout, headers):
             deadline = time.monotonic() + budget
     request = _build_request(url, headers, deadline)
     try:
-        return _open_request(request, _OPENER, budget, deadline)
+        body = _open_request(request, _OPENER, budget, deadline)
+        _set_failure(None)
+        return body
     except urllib.error.HTTPError as exc:
+        _set_failure("http", getattr(exc, "code", None))
         _log_http_error(url, exc)
         return None
     except _TRANSPORT_ERRORS as exc:
+        _set_failure(_failure_kind(exc), exc)
         kodi.log("fetch failed: %s (%s)" % (_safe_url(url), exc), level=30)
         return None
 

@@ -21,14 +21,16 @@ def _fixture(name):
         return handle.read()
 
 
-def test_rtp_hub_timeout_is_a_fast_502_and_is_negatively_cached(web, monkeypatch):
+def test_rtp_hub_timeout_retries_once_without_a_negative_mark(web, monkeypatch):
+    """A timeout is transient: retry once, and do not lock the next request."""
     calls = []
 
     def timeout(*args, **kwargs):
-        calls.append(args)
+        calls.append(kwargs.get("timeout"))
         return None
 
     monkeypatch.setattr(legacy.http, "fetch", timeout)
+    monkeypatch.setattr(legacy.http, "last_failure", lambda: ("timeout", None))
     cache.clear_memory()
 
     first = web.get("/api/legacy/ravetapepacks")
@@ -36,17 +38,62 @@ def test_rtp_hub_timeout_is_a_fast_502_and_is_negatively_cached(web, monkeypatch
     payload = first.get_json()
     assert payload["code"] == "source_unavailable"
     assert "(0)" not in str(payload)
+    # One bounded retry inside the same request, then stop.
+    assert len(calls) == 2
+    # The first attempt gets the measured-p99 deadline (>= 25 s), not the old 6 s.
+    assert calls[0] >= 25
 
-    # A retry inside the 60 s window must not hit the network again.
+    # A later request must try again: a timeout must never negative-cache.
+    second = web.get("/api/legacy/ravetapepacks")
+    assert second.status_code == 502
+    assert len(calls) == 4
+
+
+def test_rtp_hub_http_error_sets_a_short_negative_mark(web, monkeypatch):
+    """A definitive HTTP error may be remembered, but child routes still fetch."""
+    calls = []
+
+    def blocked(*args, **kwargs):
+        calls.append(args)
+        return None
+
+    monkeypatch.setattr(legacy.http, "fetch", blocked)
+    monkeypatch.setattr(legacy.http, "last_failure", lambda: ("http", 403))
+    cache.clear_memory()
+
+    first = web.get("/api/legacy/ravetapepacks")
+    assert first.status_code == 502
+    assert len(calls) == 1  # HTTP status is definitive; no second attempt
+
+    # Inside the short window the hub does not hit the network again...
     second = web.get("/api/legacy/ravetapepacks")
     assert second.status_code == 502
     assert len(calls) == 1
 
-    # Child routes are gated by the same negative cache: no new 6 s request.
-    assert web.get("/api/legacy/ravetapepacks/index/events").status_code == 502
-    assert web.get("/api/legacy/ravetapepacks/all").status_code == 502
-    assert web.get("/api/legacy/ravetapepacks/post/899").status_code == 404
-    assert len(calls) == 1
+    # ...but a child route owns its own page and is never gated by the hub.
+    monkeypatch.setattr(legacy, "category_page",
+                        lambda cat_id, page: ([{"id": "1", "name": "Pack"}], ""))
+    assert web.get("/api/legacy/ravetapepacks/index/events/363").status_code == 200
+    # RTP_FAILURE_TTL is short (15 s), not the old 60 s.
+    assert legacy.RTP_FAILURE_TTL <= 20
+
+
+def test_rtp_post_that_really_does_not_exist_stays_404(web, monkeypatch):
+    monkeypatch.setattr(legacy.http, "fetch", lambda *a, **k: None)
+    monkeypatch.setattr(legacy.http, "last_failure", lambda: ("http", 404))
+    cache.clear_memory()
+    response = web.get("/api/legacy/ravetapepacks/post/999")
+    assert response.status_code == 404
+
+
+def test_rtp_post_during_hub_outage_is_502_not_404(web, monkeypatch):
+    def unavailable(post_id):
+        raise legacy.SourceUnavailable(post_id)
+
+    monkeypatch.setattr(legacy, "post", unavailable)
+    response = web.get("/api/legacy/ravetapepacks/post/899")
+    assert response.status_code == 502
+    assert response.get_json()["code"] == "source_unavailable"
 
 
 def test_rtp_hub_success_uses_real_counts(web, monkeypatch):

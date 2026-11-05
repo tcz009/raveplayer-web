@@ -10,7 +10,7 @@ zip was pushed.
 ## Method
 
 - Live HTTP from the real source modules through the homelab RTP egress proxy
-  (`RTP_EGRESS_PROXY=http://192.168.1.142:8888`) for every
+  (`RTP_EGRESS_PROXY=http://<proxy-host>:8888`) for every
   `ravetapepacks.com` request; every other provider direct.
 - Web: Flask test client with a fresh `RAVEWEB_DATA`/cache/favourites directory
   per run, authenticated as owner, calling the same JSON endpoints the SPA uses.
