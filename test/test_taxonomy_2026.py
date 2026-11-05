@@ -22,6 +22,18 @@ def _labels(payload):
     return [item["label"] for item in payload["items"]]
 
 
+def _walk(web, url):
+    """Follow the pager's next links and return every item exactly once."""
+    items, page = [], 1
+    while True:
+        separator = "&" if "?" in url else "?"
+        payload = web.get("%s%spage=%d" % (url, separator, page)).get_json()
+        items.extend(payload["items"])
+        if not (payload.get("pager") or {}).get("next"):
+            return items
+        page += 1
+
+
 def _opens(payload):
     return [item.get("open") for item in payload["items"]]
 
@@ -108,10 +120,10 @@ def test_ravetapepacks_index_routes_expose_by_dj_and_by_mc(web, monkeypatch):
     assert _labels(payload) == [
         "By Event (50)", "By DJ (209)", "By MC (90)", "By Year (13)", "All Packs"]
     assert payload["items"][1]["open"] == "/api/legacy/ravetapepacks/index/djs"
-    dj = web.get("/api/legacy/ravetapepacks/index/djs").get_json()
-    assert len(dj["items"]) == 209
-    mc = web.get("/api/legacy/ravetapepacks/index/mcs").get_json()
-    assert len(mc["items"]) == 90
+    dj = _walk(web, "/api/legacy/ravetapepacks/index/djs")
+    assert len(dj) == 209
+    mc = _walk(web, "/api/legacy/ravetapepacks/index/mcs")
+    assert len(mc) == 90
 
 
 def test_ravetapepacks_full_homepage_ignores_other_categories():
@@ -284,11 +296,12 @@ def test_jungletapes_shows_are_paginated(web, monkeypatch):
              for index in range(120)]
     monkeypatch.setattr(legacy, "jungle_shows", lambda: shows)
     first = web.get("/api/legacy/jungletapes").get_json()
-    assert len(first["items"]) == 50
+    assert len(first["items"]) == 40
     assert first["next"].endswith("page=2")
     last = web.get("/api/legacy/jungletapes?page=3").get_json()
-    assert len(last["items"]) == 20
+    assert len(last["items"]) == 40
     assert "next" not in last
+    assert len(_walk(web, "/api/legacy/jungletapes")) == 120
 
 
 def test_jungletapes_show_dedupes_stream_and_download_fields(monkeypatch):

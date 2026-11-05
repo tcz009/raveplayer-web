@@ -87,8 +87,11 @@
     <button class="back" id="back" type="button" hidden>← Back</button>
 
     <div class="stage-head">
-      <h1 id="title">Latest</h1>
+      <h1 id="title" tabindex="-1">Latest</h1>
+      <div class="page-meta" id="page-meta" role="status" aria-live="polite" hidden></div>
     </div>
+
+    <nav class="pager pager-top" id="pager-top" aria-label="Pagination (top)" hidden></nav>
 
     <div class="state" id="state" hidden>
       <div class="state-text" id="state-text"></div>
@@ -97,9 +100,7 @@
 
     <div id="list" class="list" aria-busy="false"></div>
 
-    <div id="more" class="more" hidden>
-      <button id="more-btn" type="button">Load more</button>
-    </div>
+    <nav class="pager pager-bottom" id="pager" aria-label="Pagination" hidden></nav>
     <div id="empty" class="empty" hidden>Nothing here — try another section.</div>
   </main>
 

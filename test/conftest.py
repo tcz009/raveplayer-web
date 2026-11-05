@@ -65,6 +65,13 @@ def isolated_download_jobs():
     except Exception:
         pass
     yield
+    # Stop this process's dispatcher between tests.  A scheduler tick from an
+    # earlier test could otherwise claim the rows a later test creates by hand
+    # (test_shared_store_across_processes_no_clobber is exactly that race).
+    try:
+        app_module._JOB_SCHEDULER["gate"].clear()
+    except Exception:
+        pass
     try:
         download_jobs.clear_all()
     except Exception:

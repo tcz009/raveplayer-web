@@ -187,7 +187,6 @@ CSP = (
 ROWS = 40
 # JungleTapes has 300+ sitemap shows; the web list and the Kodi directory both
 # page at 50 so the catalogue is browsable instead of one huge response.
-JT_SHOWS_PER_PAGE = 50
 MAX_PAGE = 500
 MAX_QUERY = 200
 MAX_URL = 2048
@@ -530,8 +529,88 @@ def _page_arg():
 def _next_link(base, page, total):
     if page >= MAX_PAGE or total <= page * ROWS:
         return None
+    return _page_link(base, page + 1)
+
+
+def _page_link(base, page):
+    """Build ``?page=N`` without losing an existing query string."""
     separator = "&" if "?" in base else "?"
-    return "%s%spage=%d" % (base, separator, page + 1)
+    return "%s%spage=%d" % (base, separator, max(1, int(page)))
+
+
+def _page_numbers(page, pages, window=2):
+    """Numbers for the numbered pager: 1 … 4 5 6 … N (None = ellipsis)."""
+    if pages <= 0:
+        return []
+    wanted = {1, pages}
+    wanted.update(range(max(1, page - window), min(pages, page + window) + 1))
+    numbers, last = [], 0
+    for number in sorted(wanted):
+        if last and number > last + 1:
+            numbers.append(None)
+        numbers.append(number)
+        last = number
+    return numbers
+
+
+def _pager(page, total, base, per_page=ROWS):
+    """Uniform pager metadata for every web list.
+
+    ``links`` is the numbered sequence (with ``None`` where an ellipsis goes),
+    so the SPA can render "1 2 3 … N" without guessing how URLs are built.
+    """
+    pages = max(1, (max(0, total) + per_page - 1) // per_page)
+    page = min(max(1, page), pages)
+    return {
+        "page": page,
+        "pages": pages,
+        "total": max(0, total),
+        "per_page": per_page,
+        "prev": _page_link(base, page - 1) if page > 1 else None,
+        "next": _page_link(base, page + 1) if page < pages else None,
+        "links": _page_numbers(page, pages),
+    }
+
+
+def _slice_page(items, page, per_page=ROWS):
+    """Return ``(window, page, pages, total)`` for an already-loaded list."""
+    total = len(items)
+    pages = max(1, (total + per_page - 1) // per_page)
+    page = min(max(1, page), pages)
+    start = (page - 1) * per_page
+    return items[start:start + per_page], page, pages, total
+
+
+def _paged_payload(title, items, page, total, base, **extra):
+    """Build a list payload with the pager and the legacy ``next`` link."""
+    pager = _pager(page, total, base)
+    payload = {"title": title, "items": items, "total": pager["total"],
+               "pager": pager}
+    payload.update(extra)
+    if pager["next"]:
+        payload["next"] = pager["next"]
+    return payload
+
+
+def _cursor_pager(page, base, has_next, has_prev=None, per_page=ROWS):
+    """Pager for a server-side list whose total is not known up front.
+
+    RaveTapePacks WordPress pagination only tells us whether another page
+    exists, so the SPA shows "Page N" plus Previous/Next rather than inventing
+    an M.  ``links`` contains just the current page (no numbered sequence).
+    """
+    if has_prev is None:
+        has_prev = page > 1
+    page = max(1, int(page))
+    return {
+        "page": page,
+        "pages": None,
+        "total": None,
+        "per_page": per_page,
+        "prev": _page_link(base, page - 1) if has_prev else None,
+        "next": _page_link(base, page + 1) if has_next else None,
+        "links": [page],
+    }
 
 
 def _optional_slice(items, base):
@@ -1416,7 +1495,9 @@ def api_latest():
                           {"kind": "dnb", "target": str(entry["id"]), "title": title})
             item["play_via"] = "/api/dnb/%s" % urllib.parse.quote(str(entry["id"]))
             items.append(item)
-    return jsonify({"title": "Latest", "items": items})
+    page = _page_arg()
+    window, page, _pages, total = _slice_page(items, page)
+    return jsonify(_paged_payload("Latest", window, page, total, "/api/latest"))
 
 
 @app.get("/api/filters")
@@ -1443,11 +1524,8 @@ def api_filter(key):
         items.append(item)
     docs, total = archive.search(entry["query"], page=page, rows=ROWS)
     items.extend(_pack_items(docs))
-    payload = {"title": entry["name"], "items": items}
-    nxt = _next_link("/api/filter/%s" % key, page, total)
-    if nxt:
-        payload["next"] = nxt
-    return jsonify(payload)
+    return jsonify(_paged_payload(entry["name"], items, page, total,
+                                  "/api/filter/%s" % key))
 
 
 @app.get("/api/filter/<key>/live")
@@ -1497,19 +1575,24 @@ def api_live_tag(key):
     section = next((entry for entry in RADIO_SECTIONS if entry[0] == key), None)
     if not section:
         return _json_error("unknown station group", 404)
-    stations = radio.stations(section[2], limit=100)
-    items = []
+    stations = radio.stations(section[2], limit=500)
+    valid = []
     for station in stations:
         if not isinstance(station, dict):
             continue
         name, meta = radio.display(station)
         url = radio.stream_url(station)
-        if not url:
-            continue
-        items.append(_track(name, meta, url,
-                            station.get("favicon") or ART + "radio.png",
-                            {"kind": "stream", "target": url, "title": name}))
-    return jsonify({"title": section[1], "items": items})
+        if url:
+            valid.append((station, name, meta, url))
+    page = _page_arg()
+    window, page, _pages, total = _slice_page(valid, page)
+    items = [
+        _track(name, meta, url, station.get("favicon") or ART + "radio.png",
+               {"kind": "stream", "target": url, "title": name})
+        for station, name, meta, url in window]
+
+    return jsonify(_paged_payload(section[1], items, page, total,
+                                  "/api/live/%s" % key))
 
 
 @app.get("/api/mixcloud")
@@ -1528,7 +1611,10 @@ def api_mixcloud():
         item["embed"] = entry["embed"]
         item["external"] = entry["url"]
         items.append(item)
-    return jsonify({"title": "Mixcloud: %s" % query, "items": items})
+    page = _page_arg()
+    window, page, _pages, total = _slice_page(items, page)
+    return jsonify(_paged_payload("Mixcloud: %s" % query, window, page, total,
+                                  "/api/mixcloud?q=%s" % urllib.parse.quote(query)))
 
 
 @app.get("/api/uk-garage")
@@ -1545,7 +1631,10 @@ def api_uk_garage():
                         "collection:ravetapes AND house")
     docs, _ = archive.search(garage_query, rows=30)
     items.extend(_pack_items(docs))
-    return jsonify({"title": "UK Garage", "items": items})
+    page = _page_arg()
+    window, page, _pages, total = _slice_page(items, page)
+    return jsonify(_paged_payload("UK Garage", window, page, total,
+                                  "/api/uk-garage"))
 
 
 @app.get("/api/ukg")
@@ -1631,7 +1720,10 @@ def api_raves():
         items.append(_folder(entry["name"], " · ".join(bits) or "content",
                              "/api/rave/%s" % entry["slug"], ART + "rave-nights.png"))
     items.sort(key=lambda item: item["label"].lower())
-    return jsonify({"title": "Rave Nights", "items": items})
+    page = _page_arg()
+    window, page, _pages, total = _slice_page(items, page)
+    return jsonify(_paged_payload("Rave Nights", window, page, total,
+                                  "/api/raves"))
 
 
 @app.get("/api/rave/<key>")
@@ -1650,7 +1742,10 @@ def api_rave(key):
     if entry["archive_query"] and entry["archive_count"]:
         docs, _ = archive.search(entry["archive_query"], rows=30)
         items.extend(_pack_items(docs))
-    return jsonify({"title": entry["name"], "items": items})
+    page = _page_arg()
+    window, page, _pages, total = _slice_page(items, page)
+    return jsonify(_paged_payload(entry["name"], window, page, total,
+                                  "/api/rave/%s" % urllib.parse.quote(str(key))))
 
 
 # --------------------------------------------------------------------------- 1.6.14 mirror sources
@@ -1664,18 +1759,23 @@ def api_moxser():
     except Exception as exc:
         app.logger.warning("moxser list failed: %s", exc)
         return _json_error("could not load Moxser", 502)
-    items = []
+    valid = []
     for entry in entries:
         title = _clean_text(entry.get("title"), MAX_TITLE)
         slug = entry.get("slug") or ""
-        if not title or not slug:
-            continue
+        if title and slug:
+            valid.append((entry, title, slug))
+    page = _page_arg()
+    window, page, _pages, total = _slice_page(valid, page)
+    items = []
+    for entry, title, slug in window:
         item = _track(title, _source_sub("Moxser", entry.get("date")), None,
                       _http_url(entry.get("flyer")) or ART + "moxser.png")
         item["play_via"] = "/api/moxser/%s" % urllib.parse.quote(slug, safe="")
         item["download"] = {"source": "moxser"}
         items.append(item)
-    return jsonify({"title": "Moxser Mixes", "items": items})
+    return jsonify(_paged_payload("Moxser Mixes", items, page, total,
+                                  "/api/moxser"))
 
 
 @app.get("/api/moxser/<path:slug>")
@@ -1719,7 +1819,10 @@ def api_hardscore():
         if title and link:
             items.append(_external_row(title, _source_sub("Event", entry.get("date")),
                                        link, ART + "hardscore.png"))
-    return jsonify({"title": "Hardscore", "items": items})
+    page = _page_arg()
+    window, page, _pages, total = _slice_page(items, page)
+    return jsonify(_paged_payload("Hardscore", window, page, total,
+                                  "/api/hardscore"))
 
 
 @app.get("/api/toronto")
@@ -1735,12 +1838,14 @@ def api_toronto():
     if query:
         entries = toronto.search(query, limit=limit)
         title = "Toronto Rave Mixtape Archive: %s" % query
+        base = "/api/toronto?q=%s" % urllib.parse.quote(query)
     elif genre:
         entry = toronto.GENRE_BY_ID.get(genre)
         if not entry:
             return _json_error("unknown Toronto genre", 404)
         entries = toronto.genre_items(genre, limit=limit)
         title = "Toronto Rave Mixtape Archive: %s" % entry["label"]
+        base = "/api/toronto?genre=%s" % urllib.parse.quote(genre)
     else:
         items = []
         for entry in toronto.genres():
@@ -1749,23 +1854,36 @@ def api_toronto():
                 "/api/toronto?genre=%s" % urllib.parse.quote(entry["id"]),
                 ART + "toronto.png"))
         return jsonify({"title": "Toronto Rave Mixtape Archive", "items": items})
-    items = []
+    # Filter once, cheaply, then build item dicts only for the visible window:
+    # building all 2,640 Toronto rows on every page cost ~37 ms/page even
+    # though only 40 rows are sent.
+    valid = []
     for entry in entries:
         name = _clean_text(entry.get("title"), MAX_TITLE)
-        if not name:
-            continue
         url = _http_url(entry.get("url"))
-        if not url:
-            continue
-        sub = _source_sub("Toronto", entry.get("date"), entry.get("venue"))
-        item = _track(name, sub, url, ART + "toronto.png",
-                      {"kind": "stream", "target": url, "title": name})
-        item["date"] = entry.get("date") or ""
-        item["venue"] = entry.get("venue") or ""
-        item["duration"] = entry.get("duration") or ""
-        _mark_download(item, "toronto", url)
-        items.append(item)
-    return jsonify({"title": title, "items": items})
+        if name and url:
+            valid.append((entry, name, url))
+
+    def build(rows):
+        items = []
+        for entry, name, url in rows:
+            sub = _source_sub("Toronto", entry.get("date"), entry.get("venue"))
+            item = _track(name, sub, url, ART + "toronto.png",
+                          {"kind": "stream", "target": url, "title": name})
+            item["date"] = entry.get("date") or ""
+            item["venue"] = entry.get("venue") or ""
+            item["duration"] = entry.get("duration") or ""
+            _mark_download(item, "toronto", url)
+            items.append(item)
+        return items
+
+    if limit is not None:
+        # Explicit `?limit=` callers keep the old "give me a capped list"
+        # contract; the app itself always pages (?page=).
+        return jsonify({"title": title, "items": build(valid[:limit])})
+    page = _page_arg()
+    window, page, _pages, total = _slice_page(valid, page)
+    return jsonify(_paged_payload(title, build(window), page, total, base))
 
 
 @app.get("/api/ravearchive")
@@ -1781,7 +1899,10 @@ def api_ravearchive():
         items.append(_folder(title, _source_sub(entry.get("year"), djs),
                              "/api/ravearchive/%s" % urllib.parse.quote(slug, safe=""),
                              ART + "rave-archive.png"))
-    return jsonify({"title": "Rave Archive UK", "items": items})
+    page = _page_arg()
+    window, page, _pages, total = _slice_page(items, page)
+    return jsonify(_paged_payload("Rave Archive UK", window, page, total,
+                                  "/api/ravearchive"))
 
 
 @app.get("/api/ravearchive/<path:slug>")
@@ -1831,7 +1952,10 @@ def api_getdarker():
         if link:
             items.append(_external_row(title, _source_sub("GetDarker", entry.get("date")),
                                        link, ART + "getdarker.png"))
-    return jsonify({"title": "GetDarker", "items": items})
+    page = _page_arg()
+    window, page, _pages, total = _slice_page(items, page)
+    return jsonify(_paged_payload("GetDarker", window, page, total,
+                                  "/api/getdarker"))
 
 
 @app.get("/api/pirate")
@@ -1886,11 +2010,8 @@ def api_every_pack():
     query = next((entry[2] for entry in ARCHIVE_SECTIONS if entry[0] == "tapepacks"),
                  "collection:ravetapes AND mediatype:audio")
     docs, total = archive.search(query, page=page, rows=ROWS)
-    payload = {"title": "Every Pack", "items": _pack_items(docs)}
-    nxt = _next_link("/api/every-pack", page, total)
-    if nxt:
-        payload["next"] = nxt
-    return jsonify(payload)
+    return jsonify(_paged_payload("Every Pack", _pack_items(docs), page, total,
+                                  "/api/every-pack"))
 
 
 @app.get("/api/packs")
@@ -1913,11 +2034,8 @@ def api_pack_list(key):
         return _json_error("unknown section", 404)
     page = _page_arg()
     docs, total = archive.search(section[2], page=page, rows=ROWS)
-    payload = {"title": section[1], "items": _pack_items(docs)}
-    nxt = _next_link("/api/packs/%s" % key, page, total)
-    if nxt:
-        payload["next"] = nxt
-    return jsonify(payload)
+    return jsonify(_paged_payload(section[1], _pack_items(docs), page, total,
+                                  "/api/packs/%s" % key))
 
 
 @app.get("/api/item/<path:identifier>")
@@ -1933,20 +2051,18 @@ def api_item(identifier):
     # pack detail is bounded and the SPA's "Load more" can walk the rest.
     page = _page_arg()
     total = len(tracks)
-    start = (page - 1) * ROWS
+    window, page, _pages, total = _slice_page(tracks, page)
+    thumb = archive.thumb(identifier)
     items = []
-    for track in tracks[start:start + ROWS]:
+    for track in window:
         item = _track(track["title"], _human_duration(track.get("length")), track["url"],
-                      archive.thumb(identifier),
+                      thumb,
                       {"kind": "stream", "target": track["url"], "title": track["title"]})
         _mark_download(item, "archive", track["url"])
         items.append(item)
-    payload = {"title": identifier.replace("-", " ").replace("_", " "),
-               "items": items, "total": total,
-               "art": archive.thumb(identifier)}
-    if total > page * ROWS:
-        payload["next"] = "/api/item/%s?page=%d" % (
-            urllib.parse.quote(identifier), page + 1)
+    payload = _paged_payload(
+        identifier.replace("-", " ").replace("_", " "), items, page, total,
+        "/api/item/%s" % urllib.parse.quote(identifier), art=thumb)
     return jsonify(payload)
 
 
@@ -1972,15 +2088,21 @@ def api_podcast(feed_id):
     entry = feeds.feed(feed_id)
     if not entry:
         return _json_error("unknown feed", 404)
-    items = []
+    valid = []
     for episode in feeds.episodes(feed_id):
         url = episode.get("url")
-        if not isinstance(url, str) or not url:
-            continue
-        title = _clean_text(episode.get("title"), MAX_TITLE) or "Untitled"
-        items.append(_track(title, (episode.get("published") or "")[:16], url, ART + "podcasts.png",
-                            {"kind": "stream", "target": url, "title": title}))
-    return jsonify({"title": entry["name"], "items": items})
+        if isinstance(url, str) and url:
+            title = _clean_text(episode.get("title"), MAX_TITLE) or "Untitled"
+            valid.append((episode, title, url))
+    page = _page_arg()
+    window, page, _pages, total = _slice_page(valid, page)
+    items = [
+        _track(title, (episode.get("published") or "")[:16], url,
+               ART + "podcasts.png",
+               {"kind": "stream", "target": url, "title": title})
+        for episode, title, url in window]
+    base = "/api/podcast/%s" % urllib.parse.quote(feed_id)
+    return jsonify(_paged_payload(entry["name"], items, page, total, base))
 
 
 @app.get("/api/dnb")
@@ -1997,7 +2119,10 @@ def api_dnb():
                       {"kind": "dnb", "target": str(show["id"]), "title": title})
         item["play_via"] = "/api/dnb/%s" % urllib.parse.quote(str(show["id"]))
         items.append(item)
-    return jsonify({"title": "DNB Radio", "items": items})
+    page = _page_arg()
+    window, page, _pages, total = _slice_page(items, page)
+    return jsonify(_paged_payload("DNB Radio", window, page, total,
+                                  "/api/dnb"))
 
 
 @app.get("/api/dnb/<mix_id>")
@@ -2026,11 +2151,8 @@ def api_year(year):
         return _json_error("unknown year", 404)
     page = _page_arg()
     docs, total = archive.search(latest.year_query(year), page=page, rows=ROWS)
-    payload = {"title": str(year), "items": _pack_items(docs)}
-    nxt = _next_link("/api/year/%d" % year, page, total)
-    if nxt:
-        payload["next"] = nxt
-    return jsonify(payload)
+    return jsonify(_paged_payload(str(year), _pack_items(docs), page, total,
+                                  "/api/year/%d" % year))
 
 
 @app.get("/api/legacy/ravetapepacks")
@@ -2093,7 +2215,9 @@ def api_legacy_rtp_all():
                 {"kind": "legacy_post", "target": post["id"],
                  "title": post.get("name") or "Pack %s" % post["id"]})
         for post in posts if isinstance(post, dict) and post.get("id")]
-    payload = {"title": "RaveTapePacks.com", "items": items}
+    payload = {"title": "RaveTapePacks.com", "items": items,
+               "pager": _cursor_pager(page, "/api/legacy/ravetapepacks/all",
+                                      bool(nxt))}
     if nxt:
         payload["next"] = "/api/legacy/ravetapepacks/all?page=%d" % (page + 1)
     return jsonify(payload)
@@ -2113,11 +2237,19 @@ def api_legacy_rtp_index(kind):
                 ART + {"events": "rave-nights.png", "djs": "by-dj.png",
                        "mcs": "by-mc.png", "years": "years.png"}[kind])
         for entry in categories]
-    items, nxt = _optional_slice(items, "/api/legacy/ravetapepacks/index/%s" % kind)
-    payload = {"title": "%s · RaveTapePacks.com" % labels[kind], "items": items}
-    if nxt:
-        payload["next"] = nxt
-    return jsonify(payload)
+    base = "/api/legacy/ravetapepacks/index/%s" % kind
+    if request.args.get("limit") not in (None, ""):
+        # Explicit `?limit=&offset=` callers keep the old slice contract.
+        page_items, nxt = _optional_slice(items, base)
+        payload = {"title": "%s · RaveTapePacks.com" % labels[kind],
+                   "items": page_items}
+        if nxt:
+            payload["next"] = nxt
+        return jsonify(payload)
+    page = _page_arg()
+    window, page, _pages, total = _slice_page(items, page)
+    return jsonify(_paged_payload("%s · RaveTapePacks.com" % labels[kind],
+                                  window, page, total, base))
 
 
 def _rtp_category_name(kind, cat_id):
@@ -2161,7 +2293,9 @@ def api_legacy_rtp_category(kind, cat_id):
                 {"kind": "legacy_post", "target": post["id"],
                  "title": post.get("name") or "Pack %s" % post["id"]})
         for post in posts if isinstance(post, dict) and post.get("id")]
-    payload = {"title": title, "items": items}
+    base = "/api/legacy/ravetapepacks/index/%s/%s" % (kind, cat_id)
+    payload = {"title": title, "items": items,
+               "pager": _cursor_pager(page, base, bool(nxt))}
     if nxt:
         payload["next"] = ("/api/legacy/ravetapepacks/index/%s/%s?page=%d"
                            % (kind, cat_id, page + 1))
@@ -2197,18 +2331,22 @@ def api_legacy_rtp_post(post_id):
     if not entry or not entry.get("tracks"):
         return _json_error("no tracks on that RaveTapePacks post", 404)
     title = entry.get("name") or "RaveTapePacks.com"
+    valid = [(track, _clean_text(track.get("name"), MAX_TITLE) or "Tape",
+              legacy.playable(track["url"]))
+             for track in entry["tracks"]
+             if isinstance(track, dict) and track.get("url")]
+    page = _page_arg()
+    window, page, _pages, total = _slice_page(valid, page)
     items = []
-    for track in entry["tracks"]:
-        if not isinstance(track, dict) or not track.get("url"):
-            continue
-        playable = legacy.playable(track["url"])
-        name = _clean_text(track.get("name"), MAX_TITLE) or "Tape"
+    for _track_row, name, playable in window:
         item = _track(name, _source_sub("RaveTapePacks.com", title), playable,
                       ART + "tapepacks.png",
                       {"kind": "stream", "target": playable, "title": name})
         _mark_download(item, "ravetapepacks", playable)
         items.append(item)
-    return jsonify({"title": title, "items": items})
+    return jsonify(_paged_payload(
+        title, items, page, total,
+        "/api/legacy/ravetapepacks/post/%s" % urllib.parse.quote(post_id)))
 
 
 @app.get("/api/legacy/ravetapepacks/<path:pack>")
@@ -2216,17 +2354,21 @@ def api_legacy_rtp_pack(pack):
     entry = _rtp_pack_entry(pack)
     if not entry:
         return _json_error("unknown pack", 404)
+    valid = [(track, _clean_text(track.get("name"), MAX_TITLE) or "Tape",
+              legacy.playable(track["url"]))
+             for track in (entry.get("tracks") or [])
+             if isinstance(track, dict) and track.get("url")]
+    page = _page_arg()
+    window, page, _pages, total = _slice_page(valid, page)
     items = []
-    for track in entry.get("tracks") or []:
-        if not isinstance(track, dict) or not track.get("url"):
-            continue
-        playable = legacy.playable(track["url"])
-        name = _clean_text(track.get("name"), MAX_TITLE) or "Tape"
+    for _track_row, name, playable in window:
         item = _track(name, "Tape", playable, ART + "tapepacks.png",
                       {"kind": "stream", "target": playable, "title": name})
         _mark_download(item, "ravetapepacks", playable)
         items.append(item)
-    return jsonify({"title": entry.get("name") or pack, "items": items})
+    base = "/api/legacy/ravetapepacks/%s" % urllib.parse.quote(pack)
+    return jsonify(_paged_payload(entry.get("name") or pack, items, page,
+                                  total, base))
 
 
 @app.get("/api/legacy/jungletapes")
@@ -2235,9 +2377,7 @@ def api_legacy_jt():
     page = _page_arg()
     shows = [show for show in legacy.jungle_shows()
              if isinstance(show, dict) and isinstance(show.get("key"), str)]
-    total = len(shows)
-    start = (page - 1) * JT_SHOWS_PER_PAGE
-    window = shows[start:start + JT_SHOWS_PER_PAGE]
+    window, page, _pages, total = _slice_page(shows, page)
     items = []
     for show in window:
         name = show.get("name") or show["key"]
@@ -2245,10 +2385,8 @@ def api_legacy_jt():
                              "/api/legacy/jungletapes/%s" % urllib.parse.quote(show["key"]),
                              ART + "jungletapes.png",
                              {"kind": "legacy_jt", "target": show["key"], "title": name}))
-    payload = {"title": "JungleTapes.com", "items": items}
-    if start + JT_SHOWS_PER_PAGE < total:
-        payload["next"] = "/api/legacy/jungletapes?page=%d" % (page + 1)
-    return jsonify(payload)
+    return jsonify(_paged_payload("JungleTapes.com", items, page, total,
+                                  "/api/legacy/jungletapes"))
 
 
 @app.get("/api/legacy/jungletapes/<path:show_key>")
@@ -2256,16 +2394,20 @@ def api_legacy_jt_show(show_key):
     show_key = _clean_text(show_key, MAX_QUERY)
     if not show_key or "/" in show_key:
         return _json_error("unknown show", 404)
-    items = []
-    for track in legacy.jungle_tracks(show_key):
-        if not isinstance(track, dict) or not track.get("url"):
-            continue
-        name = _clean_text(track.get("name"), MAX_TITLE) or "Track"
-        items.append(_track(name, "JungleTapes.com", track["url"], ART + "jungletapes.png",
-                            {"kind": "stream", "target": track["url"], "title": name}))
-    if not items:
+    valid = [(track, _clean_text(track.get("name"), MAX_TITLE) or "Track")
+             for track in legacy.jungle_tracks(show_key)
+             if isinstance(track, dict) and track.get("url")]
+    if not valid:
         return _json_error("no recordings for that show", 404)
-    return jsonify({"title": show_key.replace("-", " ").replace("_", " "), "items": items})
+    page = _page_arg()
+    window, page, _pages, total = _slice_page(valid, page)
+    items = [
+        _track(name, "JungleTapes.com", track["url"], ART + "jungletapes.png",
+               {"kind": "stream", "target": track["url"], "title": name})
+        for track, name in window]
+    base = "/api/legacy/jungletapes/%s" % urllib.parse.quote(show_key)
+    return jsonify(_paged_payload(
+        show_key.replace("-", " ").replace("_", " "), items, page, total, base))
 
 
 def _embed_items(entries, provider, art):
@@ -2333,11 +2475,13 @@ def api_search():
     # a search for a DJ or a club night — append them as embed items on page one.
     items += list(results.get("soundcloud") or [])
     items += list(results.get("mixcloud") or [])
-    payload = {"title": "Search: %s" % query, "items": items}
-    nxt = None if widen_needed else _next_link(
-        "/api/search?q=%s" % urllib.parse.quote(query), page, total)
-    if nxt:
-        payload["next"] = nxt
+    payload = _paged_payload("Search: %s" % query, items, page, total,
+                             "/api/search?q=%s" % urllib.parse.quote(query))
+    if widen_needed:
+        # Page one already appended the title-scoped widen results; the site
+        # disables "next" here so a second page cannot repeat them.
+        payload.pop("next", None)
+        payload["pager"]["next"] = None
     return jsonify(payload)
 
 
@@ -2399,7 +2543,12 @@ def api_fav_list():
         if entry.get("identity"):
             item["identity"] = entry["identity"]
         items.append(item)
-    return jsonify({"title": "Favourites", "items": items})
+    page = _page_arg()
+    window, page, _pages, total = _slice_page(items, page)
+    base = "/api/favourites"
+    if request.args.get("all") == "1":
+        base += "?all=1"
+    return jsonify(_paged_payload("Favourites", window, page, total, base))
 
 
 FAVOURITE_KINDS = ("pack", "stream", "legacy_post", "legacy_jt", "dnb")
@@ -3484,7 +3633,9 @@ def _download_to_file(url, destination, max_bytes, seconds):
 # background jobs: persisted metadata + in-process worker, so closing the tab
 # does not cancel the save.  The HTTP request only creates the job.
 _DOWNLOAD_JOBS_LOCK = threading.RLock()
-_JOB_SCHEDULER = {"started": False, "migrated": None}
+_JOB_SCHEDULER = {"started": False, "migrated": None,
+                  "gate": threading.Event()}  # clear to pause test/work loops
+_JOB_SCHEDULER["gate"].set()
 _JOB_SCHEDULER_LOCK = threading.Lock()
 
 
@@ -3502,6 +3653,7 @@ def _jobs_ensure():
         download_jobs.recover_orphans()
     except Exception:
         app.logger.exception("jobs: orphan recovery failed")
+    _JOB_SCHEDULER["gate"].set()
     with _JOB_SCHEDULER_LOCK:
         if _JOB_SCHEDULER["started"]:
             return
@@ -3515,6 +3667,8 @@ def _job_scheduler():
     """Claim shared queued rows; the DB transaction enforces the global cap."""
     while True:
         try:
+            if not _JOB_SCHEDULER["gate"].wait(timeout=0.4):
+                continue
             while True:
                 job = download_jobs.claim_next(DOWNLOAD_JOB_CONCURRENCY)
                 if not job:
@@ -3770,21 +3924,24 @@ def api_downloads():
         entries = downloads.all_entries(DATA_DIR)
     else:
         entries = downloads.list_entries(DATA_DIR, identity)
-    items = [_download_item(entry) for entry in entries]
+    page = _page_arg()
+    window, page, _pages, total = _slice_page(entries, page)
+    items = [_download_item(entry) for entry in window]
     if request.args.get("all") == "1" and session.get("role") == "admin":
-        for item, entry in zip(items, entries):
+        for item, entry in zip(items, window):
             item["identity"] = entry.get("identity") or "owner"
     used = sum(entry["size"] for entry in entries)
-    return jsonify({
-        "title": "Downloads",
-        "items": items,
-        "storage": {
-            "used": used,
-            "limit": DOWNLOAD_MAX_TOTAL,
-            "items": len(items),
-            "max_items": DOWNLOAD_MAX_ITEMS,
-        },
-    })
+    base = "/api/downloads"
+    if request.args.get("all") == "1":
+        base += "?all=1"
+    payload = _paged_payload("Downloads", items, page, total, base)
+    payload["storage"] = {
+        "used": used,
+        "limit": DOWNLOAD_MAX_TOTAL,
+        "items": total,
+        "max_items": DOWNLOAD_MAX_ITEMS,
+    }
+    return jsonify(payload)
 
 
 @app.post("/api/downloads")

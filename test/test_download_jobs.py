@@ -218,6 +218,11 @@ def _spawn_job(db_path, title, url):
 
 def test_shared_store_across_processes_no_clobber():
     from core import audit
+    import app as app_module
+    # Pause this process's dispatcher: the test claims rows by hand and must
+    # not race a scheduler tick left over from an earlier job test.
+    app_module._JOB_SCHEDULER["gate"].clear()
+    time.sleep(0.5)
     db_path = audit.db_path()
     # Initialise the schema before the two writers race.
     assert jobs_store.list_jobs("owner", "admin") == []
@@ -241,6 +246,7 @@ def test_shared_store_across_processes_no_clobber():
     assert cancelled["state"] == "cancelled"
     assert jobs_store.get(claimed["id"])["state"] == "completed"
     assert jobs_store.get(other["id"])["state"] == "cancelled"
+    app_module._JOB_SCHEDULER["gate"].set()
 
 
 def test_terminal_job_history_is_bounded_but_active_rows_survive(web, monkeypatch):

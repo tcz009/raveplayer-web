@@ -8,7 +8,9 @@
   const navEl = $("nav");
   const audio = $("audio");
   const player = $("player");
-  const moreEl = $("more");
+  const pagerEl = $("pager");
+  const pagerTopEl = $("pager-top");
+  const pageMetaEl = $("page-meta");
   const emptyEl = $("empty");
   const stateEl = $("state");
   const stateText = $("state-text");
@@ -50,6 +52,7 @@
     path: "",
     items: [],
     next: null,
+    pager: null,
     title: "",
     queue: [],
     queueSource: "",
@@ -1078,7 +1081,8 @@
     state.path = path;
     debugEvent("route", { path: path.split("?")[0], push: push });
     state.next = null;
-    moreEl.hidden = true;
+    state.pager = null;
+    hidePager();
     emptyEl.hidden = true;
     showSkeleton();
     const label = labelForPath(path);
@@ -1102,11 +1106,12 @@
         ? data.items.filter((item) => item && typeof item === "object")
         : [];
       state.next = typeof data.next === "string" ? data.next : null;
+      state.pager = normalizePager(data.pager, path);
       state.title = typeof data.title === "string" ? data.title : "";
       titleEl.textContent = state.title || "Rave Player";
       render(state.items);
+      renderPager();
       if (path === "/api/downloads") renderJobRows();
-      moreEl.hidden = !state.next;
       setStatus(`${state.items.length} ITEMS`);
       if (path.startsWith("/api/search")) {
         const query = new URLSearchParams(path.split("?")[1] || "").get("q") || "";
@@ -1119,6 +1124,11 @@
       }
       if (typeof options.scrollY === "number") window.scrollTo(0, options.scrollY);
       else scrollTop();
+      // A pager click moves focus to the new list heading, so a keyboard user
+      // does not land back at the top of the document after a page change.
+      if (options.focusList && typeof titleEl.focus === "function") {
+        titleEl.focus({ preventScroll: true });
+      }
     } catch (error) {
       if (seq !== state.seq) return;
       render([]);
@@ -1132,56 +1142,113 @@
     }
   }
 
-  async function loadMore() {
-    if (!state.next || loadMore.pending) return;
-    const button = $("more-btn");
-    const seq = state.seq;
-    const next = state.next;
-    loadMore.pending = true;
-    button.disabled = true;
-    button.textContent = "Loading…";
-    try {
-      const data = await api(next);
-      if (seq !== state.seq || state.next !== next) return;
-      const fresh = (Array.isArray(data.items) ? data.items : [])
-        .filter((item) => item && typeof item === "object");
-      const known = new Set(state.items.map(itemKey));
-      const added = fresh.filter((item) => {
-        const key = itemKey(item);
-        if (known.has(key)) return false;
-        known.add(key);
-        return true;
-      });
-      state.items = state.items.concat(added);
-      state.next = typeof data.next === "string" ? data.next : null;
-      if (state.queueSource === state.path && state.queue.length) {
-        const queued = new Set(state.queue.map(itemKey));
-        added.filter(playable).forEach((item) => {
-          if (!queued.has(itemKey(item))) { state.queue.push(item); queued.add(itemKey(item)); }
-        });
-        updateQueueCount();
-        if (!queueEl.hidden) renderQueue();
-      }
-      // Append rather than re-render: rebuilding every row steals the user's
-      // scroll position and re-decodes images on a phone.
-      if (added.length) {
-        const fragment = document.createDocumentFragment();
-        added.forEach((item) => fragment.appendChild(row(item)));
-        listEl.appendChild(fragment);
-      }
-      listEl.setAttribute("aria-busy", "false");
-      emptyEl.hidden = true;
-      paintNowPlaying();
-      moreEl.hidden = !state.next;
-      setStatus(`${state.items.length} ITEMS`);
-    } catch (error) {
-      toast(`Could not load more: ${messageFor(error)}`, 4000);
-    } finally {
-      loadMore.pending = false;
-      button.disabled = false;
-      button.textContent = "Load more";
-      moreEl.hidden = !state.next;
+  /* ------------------------------------------------------------ pagination */
+
+  function normalizePager(raw, path) {
+    if (!raw || typeof raw !== "object") return null;
+    const page = Number(raw.page);
+    if (!Number.isFinite(page) || page < 1) return null;
+    const pages = raw.pages == null ? null : Number(raw.pages);
+    const total = raw.total == null ? null : Number(raw.total);
+    const links = Array.isArray(raw.links)
+      ? raw.links.map((value) => (value == null ? null : Number(value)))
+        .filter((value) => value == null || (Number.isFinite(value) && value >= 1))
+      : [page];
+    return {
+      base: path,
+      page,
+      pages: Number.isFinite(pages) && pages > 0 ? pages : null,
+      total: Number.isFinite(total) && total >= 0 ? total : null,
+      prev: typeof raw.prev === "string" ? raw.prev : null,
+      next: typeof raw.next === "string" ? raw.next : null,
+      links,
+    };
+  }
+
+  function pageUrlFor(number) {
+    const [path, query = ""] = state.path.split("?");
+    const params = new URLSearchParams(query);
+    params.set("page", String(number));
+    return `${path}?${params.toString()}`;
+  }
+
+  function pagerButton(label, { aria, current = false, disabled = false, onClick }) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "pager-btn" + (current ? " current" : "");
+    button.textContent = label;
+    if (aria) button.setAttribute("aria-label", aria);
+    if (current) button.setAttribute("aria-current", "page");
+    if (disabled) button.disabled = true;
+    if (onClick) button.addEventListener("click", onClick);
+    return button;
+  }
+
+  function hidePager() {
+    [pagerEl, pagerTopEl].forEach((nav) => {
+      if (!nav) return;
+      nav.hidden = true;
+      nav.textContent = "";
+    });
+    if (pageMetaEl) pageMetaEl.hidden = true;
+  }
+
+  function renderPager() {
+    const pager = state.pager;
+    const paged = pager && ((pager.pages != null && pager.pages > 1)
+      || pager.page > 1 || !!pager.next || !!pager.prev);
+    if (!paged) {
+      hidePager();
+      return;
     }
+    if (pageMetaEl) {
+      pageMetaEl.hidden = false;
+      pageMetaEl.textContent = pager.pages != null
+        ? `Page ${pager.page} of ${pager.pages} · ${pager.total} items`
+        : `Page ${pager.page}`;
+    }
+    [pagerTopEl, pagerEl].forEach((nav) => {
+      if (!nav) return;
+      nav.textContent = "";
+      nav.hidden = false;
+      const go = (target) => () => navigate(target, { focusList: true });
+      nav.appendChild(pagerButton("Previous", {
+        aria: "Previous page",
+        disabled: !pager.prev,
+        onClick: pager.prev ? go(pager.prev) : null,
+      }));
+      pager.links.forEach((number) => {
+        if (number == null) {
+          const gap = document.createElement("span");
+          gap.className = "pager-gap";
+          gap.setAttribute("aria-hidden", "true");
+          gap.textContent = "…";
+          nav.appendChild(gap);
+          return;
+        }
+        nav.appendChild(pagerButton(String(number), {
+          aria: `Page ${number}`,
+          current: number === pager.page,
+          onClick: number === pager.page ? null : go(pageUrlFor(number)),
+        }));
+      });
+      nav.appendChild(pagerButton("Next", {
+        aria: "Next page",
+        disabled: !pager.next,
+        onClick: pager.next ? go(pager.next) : null,
+      }));
+      // Arrow keys move between pages while focus is inside the pager; the
+      // player's own left/right seek shortcut is unaffected elsewhere.
+      nav.onkeydown = (event) => {
+        if (event.key === "ArrowLeft" && pager.prev) {
+          event.preventDefault();
+          navigate(pager.prev, { focusList: true });
+        } else if (event.key === "ArrowRight" && pager.next) {
+          event.preventDefault();
+          navigate(pager.next, { focusList: true });
+        }
+      };
+    });
   }
 
   /* ------------------------------------------------------------ player */
@@ -2518,8 +2585,6 @@
   $("dl-background").addEventListener("click", startBackgroundDownload);
   $("job-chip").addEventListener("click", () => navigate("/api/downloads"));
   refreshDownloadJobs();
-
-  moreEl.addEventListener("click", loadMore);
 
   $("p-play").addEventListener("click", togglePlay);
   $("p-prev").addEventListener("click", () => step(-1));

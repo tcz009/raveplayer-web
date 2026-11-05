@@ -12,6 +12,18 @@ def _route(monkeypatch, module, mapping):
         monkeypatch.setattr(module, "_throttle", lambda: None)
 
 
+def _walk(web, url):
+    """Follow the pager's next links and return every item exactly once."""
+    items, page = [], 1
+    while True:
+        separator = "&" if "?" in url else "?"
+        payload = web.get("%s%spage=%d" % (url, separator, page)).get_json()
+        items.extend(payload["items"])
+        if not (payload.get("pager") or {}).get("next"):
+            return items
+        page += 1
+
+
 def _rss(title, count, body):
     return ('<?xml version="1.0"?><rss version="2.0"><channel><title>%s</title>%s'
             '</channel></rss>' % (title, body))
@@ -74,7 +86,9 @@ def test_podcast_episodes_are_not_capped_at_60(web, monkeypatch):
                         lambda url, timeout=None, headers=None, ttl=0: document)
     assert len(feeds.episodes("f")) == 70
     payload = web.get("/api/podcast/f").get_json()
-    assert len(payload["items"]) == 70
+    assert len(payload["items"]) == 40
+    assert payload["pager"]["total"] == 70
+    assert len(_walk(web, "/api/podcast/f")) == 70
 
 
 def test_ravearchive_and_getdarker_defaults_are_complete(monkeypatch):
@@ -107,14 +121,17 @@ def test_toronto_genre_route_returns_all_rows(web, monkeypatch):
             for i in range(1001)]
     monkeypatch.setattr(toronto, "_genre_rows", lambda genre: rows)
     payload = web.get("/api/toronto?genre=jungle").get_json()
-    assert len(payload["items"]) == 1001
+    assert len(payload["items"]) == 40
+    assert payload["pager"]["pages"] == 26
+    assert len(_walk(web, "/api/toronto?genre=jungle")) == 1001
 
 
 def test_source_routes_render_every_row(web, monkeypatch):
     mox = [{"title": "Mox %d" % i, "slug": "mox-%d" % i, "date": "2026-01-01",
             "flyer": ""} for i in range(60)]
     monkeypatch.setattr(app_module.moxser, "mixes", lambda: mox)
-    assert len(web.get("/api/moxser").get_json()["items"]) == 60
+    assert len(web.get("/api/moxser").get_json()["items"]) == 40
+    assert len(_walk(web, "/api/moxser")) == 60
 
     mixes = [{"title": "Mix %d" % i, "date": "2023-11-22",
               "media": "https://hardscore.com/mixes/%d.mp3" % i, "link": ""}
@@ -124,15 +141,18 @@ def test_source_routes_render_every_row(web, monkeypatch):
               for i in range(25)]
     monkeypatch.setattr(app_module.hardscore, "mixes", lambda: mixes)
     monkeypatch.setattr(app_module.hardscore, "events", lambda: events)
-    assert len(web.get("/api/hardscore").get_json()["items"]) == 70
+    assert len(web.get("/api/hardscore").get_json()["items"]) == 40
+    assert len(_walk(web, "/api/hardscore")) == 70
 
     releases = [{"title": "Release %d" % i, "slug": "release-%d" % i,
                  "year": "1993", "djs": ["DJ"]} for i in range(45)]
     monkeypatch.setattr(app_module.ravearchive, "releases", lambda: releases)
-    assert len(web.get("/api/ravearchive").get_json()["items"]) == 45
+    assert len(web.get("/api/ravearchive").get_json()["items"]) == 40
+    assert len(_walk(web, "/api/ravearchive")) == 45
 
     sets = [{"title": "Set %d" % i, "date": "2023-11-22",
              "mixcloud": "https://www.mixcloud.com/getdarker/set-%d/" % i}
             for i in range(45)]
     monkeypatch.setattr(app_module.getdarker, "sets", lambda: sets)
-    assert len(web.get("/api/getdarker").get_json()["items"]) == 45
+    assert len(web.get("/api/getdarker").get_json()["items"]) == 40
+    assert len(_walk(web, "/api/getdarker")) == 45
