@@ -1205,7 +1205,7 @@
       pageMetaEl.hidden = false;
       pageMetaEl.textContent = pager.pages != null
         ? `Page ${pager.page} of ${pager.pages} · ${pager.total} items`
-        : `Page ${pager.page} · ${pager.total == null ? "" : `${pager.total} items`}`.trim();
+        : `Page ${pager.page}`;
     }
     [pagerTopEl, pagerEl].forEach((nav) => {
       if (!nav) return;
