@@ -91,6 +91,15 @@ def main():
                 page = context.new_page()
                 page.add_init_script(script="(" + INIT + ")();")
                 page.goto(url + "/", wait_until="domcontentloaded")
+                # 1.6.21+ requires a session; sign in once so the shell renders
+                # (a stale worker used to hang here forever on /login).
+                if "/login" in page.url:
+                    if page.query_selector("input[name=username]"):
+                        page.fill("input[name=username]", "owner")
+                    page.fill("input[name=password]", os.environ.get(
+                        "RAVEWEB_PASSWORD", "bench-password"))
+                    page.click("#login-submit")
+                    page.wait_for_selector("#nav button", timeout=15000)
                 page.wait_for_selector("#nav button", timeout=15000)
                 rail_ms = page.evaluate("() => performance.now() - window.__bench.start")
                 page.wait_for_selector("#list .row:not(.skeleton)", timeout=15000)

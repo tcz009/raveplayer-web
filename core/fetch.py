@@ -532,7 +532,10 @@ def fetch(url, timeout=DEFAULT_TIMEOUT, headers=None, ttl=0):
     if not ttl:
         return _request(url, timeout, headers)
     key = _cache_key("text", url, headers)
-    return cache.remember(key, ttl, lambda: _request(url, timeout, headers))
+    # sync=False: a fetched body is recomputable (a lost write re-fetches), and
+    # an fsync per cold page is a visible disk stall on the NAS host.
+    return cache.remember(key, ttl, lambda: _request(url, timeout, headers),
+                          sync=False)
 
 
 def is_cached(url, ttl, headers=None):
@@ -551,6 +554,22 @@ def is_cached(url, ttl, headers=None):
         return False
 
 
+def cached_body(url, ttl, headers=None):
+    """Return the cached body for ``url`` without ever touching the network.
+
+    Used where a page is nice-to-have (a category title taken from the already
+    cached homepage nav) and a cold miss must not add a request.  Returns
+    ``None`` when there is no fresh entry.
+    """
+    if not ttl:
+        return None
+    try:
+        value = cache.get(_cache_key("text", url, headers), ttl)
+    except Exception:  # noqa: BLE001 - cache trouble must never break a caller
+        return None
+    return None if value is cache.MISSING else value
+
+
 def _parse_json(url, body):
     if body is None:
         return None
@@ -567,7 +586,9 @@ def fetch_json(url, timeout=DEFAULT_TIMEOUT, headers=None, ttl=0):
         return _parse_json(url, fetch(url, timeout=timeout, headers=headers))
     key = _cache_key("json", url, headers)
     return cache.remember(
-        key, ttl, lambda: _parse_json(url, fetch(url, timeout=timeout, headers=headers))
+        key, ttl,
+        lambda: _parse_json(url, fetch(url, timeout=timeout, headers=headers)),
+        sync=False,
     )
 
 

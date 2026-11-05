@@ -1,0 +1,150 @@
+{
+  "latency_ms": 20.0,
+  "samples": 25,
+  "results": [
+    {
+      "path": "/api/menu",
+      "cold_ms": 6.4,
+      "warm_p50_ms": 5.6,
+      "warm_p95_ms": 24.5,
+      "bytes": 5616,
+      "bytes_gzip": 1329
+    },
+    {
+      "path": "/api/rail/packs",
+      "cold_ms": 6.1,
+      "warm_p50_ms": 5.3,
+      "warm_p95_ms": 9.1,
+      "bytes": 930,
+      "bytes_gzip": 930
+    },
+    {
+      "path": "/api/latest",
+      "cold_ms": 34.4,
+      "warm_p50_ms": 8.9,
+      "warm_p95_ms": 12.2,
+      "bytes": 11801,
+      "bytes_gzip": 872
+    },
+    {
+      "path": "/api/filters",
+      "cold_ms": 6.1,
+      "warm_p50_ms": 7.4,
+      "warm_p95_ms": 14.6,
+      "bytes": 2098,
+      "bytes_gzip": 582
+    },
+    {
+      "path": "/api/item/pack-0",
+      "cold_ms": 33.4,
+      "warm_p50_ms": 9.9,
+      "warm_p95_ms": 16.4,
+      "bytes": 6737,
+      "bytes_gzip": 493
+    },
+    {
+      "path": "/api/moxser",
+      "cold_ms": 2044.3,
+      "warm_p50_ms": 6.9,
+      "warm_p95_ms": 15.4,
+      "bytes": 13785,
+      "bytes_gzip": 929
+    },
+    {
+      "path": "/api/moxser/bench-mix-1-01-january-2026",
+      "cold_ms": 775.9,
+      "warm_p50_ms": 4.7,
+      "warm_p95_ms": 6.0,
+      "bytes": 198,
+      "bytes_gzip": 198
+    },
+    {
+      "path": "/api/downloads",
+      "cold_ms": 6.2,
+      "warm_p50_ms": 5.9,
+      "warm_p95_ms": 13.3,
+      "bytes": 5213,
+      "bytes_gzip": 473
+    },
+    {
+      "path": "/api/search?q=dreamscape",
+      "cold_ms": 55.6,
+      "warm_p50_ms": 33.2,
+      "warm_p95_ms": 40.0,
+      "bytes": 10832,
+      "bytes_gzip": 1072
+    },
+    {
+      "path": "/api/legacy/ravetapepacks",
+      "cold_ms": 55.9,
+      "warm_p50_ms": 8.4,
+      "warm_p95_ms": 13.0,
+      "bytes": 793,
+      "bytes_gzip": 793
+    },
+    {
+      "path": "/api/legacy/ravetapepacks/all",
+      "cold_ms": 60.3,
+      "warm_p50_ms": 7.1,
+      "warm_p95_ms": 13.4,
+      "bytes": 3056,
+      "bytes_gzip": 663
+    },
+    {
+      "path": "/api/legacy/ravetapepacks/index/events",
+      "cold_ms": 56.8,
+      "warm_p50_ms": 12.3,
+      "warm_p95_ms": 26.3,
+      "bytes": 6859,
+      "bytes_gzip": 720
+    },
+    {
+      "path": "/api/legacy/ravetapepacks/index/events/331",
+      "cold_ms": 47.0,
+      "warm_p50_ms": 16.8,
+      "warm_p95_ms": 23.3,
+      "bytes": 630,
+      "bytes_gzip": 630
+    },
+    {
+      "path": "/api/legacy/ravetapepacks/index/djs/106",
+      "cold_ms": 45.2,
+      "warm_p50_ms": 16.0,
+      "warm_p95_ms": 20.0,
+      "bytes": 630,
+      "bytes_gzip": 630
+    },
+    {
+      "path": "/api/legacy/ravetapepacks/post/899",
+      "cold_ms": 55.8,
+      "warm_p50_ms": 12.8,
+      "warm_p95_ms": 21.4,
+      "bytes": 25032,
+      "bytes_gzip": 1397
+    },
+    {
+      "path": "/api/legacy/jungletapes",
+      "cold_ms": 62.5,
+      "warm_p50_ms": 8.3,
+      "warm_p95_ms": 11.7,
+      "bytes": 39,
+      "bytes_gzip": 39
+    },
+    {
+      "path": "/api/toronto",
+      "cold_ms": 5.8,
+      "warm_p50_ms": 6.4,
+      "warm_p95_ms": 9.6,
+      "bytes": 640,
+      "bytes_gzip": 640
+    },
+    {
+      "path": "/api/stream (first byte)",
+      "cold_ms": 31.1,
+      "warm_p50_ms": 7.9,
+      "warm_p95_ms": 18.5,
+      "bytes": 0,
+      "bytes_gzip": 0
+    }
+  ]
+}

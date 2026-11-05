@@ -73,9 +73,11 @@ def test_service_worker_only_falls_back_for_same_origin_navigations():
     # Live API and downloads stay network-only (no stale library/data).
     assert 'url.pathname.startsWith("/api/")' in worker
     assert 'request.method !== "GET"' in worker
-    # A navigation gets the cached app shell when the network fails/404s.
+    # A navigation gets the cached app shell immediately and refreshes it in
+    # the background; a cold/offline launch falls back to the cache.
     assert 'request.mode === "navigate"' in worker
-    assert 'caches.match(SHELL' in worker
+    assert 'cache.match(SHELL' in worker
+    assert "event.waitUntil(network)" in worker
     assert 'const SHELL = "/";' in worker
     # Static assets are versioned via ?v= in the template, so a deploy does not
     # serve yesterday's JS from the cache.

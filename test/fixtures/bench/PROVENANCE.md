@@ -17,6 +17,10 @@ These are third-party pages kept only as parser/timing fixtures. The home page
 is 200,366 bytes with 138 parseable tapes across 17 packs and 362 category
 links; the `?cat=331` page is 155,050 bytes with 48 tapes across 3 packs.
 
+Post pages (`?p=<id>`) have no standalone capture: the replay serves the
+`?cat=331` body for them. It is a real 155 KB RaveTapePacks page with 48 MP3
+links, so it exercises the same fetch/resolve/parse path a post page does.
+
 Replay is not a substitute for a live measurement: it reproduces the upstream
 *bytes* and the parse cost, and adds `--latency-ms` (default 350 ms) per fetch to
 stand in for the site's normal response time. It cannot reproduce TLS, redirects

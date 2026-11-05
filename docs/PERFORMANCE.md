@@ -1,5 +1,10 @@
 # Performance + cleanup pass (web 1.6.18)
 
+> The 1.6.52 overhaul (one SQLite connection per request, parsed-page caches,
+> one-page RTP categories, concurrent JungleTapes catalogue, stale-while-
+> revalidate app shell, cacheable versioned assets) is documented separately in
+> [`PERF-OVERHAUL.md`](PERF-OVERHAUL.md).
+
 **Branch:** `feature/1.6.18` (off `main @ 3fbd488`, 1.6.17) · not deployed.
 **Targets:** warm API p95 < 300 ms · rail interactive < 1 s · no layout shift.
 

@@ -1,0 +1,979 @@
+{
+  "cache_dir": "/var/folders/lf/99_b50gd5nl8k1lxgyqjz0440000gn/T/rave-bench-cache-ag9hmfoe",
+  "ids": {
+    "archive_id": "World_Dance_-_April_2nd__1994",
+    "jt_show": "rinse-out_ckln_881-fm_2000-02-26-000000",
+    "moxser_slug": "loraine-james-resident-advisor-1062-26-october-2026",
+    "rtp_cat_id": "331",
+    "rtp_cat_kind": "events",
+    "rtp_cat_post_id": "2542",
+    "rtp_pack_key": "AmazonVol1DigitallyRemastered",
+    "rtp_pack_name": "Amazon Vol 1 Digitally Remastered",
+    "toronto_genre": "jungle"
+  },
+  "latency_ms": 350.0,
+  "platform": "web",
+  "replay": "auto",
+  "results": [
+    {
+      "cold": {
+        "bytes": 793,
+        "cache_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "errors": [],
+        "fetch_calls": 1,
+        "items": 5,
+        "parse_ms": {
+          "mean": 18.16,
+          "p50": 18.64,
+          "p95": 19.47
+        },
+        "samples": 3,
+        "status": 200,
+        "total_ms": {
+          "mean": 372.44,
+          "p50": 372.49,
+          "p95": 375.07
+        },
+        "upstream_ms": {
+          "mean": 354.28,
+          "p50": 353.86,
+          "p95": 355.6
+        }
+      },
+      "mode": "replay/live",
+      "name": "rtp_hub",
+      "warm": {
+        "bytes": 793,
+        "cache_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "errors": [],
+        "fetch_calls": 1,
+        "items": 5,
+        "parse_ms": {
+          "mean": 7.92,
+          "p50": 7.7,
+          "p95": 9.18
+        },
+        "samples": 5,
+        "status": 200,
+        "total_ms": {
+          "mean": 7.93,
+          "p50": 7.7,
+          "p95": 9.18
+        },
+        "upstream_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        }
+      }
+    },
+    {
+      "cold": {
+        "bytes": 3056,
+        "cache_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "errors": [],
+        "fetch_calls": 1,
+        "items": 17,
+        "parse_ms": {
+          "mean": 23.82,
+          "p50": 23.89,
+          "p95": 25.53
+        },
+        "samples": 3,
+        "status": 200,
+        "total_ms": {
+          "mean": 378.06,
+          "p50": 377.99,
+          "p95": 380.22
+        },
+        "upstream_ms": {
+          "mean": 354.24,
+          "p50": 353.87,
+          "p95": 356.31
+        }
+      },
+      "mode": "replay/live",
+      "name": "rtp_all",
+      "warm": {
+        "bytes": 3056,
+        "cache_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.01
+        },
+        "errors": [],
+        "fetch_calls": 1,
+        "items": 17,
+        "parse_ms": {
+          "mean": 9.65,
+          "p50": 7.57,
+          "p95": 17.25
+        },
+        "samples": 5,
+        "status": 200,
+        "total_ms": {
+          "mean": 9.65,
+          "p50": 7.58,
+          "p95": 17.26
+        },
+        "upstream_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        }
+      }
+    },
+    {
+      "cold": {
+        "bytes": 26431,
+        "cache_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "errors": [],
+        "fetch_calls": 1,
+        "items": 209,
+        "parse_ms": {
+          "mean": 16.59,
+          "p50": 16.73,
+          "p95": 16.79
+        },
+        "samples": 3,
+        "status": 200,
+        "total_ms": {
+          "mean": 372.17,
+          "p50": 373.67,
+          "p95": 373.68
+        },
+        "upstream_ms": {
+          "mean": 355.58,
+          "p50": 356.87,
+          "p95": 357.38
+        }
+      },
+      "mode": "replay/live",
+      "name": "rtp_index",
+      "warm": {
+        "bytes": 26431,
+        "cache_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "errors": [],
+        "fetch_calls": 1,
+        "items": 209,
+        "parse_ms": {
+          "mean": 7.7,
+          "p50": 7.63,
+          "p95": 8.31
+        },
+        "samples": 5,
+        "status": 200,
+        "total_ms": {
+          "mean": 7.7,
+          "p50": 7.64,
+          "p95": 8.32
+        },
+        "upstream_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        }
+      }
+    },
+    {
+      "cold": {
+        "bytes": 649,
+        "cache_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "errors": [],
+        "fetch_calls": 2,
+        "items": 3,
+        "parse_ms": {
+          "mean": 27.45,
+          "p50": 25.5,
+          "p95": 31.53
+        },
+        "samples": 3,
+        "status": 200,
+        "total_ms": {
+          "mean": 738.95,
+          "p50": 738.86,
+          "p95": 742.61
+        },
+        "upstream_ms": {
+          "mean": 711.51,
+          "p50": 710.82,
+          "p95": 713.1
+        }
+      },
+      "mode": "replay/live",
+      "name": "rtp_category",
+      "warm": {
+        "bytes": 649,
+        "cache_ms": {
+          "mean": 0.02,
+          "p50": 0.02,
+          "p95": 0.02
+        },
+        "errors": [],
+        "fetch_calls": 2,
+        "items": 3,
+        "parse_ms": {
+          "mean": 23.87,
+          "p50": 22.87,
+          "p95": 29.71
+        },
+        "samples": 5,
+        "status": 200,
+        "total_ms": {
+          "mean": 23.89,
+          "p50": 22.89,
+          "p95": 29.73
+        },
+        "upstream_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        }
+      }
+    },
+    {
+      "cold": {
+        "bytes": 25032,
+        "cache_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "errors": [],
+        "fetch_calls": 1,
+        "items": 48,
+        "parse_ms": {
+          "mean": 17.29,
+          "p50": 15.94,
+          "p95": 19.83
+        },
+        "samples": 3,
+        "status": 200,
+        "total_ms": {
+          "mean": 373.34,
+          "p50": 372.58,
+          "p95": 376.22
+        },
+        "upstream_ms": {
+          "mean": 356.05,
+          "p50": 356.37,
+          "p95": 356.61
+        }
+      },
+      "mode": "replay/live",
+      "name": "rtp_post",
+      "warm": {
+        "bytes": 25032,
+        "cache_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.01
+        },
+        "errors": [],
+        "fetch_calls": 1,
+        "items": 48,
+        "parse_ms": {
+          "mean": 7.84,
+          "p50": 7.34,
+          "p95": 8.92
+        },
+        "samples": 5,
+        "status": 200,
+        "total_ms": {
+          "mean": 7.84,
+          "p50": 7.35,
+          "p95": 8.92
+        },
+        "upstream_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        }
+      }
+    },
+    {
+      "cold": {
+        "bytes": 537,
+        "cache_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "errors": [],
+        "fetch_calls": 1,
+        "items": 1,
+        "parse_ms": {
+          "mean": 24.31,
+          "p50": 23.76,
+          "p95": 25.46
+        },
+        "samples": 3,
+        "status": 200,
+        "total_ms": {
+          "mean": 379.4,
+          "p50": 379.82,
+          "p95": 382.26
+        },
+        "upstream_ms": {
+          "mean": 355.09,
+          "p50": 356.06,
+          "p95": 356.81
+        }
+      },
+      "mode": "replay/live",
+      "name": "rtp_pack",
+      "warm": {
+        "bytes": 537,
+        "cache_ms": {
+          "mean": 0.01,
+          "p50": 0.0,
+          "p95": 0.02
+        },
+        "errors": [],
+        "fetch_calls": 1,
+        "items": 1,
+        "parse_ms": {
+          "mean": 7.1,
+          "p50": 7.08,
+          "p95": 8.29
+        },
+        "samples": 5,
+        "status": 200,
+        "total_ms": {
+          "mean": 7.11,
+          "p50": 7.08,
+          "p95": 8.29
+        },
+        "upstream_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        }
+      }
+    },
+    {
+      "cold": {
+        "bytes": 71552,
+        "cache_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "errors": [],
+        "fetch_calls": 2,
+        "items": 310,
+        "parse_ms": {
+          "mean": 14.25,
+          "p50": 13.4,
+          "p95": 15.87
+        },
+        "samples": 3,
+        "status": 200,
+        "total_ms": {
+          "mean": 2939.74,
+          "p50": 3133.43,
+          "p95": 3134.12
+        },
+        "upstream_ms": {
+          "mean": 2925.49,
+          "p50": 3118.05,
+          "p95": 3120.01
+        }
+      },
+      "mode": "live",
+      "name": "jt_index",
+      "warm": {
+        "bytes": 71552,
+        "cache_ms": {
+          "mean": 0.01,
+          "p50": 0.01,
+          "p95": 0.01
+        },
+        "errors": [],
+        "fetch_calls": 2,
+        "items": 310,
+        "parse_ms": {
+          "mean": 10.97,
+          "p50": 10.36,
+          "p95": 13.09
+        },
+        "samples": 5,
+        "status": 200,
+        "total_ms": {
+          "mean": 10.98,
+          "p50": 10.37,
+          "p95": 13.09
+        },
+        "upstream_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        }
+      }
+    },
+    {
+      "cold": {
+        "bytes": 1180,
+        "cache_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "errors": [],
+        "fetch_calls": 1,
+        "items": 2,
+        "parse_ms": {
+          "mean": 16.85,
+          "p50": 13.38,
+          "p95": 23.55
+        },
+        "samples": 3,
+        "status": 200,
+        "total_ms": {
+          "mean": 978.47,
+          "p50": 974.24,
+          "p95": 990.58
+        },
+        "upstream_ms": {
+          "mean": 961.62,
+          "p50": 961.75,
+          "p95": 977.29
+        }
+      },
+      "mode": "live",
+      "name": "jt_show",
+      "warm": {
+        "bytes": 1180,
+        "cache_ms": {
+          "mean": 0.01,
+          "p50": 0.01,
+          "p95": 0.01
+        },
+        "errors": [],
+        "fetch_calls": 1,
+        "items": 2,
+        "parse_ms": {
+          "mean": 9.1,
+          "p50": 9.18,
+          "p95": 9.74
+        },
+        "samples": 5,
+        "status": 200,
+        "total_ms": {
+          "mean": 9.11,
+          "p50": 9.18,
+          "p95": 9.74
+        },
+        "upstream_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        }
+      }
+    },
+    {
+      "cold": {
+        "bytes": 640,
+        "cache_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "errors": [],
+        "fetch_calls": 0,
+        "items": 4,
+        "parse_ms": {
+          "mean": 8.08,
+          "p50": 8.24,
+          "p95": 8.25
+        },
+        "samples": 3,
+        "status": 200,
+        "total_ms": {
+          "mean": 8.08,
+          "p50": 8.24,
+          "p95": 8.25
+        },
+        "upstream_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        }
+      },
+      "mode": "live",
+      "name": "toronto_index",
+      "warm": {
+        "bytes": 640,
+        "cache_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "errors": [],
+        "fetch_calls": 0,
+        "items": 4,
+        "parse_ms": {
+          "mean": 7.19,
+          "p50": 7.49,
+          "p95": 7.87
+        },
+        "samples": 5,
+        "status": 200,
+        "total_ms": {
+          "mean": 7.19,
+          "p50": 7.49,
+          "p95": 7.87
+        },
+        "upstream_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        }
+      }
+    },
+    {
+      "cold": {
+        "bytes": 256637,
+        "cache_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "errors": [],
+        "fetch_calls": 1,
+        "items": 678,
+        "parse_ms": {
+          "mean": 75.57,
+          "p50": 79.56,
+          "p95": 86.73
+        },
+        "samples": 3,
+        "status": 200,
+        "total_ms": {
+          "mean": 1074.8,
+          "p50": 1078.83,
+          "p95": 1146.45
+        },
+        "upstream_ms": {
+          "mean": 999.23,
+          "p50": 1019.22,
+          "p95": 1061.71
+        }
+      },
+      "mode": "live",
+      "name": "toronto_genre",
+      "warm": {
+        "bytes": 256637,
+        "cache_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "errors": [],
+        "fetch_calls": 1,
+        "items": 678,
+        "parse_ms": {
+          "mean": 51.08,
+          "p50": 49.93,
+          "p95": 54.92
+        },
+        "samples": 5,
+        "status": 200,
+        "total_ms": {
+          "mean": 51.08,
+          "p50": 49.93,
+          "p95": 54.92
+        },
+        "upstream_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        }
+      }
+    },
+    {
+      "cold": {
+        "bytes": 282191,
+        "cache_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "errors": [],
+        "fetch_calls": 3,
+        "items": 1000,
+        "parse_ms": {
+          "mean": 2082.26,
+          "p50": 2191.67,
+          "p95": 2521.69
+        },
+        "samples": 3,
+        "status": 200,
+        "total_ms": {
+          "mean": 2765.93,
+          "p50": 2768.17,
+          "p95": 3078.98
+        },
+        "upstream_ms": {
+          "mean": 683.68,
+          "p50": 576.5,
+          "p95": 885.09
+        }
+      },
+      "mode": "live",
+      "name": "moxser_index",
+      "warm": {
+        "bytes": 282191,
+        "cache_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "errors": [],
+        "fetch_calls": 0,
+        "items": 1000,
+        "parse_ms": {
+          "mean": 17.8,
+          "p50": 16.81,
+          "p95": 24.09
+        },
+        "samples": 5,
+        "status": 200,
+        "total_ms": {
+          "mean": 17.8,
+          "p50": 16.81,
+          "p95": 24.09
+        },
+        "upstream_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        }
+      }
+    },
+    {
+      "cold": {
+        "bytes": 347,
+        "cache_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "errors": [],
+        "fetch_calls": 4,
+        "items": 1,
+        "parse_ms": {
+          "mean": 3196.63,
+          "p50": 3240.29,
+          "p95": 3396.98
+        },
+        "samples": 3,
+        "status": 200,
+        "total_ms": {
+          "mean": 3953.3,
+          "p50": 3862.94,
+          "p95": 4179.27
+        },
+        "upstream_ms": {
+          "mean": 756.67,
+          "p50": 800.03,
+          "p95": 842.61
+        }
+      },
+      "mode": "live",
+      "name": "moxser_detail",
+      "warm": {
+        "bytes": 347,
+        "cache_ms": {
+          "mean": 0.01,
+          "p50": 0.01,
+          "p95": 0.01
+        },
+        "errors": [],
+        "fetch_calls": 1,
+        "items": 1,
+        "parse_ms": {
+          "mean": 10.82,
+          "p50": 9.99,
+          "p95": 13.83
+        },
+        "samples": 5,
+        "status": 200,
+        "total_ms": {
+          "mean": 10.82,
+          "p50": 9.99,
+          "p95": 13.84
+        },
+        "upstream_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        }
+      }
+    },
+    {
+      "cold": {
+        "bytes": 4980,
+        "cache_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "errors": [],
+        "fetch_calls": 2,
+        "items": 20,
+        "parse_ms": {
+          "mean": 17.2,
+          "p50": 17.46,
+          "p95": 17.89
+        },
+        "samples": 3,
+        "status": 200,
+        "total_ms": {
+          "mean": 1499.73,
+          "p50": 1430.09,
+          "p95": 1623.19
+        },
+        "upstream_ms": {
+          "mean": 1482.53,
+          "p50": 1413.88,
+          "p95": 1605.43
+        }
+      },
+      "mode": "live",
+      "name": "hardscore_index",
+      "warm": {
+        "bytes": 4980,
+        "cache_ms": {
+          "mean": 0.01,
+          "p50": 0.01,
+          "p95": 0.01
+        },
+        "errors": [],
+        "fetch_calls": 2,
+        "items": 20,
+        "parse_ms": {
+          "mean": 12.84,
+          "p50": 13.1,
+          "p95": 14.35
+        },
+        "samples": 5,
+        "status": 200,
+        "total_ms": {
+          "mean": 12.85,
+          "p50": 13.11,
+          "p95": 14.36
+        },
+        "upstream_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        }
+      }
+    },
+    {
+      "cold": {
+        "bytes": 13418,
+        "cache_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "errors": [],
+        "fetch_calls": 1,
+        "items": 40,
+        "parse_ms": {
+          "mean": 16.55,
+          "p50": 16.99,
+          "p95": 18.72
+        },
+        "samples": 3,
+        "status": 200,
+        "total_ms": {
+          "mean": 1146.09,
+          "p50": 972.26,
+          "p95": 1507.25
+        },
+        "upstream_ms": {
+          "mean": 1129.54,
+          "p50": 958.53,
+          "p95": 1488.85
+        }
+      },
+      "mode": "live",
+      "name": "archive_list",
+      "warm": {
+        "bytes": 13418,
+        "cache_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "errors": [],
+        "fetch_calls": 0,
+        "items": 40,
+        "parse_ms": {
+          "mean": 8.71,
+          "p50": 8.96,
+          "p95": 9.26
+        },
+        "samples": 5,
+        "status": 200,
+        "total_ms": {
+          "mean": 8.71,
+          "p50": 8.96,
+          "p95": 9.26
+        },
+        "upstream_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        }
+      }
+    },
+    {
+      "cold": {
+        "bytes": 3646,
+        "cache_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "errors": [],
+        "fetch_calls": 1,
+        "items": 7,
+        "parse_ms": {
+          "mean": 14.49,
+          "p50": 15.04,
+          "p95": 15.66
+        },
+        "samples": 3,
+        "status": 200,
+        "total_ms": {
+          "mean": 1049.84,
+          "p50": 951.3,
+          "p95": 1348.97
+        },
+        "upstream_ms": {
+          "mean": 1035.35,
+          "p50": 938.59,
+          "p95": 1333.55
+        }
+      },
+      "mode": "live",
+      "name": "archive_item",
+      "warm": {
+        "bytes": 3646,
+        "cache_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "errors": [],
+        "fetch_calls": 0,
+        "items": 7,
+        "parse_ms": {
+          "mean": 7.88,
+          "p50": 7.88,
+          "p95": 9.05
+        },
+        "samples": 5,
+        "status": 200,
+        "total_ms": {
+          "mean": 7.88,
+          "p50": 7.88,
+          "p95": 9.05
+        },
+        "upstream_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        }
+      }
+    },
+    {
+      "cold": {
+        "bytes": 156,
+        "cache_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "errors": [],
+        "fetch_calls": 1,
+        "items": 48,
+        "parse_ms": {
+          "mean": 6.64,
+          "p50": 6.75,
+          "p95": 7.06
+        },
+        "samples": 3,
+        "status": 200,
+        "total_ms": {
+          "mean": 362.51,
+          "p50": 362.84,
+          "p95": 363.05
+        },
+        "upstream_ms": {
+          "mean": 355.87,
+          "p50": 356.33,
+          "p95": 356.71
+        }
+      },
+      "mode": "replay/live",
+      "name": "rtp_first_track",
+      "warm": {
+        "bytes": 156,
+        "cache_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        },
+        "errors": [],
+        "fetch_calls": 1,
+        "items": 48,
+        "parse_ms": {
+          "mean": 0.27,
+          "p50": 0.27,
+          "p95": 0.29
+        },
+        "samples": 5,
+        "status": 200,
+        "total_ms": {
+          "mean": 0.28,
+          "p50": 0.27,
+          "p95": 0.3
+        },
+        "upstream_ms": {
+          "mean": 0.0,
+          "p50": 0.0,
+          "p95": 0.0
+        }
+      }
+    }
+  ]
+}

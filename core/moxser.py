@@ -253,23 +253,47 @@ def _all_entries():
         return list(_ENTRIES["entries"])
 
 
+def _known_entry(slug):
+    """Look ``slug`` up in the in-process entries only: (entry, complete)."""
+    now = time.monotonic()
+    with _ENTRIES_LOCK:
+        fresh = (now - _ENTRIES["at"]) < ENTRIES_TTL
+        complete = fresh and _ENTRIES["complete"]
+        entries = list(_ENTRIES["entries"]) if fresh else []
+    return next((item for item in entries if item["slug"] == slug), None), complete
+
+
+def _slug_ok(wanted):
+    """Cheap sanity check for a slug used to build a moxser.com page URL."""
+    if not wanted or len(wanted) > 200 or "\x00" in wanted:
+        return False
+    segments = wanted.split("/")
+    if any(part in ("", ".", "..") for part in segments):
+        return False
+    return bool(re.match(r"^[A-Za-z0-9._~%+!$&'()*+,;=:@/-]+$", wanted))
+
+
 def detail(slug):
-    """Resolve one mix page to {title, url (MP3), date, flyer}; None on failure."""
+    """Resolve one mix page to {title, url (MP3), date, flyer}; None on failure.
+
+    A cold resolve used to build the whole sitemap entry list first (two
+    rate-limited requests) just to recover the page URL, which is derivable
+    from the slug.  The known-entry path is still preferred when the list is
+    already loaded; otherwise one page fetch answers the click.
+    """
     wanted = urllib.parse.unquote(str(slug or "")).strip("/")
-    if not wanted:
+    if not _slug_ok(wanted):
         return None
     try:
-        entry = next((item for item in mixes() if item["slug"] == wanted), None)
-        if not entry:
-            # Older mixes live on later sitemap pages; load them only when a
-            # detail lookup misses (keeps the list endpoint cheap).
-            with _ENTRIES_LOCK:
-                complete = _ENTRIES["complete"]
-            if not complete:
-                entry = next((item for item in _all_entries()
-                              if item["slug"] == wanted), None)
-        if not entry:
-            return None
+        entry, complete = _known_entry(wanted)
+        if entry is None:
+            if complete:
+                return None  # the full sitemap is loaded and lacks this slug
+            # Cold or stale list: the page URL is deterministic, so do not load
+            # the sitemaps just to look up where the page lives.
+            entry = {"slug": wanted,
+                     "url": MIX_PREFIX + urllib.parse.quote(wanted, safe="/"),
+                     "title": _pretty_slug(wanted), "date": "", "flyer": ""}
         body = _get(entry["url"], PAGE_TTL)
         if not body:
             return None

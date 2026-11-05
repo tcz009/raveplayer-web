@@ -21,12 +21,16 @@ import threading
 import time
 import urllib.parse
 
+from . import cache
 from . import fetch
 
 BASE = "https://torontoravemixtapearchive.com"
 PAGE_TTL = 6 * 3600
 MIN_INTERVAL = 1.0
 DEFAULT_LIMIT = None
+# Parsed genre pages live beside the raw body; fingerprinted so a changed page
+# re-parses and a fixture swap is never served a stale list.
+GENRE_PARSE_KEY = "toronto:genre:v1:%s"
 
 GENRES = (
     ("jungle", "Jungle & Hardcore", "jungle.html"),
@@ -239,7 +243,11 @@ def _genre_rows(genre):
         page = _get(BASE + "/" + entry["page"])
     except Exception:  # noqa: BLE001 - one dead page must not break the hub
         return []
-    return parse_page(page)
+    # The genre page is ~1 MB of HTML and the title/metadata regexes are the
+    # most expensive parse in the app: persist the rows against the exact body
+    # so a warm browse costs a cache read instead of a re-parse.
+    rows = cache.parsed(GENRE_PARSE_KEY % entry["id"], PAGE_TTL, page, parse_page)
+    return rows if isinstance(rows, list) else []
 
 
 def genre_items(genre, limit=None):

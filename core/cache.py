@@ -241,16 +241,46 @@ def put(key, value, sync=True):
         return False
 
 
-def remember(key, ttl, producer):
+def remember(key, ttl, producer, sync=True):
     """Return a cached value, otherwise call ``producer`` and cache its result.
 
     ``producer`` results of ``None`` are treated as failures and are not
     cached, so a temporary network error does not stick for the whole TTL.
+    ``sync=False`` skips fsync for derived/recomputable entries (raw HTTP
+    bodies): a lost write after a power cut just means one more fetch, and the
+    fsync is a per-request disk stall on the NAS.
     """
     value = get(key, ttl)
     if value is not MISSING:
         return value
     value = producer()
     if value is not None:
-        put(key, value)
+        put(key, value, sync=sync)
+    return value
+
+
+def fingerprint(text):
+    """Stable (cross-process) fingerprint of an exact page body."""
+    return hashlib.blake2b(str(text).encode("utf-8", "replace"),
+                           digest_size=8).hexdigest()
+
+
+def parsed(key, ttl, body, parser):
+    """Return the parsed form of ``body``, re-parsing only when it changes.
+
+    The parsed object lives beside the raw body, so a warm request skips the
+    regex/XML pass and only compares a fingerprint.  ``parser`` results must be
+    JSON-safe lists or dicts; anything else is returned uncached.
+    """
+    if body is None:
+        return None
+    digest = fingerprint(body)
+    record = get(key, ttl)
+    if isinstance(record, dict) and record.get("fingerprint") == digest:
+        value = record.get("value")
+        if isinstance(value, (list, dict)):
+            return value
+    value = parser(body)
+    if isinstance(value, (list, dict)):
+        put(key, {"fingerprint": digest, "value": value}, sync=False)
     return value
