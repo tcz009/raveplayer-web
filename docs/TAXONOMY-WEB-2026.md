@@ -1,4 +1,4 @@
-# Web scene taxonomy — 1.6.44
+# Web scene taxonomy — 1.6.44 (navigation update 1.6.51)
 
 Implements the independent 2026 scene-taxonomy review (labels, grouping and
 exposure only; no new scraping). The full review lives in the workspace
@@ -17,6 +17,10 @@ and `Curated Gems`/the 2014 bucket are gone.
 2. **JungleTapes.com** → `/api/legacy/jungletapes`
 3. **RaveTapePacks.com** → `/api/legacy/ravetapepacks` — its own **By Event
    (50)**, **By DJ (209)**, **By MC (90)**, **By Year** and All Packs indexes.
+   A kind opens `/index/<kind>` (categories); a category opens
+   `/index/<kind>/<cat_id>` (every `?p=<id>` pack, following WordPress paging);
+   a pack opens `/post/<id>` (its direct MP3s).  All Packs keeps the original
+   homepage-pack detail view.
 4. **Classic Pack Series** → `/api/filters`
 5. **By Rave, Venue & Promoter** → `/api/raves`
 6. **By Year** → `/api/years`
@@ -54,6 +58,7 @@ are separate doors. Archive query labels/ids are split accordingly, and
 
 `test/test_taxonomy_2026.py` asserts exact rail/hub order and paths, split
 genre labels, live station-then-genre order, kebab-case section ids, the
-RaveTapePacks 50/209/90/13 nav counts, By DJ/By MC routes and the removed
-legacy bucket/Toronto route. `test_e2e/test_smoke.py` checks the taxonomy rail
+RaveTapePacks 50/209/90/13 document-order counts, paginated category pages,
+post-page tracks, By DJ/By MC routes and the removed legacy bucket/Toronto
+route. `test_e2e/test_smoke.py` checks the taxonomy rail
 and Tape Packs order in both dark and light themes at desktop and phone sizes.

@@ -280,22 +280,24 @@ def _first_pack(entries):
     return None
 
 
-def _resolve_pack(key, kind=None, cat_id=None):
-    """Resolve one RTP pack with the public API available on this tree."""
+def _resolve_pack(key):
+    """Resolve one homepage RTP pack with the public API available on this tree."""
     finder = getattr(legacy, "pack", None)
     if callable(finder):
         try:
-            return finder(key, kind=kind, cat_id=cat_id)
-        except TypeError:
             return finder(key)
+        except TypeError:
+            pass
     for entry in legacy.packs():
         if isinstance(entry, dict) and entry.get("key") == key:
             return entry
-    if kind and cat_id:
-        for entry in legacy.category_packs(kind, cat_id):
-            if isinstance(entry, dict) and entry.get("key") == key:
-                return entry
     return None
+
+
+def _resolve_post(post_id):
+    """Resolve one category post (a pack detail page) to its tracks."""
+    finder = getattr(legacy, "post", None)
+    return finder(post_id) if callable(finder) else None
 
 
 def discover():
@@ -310,7 +312,7 @@ def discover():
 
     found["rtp_cat_kind"] = "events"
     found["rtp_cat_id"] = None
-    found["rtp_cat_pack_key"] = None
+    found["rtp_cat_post_id"] = None
     try:
         categories = legacy.categories()
         events = categories.get("events") or []
@@ -318,8 +320,8 @@ def discover():
         chosen = preferred or (events[0] if events else None)
         if chosen:
             found["rtp_cat_id"] = str(chosen["id"])
-            category_pack = _first_pack(legacy.category_packs("events", chosen["id"]))
-            found["rtp_cat_pack_key"] = (category_pack or {}).get("key")
+            posts = legacy.category(str(chosen["id"]))
+            found["rtp_cat_post_id"] = (posts[0] or {}).get("id") if posts else None
     except Exception:  # noqa: BLE001
         pass
 
@@ -372,13 +374,11 @@ def build_scenarios(harness, ids):
         if ids.get("rtp_cat_id"):
             add("rtp_category", "replay/live", harness.route(
                 "/api/legacy/ravetapepacks/index/events/%s" % ids["rtp_cat_id"]))
-        category_key = ids.get("rtp_cat_pack_key")
-        if category_key:
-            add("rtp_pack", "replay/live", harness.route(
-                "/api/legacy/ravetapepacks/%s?cat=%s&kind=events"
-                % (urllib.parse.quote(category_key),
-                   urllib.parse.quote(ids["rtp_cat_id"]))))
-        elif ids.get("rtp_pack_key"):
+        if ids.get("rtp_cat_post_id"):
+            add("rtp_post", "replay/live", harness.route(
+                "/api/legacy/ravetapepacks/post/%s"
+                % urllib.parse.quote(str(ids["rtp_cat_post_id"]))))
+        if ids.get("rtp_pack_key"):
             add("rtp_pack", "replay/live", harness.route(
                 "/api/legacy/ravetapepacks/%s"
                 % urllib.parse.quote(ids["rtp_pack_key"])))
@@ -400,6 +400,12 @@ def build_scenarios(harness, ids):
     else:
         add("rtp_index", "replay/live", harness.route("legacy_index", kind="event"))
         add("rtp_all", "replay/live", harness.route("legacy_packs"))
+        if ids.get("rtp_cat_id"):
+            add("rtp_category", "replay/live", harness.route(
+                "legacy_category", kind="event", cat=ids["rtp_cat_id"]))
+        if ids.get("rtp_cat_post_id"):
+            add("rtp_post", "replay/live", harness.route(
+                "legacy_post", post=str(ids["rtp_cat_post_id"])))
         if ids.get("rtp_pack_key"):
             add("rtp_pack", "replay/live", harness.route(
                 "legacy_pack", pack=ids["rtp_pack_key"]))
@@ -421,13 +427,12 @@ def build_scenarios(harness, ids):
 
     # First-track resolution: the pack lookup plus the playable() rewrite that
     # turns the first scraped URL into the URL handed to the player.
-    kind = ids.get("rtp_cat_kind")
-    cat_id = ids.get("rtp_cat_id")
-    key = ids.get("rtp_cat_pack_key") or ids.get("rtp_pack_key")
+    post_id = ids.get("rtp_cat_post_id")
+    key = ids.get("rtp_pack_key")
 
-    if key:
+    if post_id or key:
         def first_track():
-            entry = _resolve_pack(key, kind=kind, cat_id=cat_id)
+            entry = _resolve_post(post_id) if post_id else _resolve_pack(key)
             tracks = (entry or {}).get("tracks") or []
             if not tracks:
                 return {"status": 404, "items": 0, "bytes": 0}

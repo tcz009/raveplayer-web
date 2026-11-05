@@ -2065,26 +2065,33 @@ def api_legacy_rtp_index(kind):
     return jsonify(payload)
 
 
+def _rtp_category_name(kind, cat_id):
+    """Best-effort name for a category id (the homepage nav is already cached)."""
+    try:
+        return next((item["name"] for item in legacy.categories().get(kind, [])
+                     if item["id"] == str(cat_id)), "")
+    except Exception:  # noqa: BLE001 - a category view must not depend on the nav
+        return ""
+
+
 @app.get("/api/legacy/ravetapepacks/index/<kind>/<cat_id>")
 def api_legacy_rtp_category(kind, cat_id):
     if kind not in ("events", "djs", "mcs", "years") or not cat_id.isdigit():
         return _json_error("unknown RaveTapePacks category", 404)
-    packs = legacy.category_packs(kind, cat_id)
-    if not packs:
+    posts = legacy.category(cat_id)
+    if not posts:
         return _json_error("no packs in that RaveTapePacks category", 404)
+    name = _rtp_category_name(kind, cat_id)
+    title = name or "RaveTapePacks.com · category"
     items = [
-        # Carry the category on the pack link: the homepage packs() list is
-        # only a fraction of the site's catalogue, so a category pack must be
-        # resolved from the category that listed it (otherwise: 404).
-        _folder(entry.get("name") or entry["key"],
-                _source_sub("RaveTapePacks.com", "%d tapes" % len(entry.get("tracks") or [])),
-                "/api/legacy/ravetapepacks/%s?cat=%s&kind=%s" % (
-                    urllib.parse.quote(entry["key"]), cat_id, kind),
+        _folder(post.get("name") or "Pack %s" % post["id"],
+                _source_sub("RaveTapePacks.com", name or "category"),
+                "/api/legacy/ravetapepacks/post/%s" % urllib.parse.quote(post["id"]),
                 ART + "ravetapepacks.png")
-        for entry in packs]
+        for post in posts if isinstance(post, dict) and post.get("id")]
     items, nxt = _optional_slice(
         items, "/api/legacy/ravetapepacks/index/%s/%s" % (kind, cat_id))
-    payload = {"title": "RaveTapePacks.com · category", "items": items}
+    payload = {"title": title, "items": items}
     if nxt:
         payload["next"] = nxt
     return jsonify(payload)
@@ -2099,6 +2106,27 @@ def _rtp_pack_entry(pack):
     kind = request.args.get("kind", "")
     cat_id = request.args.get("cat", "")
     return legacy.pack(pack, kind=kind, cat_id=cat_id)
+
+
+@app.get("/api/legacy/ravetapepacks/post/<post_id>")
+def api_legacy_rtp_post(post_id):
+    """One RaveTapePacks post page: its direct MP3s are the pack's tracks."""
+    if not re.match(r"^\d{1,12}$", post_id or ""):
+        return _json_error("unknown post", 404)
+    entry = legacy.post(post_id)
+    if not entry or not entry.get("tracks"):
+        return _json_error("no tracks on that RaveTapePacks post", 404)
+    title = entry.get("name") or "RaveTapePacks.com"
+    items = []
+    for track in entry["tracks"]:
+        if not isinstance(track, dict) or not track.get("url"):
+            continue
+        playable = legacy.playable(track["url"])
+        name = _clean_text(track.get("name"), MAX_TITLE) or "Tape"
+        items.append(_track(name, _source_sub("RaveTapePacks.com", title), playable,
+                            ART + "tapepacks.png",
+                            {"kind": "stream", "target": playable, "title": name}))
+    return jsonify({"title": title, "items": items})
 
 
 @app.get("/api/legacy/ravetapepacks/<path:pack>")

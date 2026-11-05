@@ -113,14 +113,79 @@ def test_ravetapepacks_index_routes_expose_by_dj_and_by_mc(web, monkeypatch):
     assert len(mc["items"]) == 90
 
 
-def test_ravetapepacks_category_page_lists_its_packs(monkeypatch):
-    monkeypatch.setattr(legacy, "category", lambda kind, cat_id: {"id": cat_id, "name": "Brockie"})
+def test_ravetapepacks_full_homepage_ignores_other_categories():
+    categories = legacy.parse_categories(_fixture("bench/rtp-home.html"))
+    assert {kind: len(categories[kind]) for kind in legacy.CATEGORY_KINDS} == {
+        "events": 50, "djs": 209, "mcs": 90, "years": 13}
+    included = set()
+    for kind in legacy.CATEGORY_KINDS:
+        included.update(entry["id"] for entry in categories[kind])
+    assert "13" not in included  # "The Edge" and other sidebar-only rows
+
+
+def test_ravetapepacks_category_pages_are_paginated(monkeypatch):
+    pages = {
+        legacy.BASE + "?cat=5": _fixture("ravetapepacks-category-paged.html"),
+        legacy.BASE + "?cat=5&paged=2": _fixture("ravetapepacks-category-paged-2.html"),
+    }
+    urls = []
+
+    def fake_fetch(url, timeout=None, headers=None, ttl=0):
+        urls.append(url)
+        return pages.get(url)
+
+    monkeypatch.setattr(legacy.http, "fetch", fake_fetch)
+    posts = legacy.category("5")
+
+    assert urls == [legacy.BASE + "?cat=5", legacy.BASE + "?cat=5&paged=2"]
+    assert len(posts) == 10
+    assert posts[0] == {"id": "899", "name": "Dreamscape 7"}
+    assert posts[-1] == {"id": "37", "name": "Dreamscape 2"}
+
+
+def test_ravetapepacks_post_page_tracks(monkeypatch):
+    monkeypatch.setattr(legacy.http, "fetch", lambda *a, **k:
+                        _fixture("ravetapepacks-post.html"))
+    entry = legacy.post("899")
+
+    assert entry["name"] == "Dreamscape 7"
+    assert len(entry["tracks"]) == 15
+    assert entry["tracks"][0]["name"] == "Charlie Hall"
+    assert entry["tracks"][0]["url"].endswith(
+        "/music/Dreamscape7/Charlie_Hall.mp3")
+
+
+def test_ravetapepacks_category_route_lists_post_folders(web, monkeypatch):
     monkeypatch.setattr(legacy, "categories", lambda: {
-        "events": [], "djs": [{"id": "106", "name": "Brockie"}], "mcs": [], "years": []})
-    monkeypatch.setattr(legacy.http, "fetch", lambda url, timeout=None, ttl=0, headers=None:
-                        _fixture("ravetapepacks-category.html"))
-    packs = legacy.category_packs("djs", "106")
-    assert packs and all(pack["tracks"] for pack in packs)
+        "events": [], "djs": [{"id": "106", "name": "Brockie"}],
+        "mcs": [], "years": []})
+    monkeypatch.setattr(legacy, "category", lambda cat_id: [
+        {"id": "899", "name": "Dreamscape 7"}] if cat_id == "106" else [])
+    payload = web.get("/api/legacy/ravetapepacks/index/djs/106").get_json()
+    assert payload["title"] == "Brockie"
+    assert _labels(payload) == ["Dreamscape 7"]
+    assert payload["items"][0]["open"] == "/api/legacy/ravetapepacks/post/899"
+
+
+def test_ravetapepacks_post_route_lists_tracks(web, monkeypatch):
+    monkeypatch.setattr(legacy, "post", lambda post_id: {
+        "key": post_id, "name": "Dreamscape 7",
+        "tracks": [{"name": "Charlie Hall",
+                    "url": "https://www.ravetapepacks.com/music/"
+                           "Dreamscape7/Charlie_Hall.mp3"}],
+    } if post_id == "899" else None)
+    payload = web.get("/api/legacy/ravetapepacks/post/899").get_json()
+    assert payload["title"] == "Dreamscape 7"
+    assert _labels(payload) == ["Charlie Hall"]
+    assert payload["items"][0]["play"].endswith(legacy.REFERER_SUFFIX)
+
+
+def test_ravetapepacks_post_route_rejects_bad_ids(web, monkeypatch):
+    called = []
+    monkeypatch.setattr(legacy, "post", lambda post_id: called.append(post_id))
+    assert web.get("/api/legacy/ravetapepacks/post/abc").status_code == 404
+    assert web.get("/api/legacy/ravetapepacks/post/0000000000000").status_code == 404
+    assert called == []
 
 
 def test_no_legacy_bucket_or_legacy_toronto_route(web):

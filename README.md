@@ -227,6 +227,10 @@ Pack; Pirate Radio is a root door; Mixes & Shows is Podcasts/DNBRADIO/GetDarker/
 Moxser; Live Radio names Kool FM, Rinse FM and Centreforce 883 before the
 genres. Jungle/Drum & Bass and Hardcore/Happy Hardcore are separate doors.
 
+RaveTapePacks' By Event / By DJ / By MC / By Year doors are real indexes: each
+category follows the site's WordPress paging to list every pack, and the pack's
+post page supplies its direct MP3s (1.6.51).
+
 ## Configuration
 
 | Variable | Default | Purpose |

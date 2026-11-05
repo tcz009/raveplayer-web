@@ -202,19 +202,24 @@ def test_hardscore_media_urls_are_absolute_and_deduped():
     ]
 
 
-def test_category_pack_link_resolves_from_its_category(web, monkeypatch):
+def test_category_pack_link_opens_its_post_page(web, monkeypatch):
     import app as app_module
 
-    pack = {"key": "AmazonVol10", "name": "Amazon Vol 10",
-            "tracks": [{"name": "Fabio",
+    post = {"key": "899", "name": "Dreamscape 7",
+            "tracks": [{"name": "Charlie Hall",
                         "url": "https://www.ravetapepacks.com/music/"
-                               "AmazonVol10/Tape_1_-_Fabio.mp3"}]}
-    monkeypatch.setattr(app_module.legacy, "packs", lambda: [])
-    monkeypatch.setattr(app_module.legacy, "category_packs",
-                        lambda kind, cat_id: [pack] if (kind, cat_id) == ("djs", "106") else [])
+                               "Dreamscape7/Charlie_Hall.mp3"}]}
+    monkeypatch.setattr(app_module.legacy, "categories", lambda: {
+        "events": [], "djs": [{"id": "106", "name": "Brockie"}],
+        "mcs": [], "years": []})
+    monkeypatch.setattr(app_module.legacy, "category", lambda cat_id: [
+        {"id": "899", "name": "Dreamscape 7"}] if cat_id == "106" else [])
+    monkeypatch.setattr(app_module.legacy, "post",
+                        lambda post_id: post if post_id == "899" else None)
+
     payload = web.get("/api/legacy/ravetapepacks/index/djs/106").get_json()
     open_url = payload["items"][0]["open"]
-    assert "?cat=106&kind=djs" in open_url
+    assert open_url == "/api/legacy/ravetapepacks/post/899"
     detail = web.get(open_url)
     assert detail.status_code == 200
     assert detail.get_json()["items"][0]["play"].endswith(app_module.legacy.REFERER_SUFFIX)
