@@ -616,8 +616,11 @@ def _pack_items(docs):
     return items
 
 
-def _json_error(message, code, headers=None):
-    response = jsonify({"error": message})
+def _json_error(message, code, headers=None, error_code=None):
+    payload = {"error": message}
+    if error_code:
+        payload["code"] = error_code
+    response = jsonify(payload)
     response.status_code = code
     for name, value in (headers or {}).items():
         response.headers[name] = value
@@ -1925,15 +1928,26 @@ def api_item(identifier):
     tracks = archive.audio_files(identifier)
     if not tracks:
         return _json_error("no playable audio for that item", 404)
+    # Audit P0-4: one Archive item can hold thousands of tracks
+    # (helter-skelter-tape-packs: 1,645).  Page it like every other list so a
+    # pack detail is bounded and the SPA's "Load more" can walk the rest.
+    page = _page_arg()
+    total = len(tracks)
+    start = (page - 1) * ROWS
     items = []
-    for track in tracks:
+    for track in tracks[start:start + ROWS]:
         item = _track(track["title"], _human_duration(track.get("length")), track["url"],
                       archive.thumb(identifier),
                       {"kind": "stream", "target": track["url"], "title": track["title"]})
         _mark_download(item, "archive", track["url"])
         items.append(item)
-    return jsonify({"title": identifier.replace("-", " ").replace("_", " "), "items": items,
-                    "art": archive.thumb(identifier)})
+    payload = {"title": identifier.replace("-", " ").replace("_", " "),
+               "items": items, "total": total,
+               "art": archive.thumb(identifier)}
+    if total > page * ROWS:
+        payload["next"] = "/api/item/%s?page=%d" % (
+            urllib.parse.quote(identifier), page + 1)
+    return jsonify(payload)
 
 
 @app.get("/api/podcasts")
@@ -2030,7 +2044,13 @@ def api_legacy_rtp():
                     ART + "ravetapepacks.png")
             for entry in legacy.packs()
             if isinstance(entry, dict) and entry.get("key")]})
-    cats = legacy.categories()
+    cats = legacy.categories_state()
+    if cats is None:
+        # Audit P0-3: never report HTTP 200 with five "(0)" folders when the
+        # homepage timed out.  The SPA renders this as a non-modal error plate
+        # with Retry, and the 60 s negative cache keeps a retry cheap.
+        return _json_error("RaveTapePacks is unavailable right now", 502,
+                           error_code="source_unavailable")
     items = [
         _folder("By Event (%d)" % len(cats.get("events", [])),
                 "Dreamscape, One Nation, Helter Skelter, Roast…",
@@ -2117,7 +2137,10 @@ def api_legacy_rtp_category(kind, cat_id):
     """One page of a RaveTapePacks category, with a link to the next page."""
     if kind not in ("events", "djs", "mcs", "years") or not cat_id.isdigit():
         return _json_error("unknown RaveTapePacks category", 404)
-    known = {entry["id"] for entry in legacy.categories().get(kind, [])
+    # Never fetch the homepage just to validate a deep category link: when the
+    # hub is known bad this route must still answer from its own cat page
+    # (audit P0-3 "child routes do not start another timeout").
+    known = {entry["id"] for entry in legacy.cached_categories().get(kind, [])
              if isinstance(entry, dict) and entry.get("id")}
     if known and cat_id not in known:
         return _json_error("unknown RaveTapePacks category", 404)

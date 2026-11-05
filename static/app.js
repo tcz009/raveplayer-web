@@ -37,6 +37,10 @@
   const EMBED_API = window.RaveEmbed || null;
   const SOURCE_BLOCKED_CODE = "source_blocked";
   const SOURCE_BLOCKED_RETRY_MS = 5000;
+  // Non-modal idle copy for a blocked/slow RaveTapePacks probe.  No toast, no
+  // banner and no "reboot your router" warning: the owner wants the player to
+  // read as idle and the background retry to stay invisible.
+  const SOURCE_IDLE_TEXT = "Source busy — retrying quietly…";
 
   function debugEvent(kind, data) {
     if (DEBUG && DEBUG.enabled) DEBUG.record(kind, data);
@@ -1317,14 +1321,15 @@
           item, url, index,
           retried: !!afterRetry,
         };
-        // Silent like the Kodi client: rows/links stay, the player stays idle,
-        // and only the opt-in debug log records the blocked source.
+        // Owner policy: no blocking warning and no pop-up.  The player shows a
+        // quiet idle line while the probe retries in the background; only the
+        // opt-in debug log records the blocked source.
         debugEvent("playback", {
           action: "source_blocked",
           source: "ravetapepacks",
           retry: afterRetry ? 1 : 0,
         });
-        setPlayerStatus("");
+        setPlayerStatus(SOURCE_IDLE_TEXT);
         setPlayIcon(false);
         mediaSessionState("paused");
         if (!afterRetry) scheduleBlockedRetry();
@@ -1338,14 +1343,14 @@
         clearBlockedRetry();
         return;
       }
-      // RTP unreachable (DNS/connection): same silent policy as source_blocked.
+      // RTP unreachable (DNS/connection): same quiet idle state as a 403.
       state.blocked = {item, url, index, retried: !!afterRetry};
       debugEvent("playback", {
         action: "source_blocked",
         source: "ravetapepacks",
         retry: afterRetry ? 1 : 0,
       });
-      setPlayerStatus("");
+      setPlayerStatus(SOURCE_IDLE_TEXT);
       setPlayIcon(false);
       mediaSessionState("paused");
       if (!afterRetry) scheduleBlockedRetry();

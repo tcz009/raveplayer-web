@@ -205,6 +205,16 @@ def has(key, ttl, now=None):
     return _fresh(timestamp, ttl, now)
 
 
+def forget(key):
+    """Drop a cached entry (memory and disk), used to clear a failure mark."""
+    with _MEMORY_LOCK:
+        _MEMORY.pop(key, None)
+    try:
+        _remove(path_for(key))
+    except OSError:
+        pass
+
+
 def put(key, value, sync=True):
     """Store a JSON-serialisable value.  Returns True on success.
 

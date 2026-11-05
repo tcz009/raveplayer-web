@@ -28,6 +28,13 @@ SITEMAP_TTL = 24 * 60 * 60
 SHOW_TTL = 6 * 60 * 60
 TORONTO_TTL = 6 * 60 * 60
 
+# Audit P0-3: the site intermittently drops the connection.  A 6 s homepage
+# deadline keeps the hub inside the 8 s error budget, and a 60 s negative
+# cache stops every Retry/child click from paying the timeout again.
+RTP_HOMEPAGE_TIMEOUT = 6
+RTP_FAILURE_KEY = "legacy:rtp:homepage-failure:v1"
+RTP_FAILURE_TTL = 60
+
 # Parsed page objects live beside the raw body in the same cache.  The body is
 # still read (and fingerprinted) so a fixture/mock that changes the page cannot
 # be served a stale parse; a matching fingerprint skips the regex pass.  Keys
@@ -244,6 +251,14 @@ def _cached_parse(key, ttl, page, parser):
 EMPTY_CATEGORIES = {"events": [], "djs": [], "mcs": [], "years": []}
 
 
+def homepage_failure_cached():
+    """True while the last homepage fetch failed, inside the 60 s window."""
+    try:
+        return cache.get(RTP_FAILURE_KEY, RTP_FAILURE_TTL) is not cache.MISSING
+    except Exception:  # noqa: BLE001 - cache trouble must not break a route
+        return False
+
+
 def _homepage():
     """Fetch the homepage once, with the browser headers the site requires.
 
@@ -251,8 +266,23 @@ def _homepage():
     ``packs()`` sent the default RavePlayer UA, so it cached under a different
     header key and a pack-detail click fetched/parsed the homepage a second
     time (and could be 403'd by the bot filter).
+
+    A failed fetch (timeout/refusal) is remembered for 60 s: repeating the hub
+    or deep-linking a child must not pay another 25 s timeout (audit P0-3).
+    A cached good body always wins over the failure mark.
     """
-    return http.fetch(BASE, timeout=25, ttl=PACKS_TTL, headers=PAGE_HEADERS)
+    cached = http.cached_body(BASE, PACKS_TTL, PAGE_HEADERS)
+    if cached:
+        return cached
+    if homepage_failure_cached():
+        return None
+    page = http.fetch(BASE, timeout=RTP_HOMEPAGE_TIMEOUT, ttl=PACKS_TTL,
+                      headers=PAGE_HEADERS)
+    if page is None:
+        cache.put(RTP_FAILURE_KEY, {"failed": True}, sync=False)
+    else:
+        cache.forget(RTP_FAILURE_KEY)
+    return page
 
 
 def packs():
@@ -392,10 +422,22 @@ def _build_categories(page):
     return parse_categories(page)
 
 
-def categories():
+def categories_state():
+    """Return the parsed category nav, or ``None`` when the homepage failed.
+
+    ``None`` is different from an empty dict: the hub must not render
+    "By Event (0)" as though the source were legitimately empty (audit P0-3).
+    """
     page = _homepage()
+    if page is None:
+        return None
     parsed = _cached_parse(RTP_CATEGORIES_KEY, PACKS_TTL, page, _build_categories)
     return parsed if isinstance(parsed, dict) else dict(EMPTY_CATEGORIES)
+
+
+def categories():
+    parsed = categories_state()
+    return parsed if parsed is not None else dict(EMPTY_CATEGORIES)
 
 
 def cached_categories():

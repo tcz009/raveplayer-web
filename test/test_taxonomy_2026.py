@@ -103,6 +103,7 @@ def test_ravetapepacks_nav_indexes_have_the_published_counts():
 def test_ravetapepacks_index_routes_expose_by_dj_and_by_mc(web, monkeypatch):
     cats = legacy.parse_categories(_fixture("ravetapepacks-nav.html"))
     monkeypatch.setattr(app_module.legacy, "categories", lambda: cats)
+    monkeypatch.setattr(app_module.legacy, "categories_state", lambda: cats)
     payload = web.get("/api/legacy/ravetapepacks").get_json()
     assert _labels(payload) == [
         "By Event (50)", "By DJ (209)", "By MC (90)", "By Year", "All Packs"]
