@@ -22,7 +22,7 @@ answered" from "the network hiccuped".
 ## Verification (5 Nov 2026, egress proxy `:8888`)
 
 - 10/10 cold hub requests from 10 fresh `RAVEWEB_DATA` dirs + server restarts:
-  `200` in 4.14–5.90 s; every response
+  `200` in 4.08–4.85 s; every response
   `By Event (50) | By DJ (209) | By MC (90) | By Year (13) | All Packs`.
 - `GET /api/legacy/ravetapepacks/post/899` → `200` in 4.16 s, 15 tracks.
 - Headless Chromium: clicked the first post track; `/api/stream` resolved,
