@@ -223,7 +223,7 @@ DOWNLOAD_MAX_TOTAL = _env_bytes("RAVEWEB_DOWNLOAD_TOTAL", 2 * 1024 * 1024 * 1024
 DOWNLOAD_MAX_ITEMS = 200
 DOWNLOAD_DEADLINE = 1800  # seconds for one proxy download
 DOWNLOAD_SOURCES = ("archive", "moxser", "hardscore", "pirate", "toronto",
-                    "ravetapepacks")
+                    "ravetapepacks", "jungletapes")
 DOWNLOAD_EXTENSIONS = (".mp3", ".m4a")
 DOWNLOAD_JOB_CONCURRENCY = max(1, min(2, int(os.environ.get("RAVEWEB_DOWNLOAD_JOBS", "2") or 2)))
 DOWNLOAD_JOB_MAX = 20
@@ -2402,8 +2402,10 @@ def api_legacy_jt_show(show_key):
     page = _page_arg()
     window, page, _pages, total = _slice_page(valid, page)
     items = [
-        _track(name, "JungleTapes.com", track["url"], ART + "jungletapes.png",
-               {"kind": "stream", "target": track["url"], "title": name})
+        _mark_download(
+            _track(name, "JungleTapes.com", track["url"], ART + "jungletapes.png",
+                   {"kind": "stream", "target": track["url"], "title": name}),
+            "jungletapes", track["url"])
         for track, name in window]
     base = "/api/legacy/jungletapes/%s" % urllib.parse.quote(show_key)
     return jsonify(_paged_payload(
@@ -3498,6 +3500,9 @@ def _download_allowed(source, url):
             return False, "not a RaveTapePacks file"
         if not parts.path.startswith("/music/"):
             return False, "not a RaveTapePacks direct MP3"
+    elif source == "jungletapes":
+        if not (host == "jungletapes.com" or host.endswith(".jungletapes.com")):
+            return False, "not a JungleTapes file"
     return True, ""
 
 
