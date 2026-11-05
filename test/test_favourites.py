@@ -14,7 +14,9 @@ PACK_FAV = {"kind": "pack", "target": "dreamscape-10", "title": "Dreamscape 10"}
 
 def test_favourites_empty(web):
     payload = web.get("/api/favourites").get_json()
-    assert payload == {"title": "Favourites", "items": []}
+    assert payload["title"] == "Favourites"
+    assert payload["items"] == []
+    assert payload["pager"]["pages"] == 1 and payload["pager"]["next"] is None
 
 
 def test_add_and_list_stream_favourite(web):

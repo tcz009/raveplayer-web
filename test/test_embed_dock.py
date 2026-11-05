@@ -128,7 +128,7 @@ def test_every_main_playback_path_closes_the_embed():
         ("  function playItem(item, url, index) {", "\n  function togglePlay"),
         ("  function togglePlay() {", "\n  function retryPlayback"),
         ("  function retryPlayback() {", "\n  function seekBy"),
-        ("  async function navigate(path, options = {}) {", "\n  async function loadMore"),
+        ("  async function navigate(path, options = {}) {", "\n  /* ------------------------------------------------------------ pagination */"),
     ):
         block = _block(js, start, end)
         assert "closeEmbed(" in block, start

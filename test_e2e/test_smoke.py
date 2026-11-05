@@ -535,6 +535,12 @@ def test_download_for_offline_then_play_and_delete(browser_page):
 
 def test_loading_pill_waits_150ms_and_clears(browser_page):
     page = browser_page.page
+    # The fixture has already booted the app; let its boot requests (including
+    # the download-job poll) settle before installing the observer, otherwise a
+    # slow boot request shows the pill and is counted as if the next navigation
+    # caused it.  This was the remaining source of flakes on a loaded host.
+    page.wait_for_selector("#loading-pill", state="hidden", timeout=15000)
+    page.wait_for_timeout(250)
     page.evaluate("""() => {
         window.__pillShows = 0;
         const pill = document.querySelector('#loading-pill');
@@ -542,19 +548,41 @@ def test_loading_pill_waits_150ms_and_clears(browser_page):
             if (!pill.hidden) window.__pillShows += 1;
         }).observe(pill, {attributes: true, attributeFilter: ['hidden']});
     }""")
-    # Fast stubbed section: the pill must never appear (150 ms grace).
+    # Fast section: fulfil the API locally so "fast" is bounded by the test,
+    # not by however long this machine's Flask thread takes to answer (the
+    # 150 ms grace assertion flaked when a cold dev server crossed 150 ms).
+    # The rail button opens the group hub (/api/rail/packs), not /api/packs.
+    page.route(
+        "**/api/rail/packs*",
+        lambda route: route.fulfill(
+            status=200, content_type="application/json",
+            body=json.dumps({"title": "Tape Packs", "items": [{
+                "label": "Every Pack", "sub": "Tape packs",
+                "open": "/api/every-pack",
+                "art": "/static/art/tapepacks.png"}]})))
+    # The background download-job poll is another counted request.  Fulfil it
+    # instantly too, otherwise a slow poll on a loaded host can keep the pill
+    # visible after the section request has finished (and add a pill "show"
+    # unrelated to the navigation under test).
+    page.route(
+        "**/api/downloads/jobs*",
+        lambda route: route.fulfill(
+            status=200, content_type="application/json",
+            body=json.dumps({"jobs": []})))
     page.get_by_role("button", name="Tape Packs", exact=True).click()
     page.wait_for_function("() => document.querySelector('#title').textContent === 'Tape Packs'")
+    page.wait_for_selector("#loading-pill", state="hidden", timeout=10000)
     assert page.evaluate("window.__pillShows") == 0
 
     # Slow API: appears after the grace period, then clears on completion.
+    page.evaluate("() => { window.__pillShows = 0; }")
     _delay_fetches(page, "/api/live", 700)
     page.get_by_role("button", name="Live Radio", exact=True).click()
-    page.wait_for_selector("#loading-pill", state="visible", timeout=4000)
+    page.wait_for_selector("#loading-pill", state="visible", timeout=10000)
     assert page.locator("#loading-pill").get_attribute("aria-live") == "polite"
     _shot(browser_page, "08-loading-pill")
     page.wait_for_function("() => document.querySelector('#title').textContent === 'Live Radio'")
-    page.wait_for_selector("#loading-pill", state="hidden", timeout=4000)
+    page.wait_for_selector("#loading-pill", state="hidden", timeout=10000)
 
 
 def test_download_panel_can_be_cancelled(browser_page):
@@ -1537,6 +1565,25 @@ def test_embed_dock_layout_at_390_and_1280(browser_page):
     assert browser_page.page_errors == []
 
 
+def _silent_wav(seconds=0.3):
+    """A tiny decodable WAV: the fake 200 response must not fire audio.error.
+
+    The old body was ``ID3`` + NUL bytes with an audio/mpeg type.  Chromium
+    sometimes reported MEDIA_ERR_SRC_NOT_SUPPORTED a moment later, so the
+    "silent" RTP test intermittently saw a "This stream can't be played here"
+    toast that had nothing to do with the blocked source.
+    """
+    import struct
+
+    rate = 8000
+    frames = int(rate * seconds)
+    data = b"\x00\x00" * frames
+    header = (b"RIFF" + struct.pack("<I", 36 + len(data)) + b"WAVEfmt "
+              + struct.pack("<IHHIIHH", 16, 1, 1, rate, rate * 2, 2, 16)
+              + b"data" + struct.pack("<I", len(data)))
+    return header + data
+
+
 class _BlockedStreamResponse:
     def __init__(self, status, body=b"", content_type="audio/mpeg"):
         self.status = status
@@ -1588,7 +1635,7 @@ def test_ravetapepacks_source_blocked_auto_retries_silently(browser_page, monkey
         calls["n"] += 1
         status = 403 if calls["n"] <= 2 else 200
         return (_BlockedStreamConnection(),
-                _BlockedStreamResponse(status, b"ID3" + b"\x00" * 512),
+                _BlockedStreamResponse(status, _silent_wav(), "audio/wav"),
                 url)
 
     monkeypatch.setattr(app_module.legacy, "packs", _rtp_legacy_pack)
@@ -1603,7 +1650,7 @@ def test_ravetapepacks_source_blocked_auto_retries_silently(browser_page, monkey
         "() => !!document.querySelector('#audio').getAttribute('src')", timeout=15000)
     assert calls["n"] >= 3
     assert "RaveTapePacks" not in _text(page.locator("#p-status"))
-    assert page.locator("#toast").is_hidden()
+    assert page.locator("#toast").is_hidden(), _text(page.locator("#toast"))
     assert page.locator("#p-retry").count() == 0
 
 
@@ -1627,9 +1674,100 @@ def test_ravetapepacks_source_blocked_stays_silent_no_loop(browser_page, monkeyp
         "() => !document.querySelector('#player').hidden && !document.querySelector('#audio').getAttribute('src')")
     page.wait_for_timeout(6500)  # initial attempt + one 5 s background retry
     assert calls["n"] == 4
-    assert page.locator("#p-status").is_hidden()
+    # 1.6.52 (P0-3) changed the silent state from "nothing at all" to a quiet
+    # idle line: still no banner, no toast, no retry button and no loop.
+    assert _text(page.locator("#p-status")) == "Source busy — retrying quietly…"
     assert page.locator("#toast").is_hidden()
+    assert page.locator("#banner").is_hidden()
     assert page.locator("#p-retry").count() == 0
     page.wait_for_timeout(1500)
     assert calls["n"] == 4  # no automatic loop
     assert not page.locator("#audio").evaluate("(el) => el.getAttribute('src')")
+
+
+# --------------------------------------------------------------------------- pagination
+
+
+def _pager_docs(count=85):
+    return [{"identifier": "pager-pack-%02d" % index,
+             "title": "Pager Pack %02d" % index, "year": "1994"}
+            for index in range(count)]
+
+
+def _patch_paged_search(monkeypatch, docs):
+    """Serve 85 results 40/page so the pager has three pages."""
+    import app as app_module
+
+    def fake(query, page=1, rows=50, sort="downloads desc"):
+        start = (page - 1) * rows
+        return list(docs[start:start + rows]), len(docs)
+
+    monkeypatch.setattr(app_module.archive, "search", fake)
+
+
+def test_numbered_pager_counts_links_and_history(browser_page, monkeypatch):
+    docs = _pager_docs()
+    _patch_paged_search(monkeypatch, docs)
+    page = browser_page.page
+    page.evaluate("() => { location.hash = '#/api/search?q=pager'; }")
+    page.wait_for_function(
+        "() => document.querySelector('#title').textContent === 'Search: pager'")
+    _wait_for_rows(page, 1)
+
+    assert _text(page.locator("#page-meta")) == "Page 1 of 3 · 85 items"
+    pager = page.locator("#pager")
+    assert pager.get_attribute("aria-label") == "Pagination"
+    assert pager.locator('[aria-current="page"]').inner_text() == "1"
+    assert pager.locator('[aria-label="Previous page"]').is_disabled()
+    assert len(_texts(pager.locator(".pager-btn"))) >= 5  # prev, 1,2,3, next
+    assert len(page.locator("#list .row").all()) == 40
+
+    # Next page: counts, rows and the ?page= URL state all move together.
+    pager.locator('[aria-label="Next page"]').click()
+    page.wait_for_function(
+        "() => document.querySelector('#page-meta').textContent === 'Page 2 of 3 · 85 items'")
+    assert "page=2" in page.evaluate("location.hash")
+    assert len(page.locator("#list .row").all()) == 40
+    assert _text(page.locator("#pager [aria-current='page']")) == "2"
+
+    # Keyboard: ArrowRight inside the pager advances to the last page.
+    page.locator("#pager [aria-label='Next page']").focus()
+    page.keyboard.press("ArrowRight")
+    page.wait_for_function(
+        "() => document.querySelector('#page-meta').textContent === 'Page 3 of 3 · 85 items'")
+    assert len(page.locator("#list .row").all()) == 5
+    assert page.locator("#pager [aria-label='Next page']").is_disabled()
+    assert not page.locator("#pager [aria-label='Previous page']").is_disabled()
+
+    # Browser Back restores page 2 and its rows from the hash/history state.
+    page.go_back()
+    page.wait_for_function(
+        "() => document.querySelector('#page-meta').textContent === 'Page 2 of 3 · 85 items'")
+    assert "page=2" in page.evaluate("location.hash")
+    assert len(page.locator("#list .row").all()) == 40
+    assert browser_page.page_errors == []
+
+
+def test_pager_is_phone_friendly_and_does_not_overflow(browser_page, monkeypatch):
+    docs = _pager_docs(400)
+    _patch_paged_search(monkeypatch, docs)
+    page = browser_page.page
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.evaluate("() => { location.hash = '#/api/search?q=pager'; }")
+    page.wait_for_function(
+        "() => document.querySelector('#title').textContent === 'Search: pager'")
+    _wait_for_rows(page, 1)
+    pager = page.locator("#pager")
+    assert pager.is_visible()
+    for button in pager.locator(".pager-btn").all():
+        if not button.is_visible():
+            continue
+        box = button.bounding_box()
+        assert box and box["height"] >= 40, "pager target too small on a phone"
+    overflow = page.evaluate(
+        "() => document.documentElement.scrollWidth - window.innerWidth")
+    assert overflow <= 1, "the pager must not create horizontal scroll"
+    # 400 items = ten pages: the numbered strip stays a bounded window.
+    labels = _texts(pager.locator(".pager-btn"))
+    assert "10" in labels and "5" not in labels
+    assert len(labels) <= 8

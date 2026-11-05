@@ -686,27 +686,57 @@ body.has-player .stage { padding-bottom: calc(var(--player) + 26px); }
 .icon-btn.play { color: var(--acid); }
 .icon-btn.faved { color: var(--magenta); border-color: var(--magenta); }
 
-.more { margin-top: 14px; }
-.more button {
-  width: 100%;
+.page-meta {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.stage-head { flex-wrap: wrap; }
+
+.pager {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0 16px;
+}
+.pager-top { margin-top: 0; }
+.pager-btn {
+  min-width: 44px;
   min-height: 44px;
-  padding: 12px;
+  padding: 0 12px;
   border-radius: 8px;
-  border: 1px dashed var(--line-bright);
+  border: 1px solid var(--line-bright);
   background: transparent;
   color: var(--muted);
   font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.1em;
+  font-size: 12px;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   cursor: pointer;
+  touch-action: manipulation;
 }
-.more button:hover:not(:disabled) {
+.pager-btn:hover:not(:disabled) {
   color: var(--ink);
   background: var(--acid);
   border-color: var(--acid);
 }
-.more button:disabled { opacity: 0.6; cursor: progress; }
+.pager-btn.current {
+  color: var(--acid);
+  border-color: var(--acid);
+  background: var(--panel);
+  cursor: default;
+}
+.pager-btn:disabled { opacity: 0.4; cursor: default; }
+.pager-btn:focus-visible { outline: 2px solid var(--acid); outline-offset: 2px; }
+.pager-gap {
+  padding: 0 4px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
 
 .empty {
   margin-top: var(--space-6);
