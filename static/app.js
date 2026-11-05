@@ -783,6 +783,17 @@
     const actions = document.createElement("div");
     actions.className = "row-actions";
 
+    // Kodi-side Label2 parity: the same 16-character fact budget, in mono.
+    // Duration is the only per-row fact the current API publishes; a future
+    // server-side "fact" wins when present.
+    const factText = String(item.fact != null ? item.fact : (item.duration || "")).trim();
+    if (factText) {
+      const fact = document.createElement("span");
+      fact.className = "row-fact";
+      fact.textContent = factText.slice(0, 16);
+      actions.appendChild(fact);
+    }
+
     if (item.fav) {
       const key = favKey(item.fav);
       const on = state.faved.has(key);

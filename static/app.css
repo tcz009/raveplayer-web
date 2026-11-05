@@ -35,6 +35,21 @@
   --rail: 232px;
   --player: 92px;
   --topbar-h: 63px;
+
+  /* 2026 print grid (RAVE-SCREEN-DESIGN.md §3.2): 8 is the micro unit,
+     12 the caption/footer gap, 48 the row unit.  Keep new spacing on this
+     scale instead of one-off pixel values. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --row-h: 48px;
+  --focus-ring: var(--acid);
+  --shadow-hard: 4px 4px 0 var(--magenta);
+  --shadow-hard-sm: 3px 3px 0 var(--magenta);
 }
 
 * { box-sizing: border-box; }
@@ -127,7 +142,7 @@ a { color: inherit; text-decoration: none; }
 .skip:focus { top: env(safe-area-inset-top); }
 
 :focus-visible {
-  outline: 2px solid var(--acid);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -380,7 +395,9 @@ a { color: inherit; text-decoration: none; }
   background: linear-gradient(90deg, var(--panel-2), var(--panel));
   color: var(--paper);
   border-color: var(--line);
-  box-shadow: inset 2px 0 0 var(--acid);
+  /* Rave Screen focus bar: a 4px acid slab with a hard magenta
+     misregistration offset — never the skin's soft focus glow. */
+  box-shadow: inset 4px 0 0 var(--acid), var(--shadow-hard-sm);
 }
 .rail button.active img { opacity: 1; box-shadow: 0 0 0 1px var(--paper); }
 .rail-loading { padding: 8px 10px; color: var(--faint); font-size: 12px; }
@@ -496,6 +513,7 @@ body.has-player .stage { padding-bottom: calc(var(--player) + 26px); }
   margin: 8px 0 16px;
   padding: 14px 16px;
   border: 1px solid var(--line);
+  border-left: 4px solid var(--acid);
   border-radius: 10px;
   background: var(--panel);
   color: var(--muted);
@@ -503,6 +521,7 @@ body.has-player .stage { padding-bottom: calc(var(--player) + 26px); }
 }
 .state.is-error {
   border-color: rgba(255, 45, 143, 0.45);
+  border-left-color: var(--magenta);
   background: rgba(255, 45, 143, 0.08);
   color: #ffd0e2;
 }
@@ -560,10 +579,10 @@ body.has-player .stage { padding-bottom: calc(var(--player) + 26px); }
 
 .row {
   display: grid;
-  grid-template-columns: 52px minmax(0, 1fr) auto;
+  grid-template-columns: var(--row-h) minmax(0, 1fr) auto;
   align-items: center;
-  gap: 14px;
-  padding: 8px 12px;
+  gap: 10px;
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--line);
   border-radius: 10px;
   background-image:
@@ -577,10 +596,15 @@ body.has-player .stage { padding-bottom: calc(var(--player) + 26px); }
 .row:hover {
   border-color: rgba(232, 255, 0, 0.42);
   transform: translateY(-1px);
-  box-shadow: inset 0 1px 0 rgba(242, 238, 227, 0.06), 0 8px 22px rgba(0, 0, 0, 0.28);
+  box-shadow: inset 4px 0 0 var(--acid),
+              inset 0 1px 0 rgba(242, 238, 227, 0.06),
+              0 8px 22px rgba(0, 0, 0, 0.28);
 }
 
-.row:focus-within { border-color: rgba(232, 255, 0, 0.42); }
+.row:focus-within {
+  border-color: rgba(232, 255, 0, 0.42);
+  box-shadow: inset 4px 0 0 var(--acid);
+}
 .row:focus-visible { outline-offset: -2px; }
 
 .row.playing {
@@ -612,8 +636,8 @@ body.has-player .stage { padding-bottom: calc(var(--player) + 26px); }
 }
 
 .row-art {
-  width: 52px;
-  height: 52px;
+  width: var(--row-h);
+  height: var(--row-h);
   border-radius: var(--radius-sm);
   object-fit: cover;
   background: var(--panel-2);
@@ -628,6 +652,17 @@ body.has-player .stage { padding-bottom: calc(var(--player) + 26px); }
   overflow-wrap: anywhere;
 }
 .row-sub { margin-top: 3px; color: var(--faint); font-size: 11px; }
+
+/* Label2 parity with the Kodi row: duration / count / source in mono. */
+.row-fact {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  white-space: nowrap;
+  padding: 0 var(--space-1);
+}
 
 .row-actions { display: flex; align-items: center; gap: 6px; }
 
@@ -673,8 +708,25 @@ body.has-player .stage { padding-bottom: calc(var(--player) + 26px); }
 }
 .more button:disabled { opacity: 0.6; cursor: progress; }
 
-.empty { margin-top: 24px; color: var(--faint); font-size: 13px; line-height: 1.5; }
-.empty strong { color: var(--muted); }
+.empty {
+  margin-top: var(--space-6);
+  padding: var(--space-3) var(--space-4);
+  border: 1px dashed var(--line-bright);
+  border-left: 4px solid var(--acid);
+  background: var(--panel);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.empty::before {
+  content: "STANDBY  ";
+  color: var(--acid);
+  font-weight: 800;
+}
+.empty strong { color: var(--text); }
 
 /* ---------------------------------------------------------------- player */
 
@@ -2168,6 +2220,9 @@ html[data-theme="light"] {
   --stock-2: #fbf8ef;
   --sticker-shadow: #07070b;
   --sticker-shadow-2: #07070b;
+  --focus-ring: #07070b;
+  --shadow-hard: 4px 4px 0 #07070b;
+  --shadow-hard-sm: 3px 3px 0 #07070b;
   --acid-ink: #5c4700;       /* 7.69:1 on paper */
   --magenta-ink: #a30055;    /* 6.74:1 on paper */
   --cyan-ink: #0a5560;       /* 7.30:1 on paper */
@@ -2265,7 +2320,9 @@ html[data-theme="light"] .rail button.active {
   background: var(--stock-2);
   color: var(--ink);
   border-color: var(--ink);
-  box-shadow: inset 0 0 0 1px var(--ink), 4px 4px 0 var(--sticker-shadow);
+  box-shadow: inset 0 0 0 1px var(--ink),
+              inset 4px 0 0 var(--acid),
+              3px 3px 0 var(--sticker-shadow);
 }
 html[data-theme="light"] .rail button.active img { box-shadow: 0 0 0 1px var(--ink); }
 html[data-theme="light"] .rail button.active .rail-code { color: var(--magenta-ink); }
@@ -2306,9 +2363,15 @@ html[data-theme="light"] .row {
 }
 html[data-theme="light"] .row:hover {
   border-color: rgba(7, 7, 11, 0.42);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.60), 0 8px 22px rgba(7, 7, 11, 0.10);
+  box-shadow: inset 4px 0 0 var(--acid),
+              inset 0 1px 0 rgba(255, 255, 255, 0.60),
+              0 8px 22px rgba(7, 7, 11, 0.10);
 }
-html[data-theme="light"] .row:focus-within { border-color: var(--ink); }
+html[data-theme="light"] .row:focus-within {
+  border-color: var(--ink);
+  box-shadow: inset 4px 0 0 var(--acid);
+}
+html[data-theme="light"] .row-fact { color: var(--muted); }
 html[data-theme="light"] .row.playing {
   border-color: var(--ink);
   background-image:
@@ -2335,11 +2398,26 @@ html[data-theme="light"] .icon-btn.faved {
   color: var(--magenta-ink);
   border-color: var(--magenta-ink);
 }
+html[data-theme="light"] .state {
+  border-left-color: var(--acid-ink);
+  background: var(--panel);
+  color: var(--ink);
+}
 html[data-theme="light"] .state.is-error {
   border-color: rgba(163, 0, 85, 0.45);
+  border-left-color: var(--magenta-ink);
   background: rgba(255, 45, 143, 0.10);
   color: #7a003a;
 }
+html[data-theme="light"] .state-action { color: var(--ink); border-color: var(--ink); }
+html[data-theme="light"] .state-action:hover { background: var(--acid); color: var(--ink); }
+html[data-theme="light"] .empty {
+  border-color: var(--line-bright);
+  border-left-color: var(--magenta-ink);
+  background: var(--stock-2);
+  color: var(--muted);
+}
+html[data-theme="light"] .empty::before { color: var(--magenta-ink); }
 html[data-theme="light"] .banner {
   border-color: rgba(143, 43, 0, 0.45);
   background: rgba(255, 106, 26, 0.10);
