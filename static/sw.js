@@ -40,6 +40,21 @@ self.addEventListener("fetch", (event) => {
   if (url.pathname.startsWith("/api/")) return;           // live data only
 
   if (request.mode === "navigate") {
+    // The app itself is hash-routed, so "/" is the only navigation that can be
+    // answered from the cached shell.  Every other path is a real server page
+    // (/login, /logout) and must be fetched: serving the shell there would show
+    // the app to a signed-out user.
+    if (url.pathname !== SHELL) {
+      event.respondWith((async () => {
+        try {
+          const response = await fetch(request);
+          if (response && response.ok) return response;
+        } catch (_) { /* offline or blocked: fall through to the shell */ }
+        const cached = await caches.match(SHELL, { ignoreSearch: true });
+        return cached || Response.error();
+      })());
+      return;
+    }
     // Stale-while-revalidate: a warm launch paints the cached shell
     // immediately while the network copy refreshes in the background, so the
     // home-screen app never waits a round trip to show the UI.  A cold launch

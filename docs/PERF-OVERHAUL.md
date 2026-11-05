@@ -136,9 +136,13 @@ real repeat launch paints from the cached shell with no network wait.
    `public, max-age=31536000, immutable`; un-versioned static (artwork) is
    `public, max-age=300`. API responses stay `no-store`. Browsers no longer
    revalidate the 110 KB app.js on every launch.
-8. **Service worker: stale-while-revalidate shell.** Navigations return the
-   cached shell immediately and refresh it in the background (cold/offline still
-   falls back to the cache). Cache name bumped to `raveplayer-shell-v1.6.52`.
+8. **Service worker: stale-while-revalidate shell for `/` only.** The app is
+   hash-routed, so a launch navigation to `/` returns the cached shell
+   immediately and refreshes it in the background (cold/offline still falls
+   back to the cache). Other paths (`/login`, `/logout`) stay network-first —
+   answering them from the shell would show the app to a signed-out user (the
+   browser suite caught exactly that). Cache name bumped to
+   `raveplayer-shell-v1.6.52`.
 9. **Parallel boot.** `static/app.js` starts the first section request
    concurrently with `/api/menu` instead of awaiting the menu first, and
    re-highlights the rail when it renders.
@@ -174,8 +178,8 @@ block/revoke semantics, and the static/API cache headers. Updated
 - The SQLite connection is still per-request (not pooled/thread-local): the two
   gunicorn workers and WAL make pooling possible, but it was not needed to hit
   the target and would add failure modes to the auth path.
-- `test_e2e` (browser suite) was not run in this pass; the offline suite and
-  both benches were.
+- The browser suite (`test_e2e`, 36 cases) was run: 36 passed after the
+  login-navigation fix above.
 
 ## Reproduce
 
