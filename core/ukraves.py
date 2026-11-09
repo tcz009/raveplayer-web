@@ -15,7 +15,9 @@ followed; everything else is shown as a source link.
 """
 
 import html
+import http.client as http_client
 import re
+import ssl
 import threading
 import urllib.error
 import urllib.parse
@@ -36,6 +38,12 @@ CATEGORY_URLS = (
 TTL = 6 * 60 * 60
 REDIRECT_TTL = 6 * 60 * 60
 REDIRECT_NEGATIVE_TTL = 5 * 60
+# A page's provider classification (mediafire/youtube/direct/external) is
+# cached as one small map.  Without it a warm room still did forty separate
+# cache reads and re-resolved every row whose five-minute negative mark had
+# expired; with it a warm page is one read and no network.  Kept short so a row
+# that starts or stops working is picked up within ten minutes.
+DESCRIBE_TTL = 10 * 60
 BROWSER_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
@@ -84,6 +92,37 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 _OPENER = urllib.request.build_opener(_NoRedirect)
 _REDIRECT_SLOTS = threading.BoundedSemaphore(WORKERS)
+MAX_REDIRECT_BODY = 64 * 1024
+
+_UKRAVES_PARTS = urllib.parse.urlsplit(BASE)
+_UKRAVES_HOST = _UKRAVES_PARTS.hostname or "www.ukraves.co.uk"
+_UKRAVES_PORT = _UKRAVES_PARTS.port or 443
+_TLS_CONTEXT = ssl.create_default_context()
+# One persistent HTTPS connection per resolving thread.  A cold page opens
+# forty /go/mix hops; urllib's opener does a fresh TLS handshake for every one
+# of them (measured 99 ms/hop on the NAS versus 28 ms on a reused connection,
+# and 2.36 s versus 0.26 s for a 20-hop four-worker burst).  http.client keeps
+# the socket alive and the hop becomes the server's 20-80 ms response.
+_LOCAL = threading.local()
+
+
+def _drop_connection():
+    conn = getattr(_LOCAL, "ukraves_conn", None)
+    _LOCAL.ukraves_conn = None
+    if conn is not None:
+        try:
+            conn.close()
+        except Exception:  # noqa: BLE001 - closing is best effort
+            pass
+
+
+def _connection():
+    conn = getattr(_LOCAL, "ukraves_conn", None)
+    if conn is None:
+        conn = http_client.HTTPSConnection(
+            _UKRAVES_HOST, _UKRAVES_PORT, timeout=TIMEOUT, context=_TLS_CONTEXT)
+        _LOCAL.ukraves_conn = conn
+    return conn
 
 
 def _text(value):
@@ -185,33 +224,78 @@ def page_entries(page=1):
     return rows, has_next
 
 
-def _fetch_location(url):
-    """Resolve one ``/go/mix`` hop without following it; ``""`` on failure."""
+def _fetch_location_once(url):
+    """Resolve one hop on a fresh urllib connection (unexpected hosts only)."""
     request = urllib.request.Request(url, headers={
         "User-Agent": BROWSER_UA,
         "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
         "Accept-Encoding": "identity",
     })
+    try:
+        response = _OPENER.open(request, timeout=TIMEOUT)
+    except urllib.error.HTTPError as exc:
+        headers = exc.headers
+        location = headers.get("Location") if headers else ""
+        try:
+            exc.close()
+        except Exception:  # noqa: BLE001
+            pass
+        return str(location or "").strip()
+    except (urllib.error.URLError, OSError, ValueError):
+        return ""
+    try:
+        return str(response.geturl() or "").strip()
+    finally:
+        try:
+            response.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _fetch_location(url):
+    """Resolve one ``/go/mix`` hop without following it; ``""`` on failure.
+
+    ukraves.co.uk is fetched on a keep-alive connection (see ``_connection``);
+    any other host keeps the old one-shot urllib path so this helper cannot
+    silently become a general-purpose crawler.
+    """
+    try:
+        parts = urllib.parse.urlsplit(str(url or ""))
+    except ValueError:
+        return ""
+    if parts.scheme != "https" or (parts.hostname or "").lower() != _UKRAVES_HOST:
+        return _fetch_location_once(url)
+    target = urllib.parse.urlunsplit(
+        ("", "", parts.path or "/", parts.query, ""))
+    headers = {
+        "User-Agent": BROWSER_UA,
+        "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
+        "Accept-Encoding": "identity",
+        "Connection": "keep-alive",
+    }
     with _REDIRECT_SLOTS:
-        try:
-            response = _OPENER.open(request, timeout=TIMEOUT)
-        except urllib.error.HTTPError as exc:
-            headers = exc.headers
-            location = headers.get("Location") if headers else ""
+        for attempt in (0, 1):
             try:
-                exc.close()
-            except Exception:  # noqa: BLE001
-                pass
-            return str(location or "").strip()
-        except (urllib.error.URLError, OSError, ValueError):
-            return ""
-        try:
-            return str(response.geturl() or "").strip()
-        finally:
-            try:
-                response.close()
-            except Exception:  # noqa: BLE001
-                pass
+                conn = _connection()
+                conn.request("GET", target, headers=headers)
+                response = conn.getresponse()
+                status = int(getattr(response, "status", 0) or 0)
+                location = str(response.getheader("Location") or "").strip()
+                # Drain the small redirect body so the socket can be reused; a
+                # body over the cap means the connection is not safe to keep.
+                response.read(MAX_REDIRECT_BODY)
+                if getattr(response, "length", 0):
+                    _drop_connection()
+                if 300 <= status < 400:
+                    return location
+                if 200 <= status < 300:
+                    return str(url or "").strip()
+                return ""
+            except (http_client.HTTPException, OSError, ValueError):
+                _drop_connection()
+                if attempt:
+                    return ""
+    return ""
 
 
 def redirect_target(mix_id):
@@ -267,13 +351,14 @@ def describe(entry):
     return row
 
 
-def describe_many(rows, workers=WORKERS):
-    """Classify a page's redirect targets with a bounded pool."""
-    rows = [row for row in (rows or []) if isinstance(row, dict)]
-    if not rows:
-        return []
-    if len(rows) == 1:
-        return [describe(rows[0])]
+def _describe_map_key(rows):
+    """Cache key for one page's ids, independent of row order."""
+    ids = sorted(str(row.get("id") or "") for row in rows)
+    return "ukraves:described:v2:%s" % cache.fingerprint("\n".join(ids))
+
+
+def _describe_pool(rows, workers):
+    """Classify rows in parallel with a hard deadline (one page's worth)."""
     results = [None] * len(rows)
     pool = ThreadPoolExecutor(max_workers=max(1, min(workers, len(rows))))
     futures = {pool.submit(describe, row): index for index, row in enumerate(rows)}
@@ -292,6 +377,55 @@ def describe_many(rows, workers=WORKERS):
             "kind": "unavailable", "url": rows[index].get("go_url", "")})
     # Do not wait for a timed-out DNS/HTTP call on the request thread.
     pool.shutdown(wait=False)
+    return results
+
+
+def describe_many(rows, workers=WORKERS):
+    """Classify a page's redirect targets with a bounded pool.
+
+    Successful classifications are kept in one per-page map for
+    :data:`DESCRIBE_TTL`, so a reload skips thirty or forty individual
+    ``redirect_target`` cache reads and the pool entirely.  Rows that came back
+    ``unavailable`` are deliberately *not* memoised here: the per-id negative
+    mark (five minutes) still decides when they are retried, so a row that
+    starts working is not hidden for the longer map TTL.
+    """
+    rows = [row for row in (rows or []) if isinstance(row, dict)]
+    if not rows:
+        return []
+    if len(rows) == 1:
+        return [describe(rows[0])]
+    key = _describe_map_key(rows)
+    try:
+        known = cache.get(key, DESCRIBE_TTL)
+    except Exception:  # noqa: BLE001 - cache trouble must not break the room
+        known = cache.MISSING
+    if not isinstance(known, dict):
+        known = {}
+    results = [None] * len(rows)
+    pending = []
+    for index, row in enumerate(rows):
+        provider = known.get(str(row.get("id") or ""))
+        if isinstance(provider, dict) and provider.get("kind") not in (None, "unavailable"):
+            results[index] = dict(row, provider=provider)
+        else:
+            pending.append(index)
+    if pending:
+        described = _describe_pool([rows[index] for index in pending], workers)
+        added = False
+        for index, described_row in zip(pending, described):
+            results[index] = described_row
+            provider = described_row.get("provider") if isinstance(described_row, dict) else None
+            mix_id = str(rows[index].get("id") or "")
+            if (isinstance(provider, dict) and mix_id
+                    and provider.get("kind") not in (None, "unavailable")):
+                known[mix_id] = provider
+                added = True
+        if added:
+            try:
+                cache.put(key, known, sync=False)
+            except Exception:  # noqa: BLE001 - classification is best effort
+                pass
     return [row for row in results if row]
 
 

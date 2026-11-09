@@ -236,10 +236,17 @@ def episodes(feed_id, limit=None):
     entry = feed(feed_id)
     if not entry:
         return []
-    rows = cache.remember(
-        "feeds:episodes:v1:%s" % entry["url"], FEED_TTL,
-        lambda: _load_episodes(entry), sync=False,
-    )
+    key = "feeds:episodes:v1:%s" % entry["url"]
+    # Read the parsed list without the cache's defensive deep copy: DejaVu FM
+    # has 4,000+ episodes and copying that list on every /api/latest cost more
+    # than the rest of the merge.  The list is only sliced/iterated below and by
+    # the two routes that call this; nothing mutates it.  A cold miss still
+    # builds a private list and ``put`` deep-copies it into the memory layer.
+    rows = cache.get(key, FEED_TTL, copy_value=False)
+    if rows is cache.MISSING:
+        rows = _load_episodes(entry)
+        if isinstance(rows, list):
+            cache.put(key, rows, sync=False)
     if not isinstance(rows, list):
         return []
     try:

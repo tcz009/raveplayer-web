@@ -1,0 +1,23 @@
+{
+  "base": "http://127.0.0.1:28097",
+  "endpoints": {
+    "latest": {
+      "decoded_bytes_p50": 16246,
+      "encoding": "gzip",
+      "errors": 0,
+      "kind": "json",
+      "max_ms": 44.2,
+      "n": 15,
+      "p50_ms": 31.3,
+      "p95_ms": 39.7,
+      "path": "/api/latest",
+      "status": 200,
+      "ttfb_p50_ms": 31.0,
+      "ttfb_p95_ms": 39.4,
+      "wire_bytes_p50": 2926
+    }
+  },
+  "generated": "2026-11-09T10:54:12",
+  "label": "latest-after",
+  "samples": 15
+}
