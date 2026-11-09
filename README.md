@@ -298,6 +298,7 @@ post page supplies its direct MP3s (1.6.51).
 | `RAVEWEB_PASSWORD` / `RAVEWEB_FRIENDS_PASSWORD` | first-run only | Plaintext hashed in memory at startup and logged once as hashes; move to the `_HASH` vars. |
 | `RAVEWEB_ENV` | recommended `production` | Enables strict secret-key checks (`RAVEWEB_PROD=1` also works). |
 | `RAVEWEB_WIDGET_TOKEN` | optional | Read-only bearer token for the Control Centre `GET /api/admin/stats` feed; empty = owner-session only. |
+| `RAVEWEB_RESOLVER_TOKEN` | optional | Narrow read-only bearer for Kodi/media players: `/api/resolve`, `/api/mega/sign`, selected source lists, and `GET /api/webplay` (mints a 1 h signed Mediafire stream URL). Empty disables bearer access. |
 | `RAVEWEB_CSP_REPORT_ONLY` | `1` | Adds the report-only CSP + `/api/csp-report` collection; set `0` to stop reporting without tightening enforcement. |
 | `RAVEWEB_JOB_HISTORY_LIMIT` | `30` | Terminal background-job rows kept per identity (active rows never pruned). |
 | `RAVEWEB_PLAYBACK_RETENTION_DAYS` | `7` | Drop owner playback-presence events older than this. |
@@ -333,6 +334,12 @@ Session cookies are `HttpOnly`, `SameSite=Lax` and `Secure` over HTTPS, with a
 12 h session / 30 d remember-me lifetime and **per identity + IP** failed-login
 lockout. Full env vars, hash generation, proxy notes,
 threat model and deferrals: [`docs/AUTH.md`](docs/AUTH.md).
+
+Media players that cannot hold the cookie can use the narrow
+`RAVEWEB_RESOLVER_TOKEN` bearer for selected read-only APIs. For the EZ
+Garage / UK Raves rows, `GET /api/webplay?path=…` exchanges that bearer for a
+one-hour HMAC-signed stream URL that needs no header and no cookie; see
+[`docs/WEBPLAY.md`](docs/WEBPLAY.md).
 
 ## API
 

@@ -50,7 +50,7 @@ from core import (archive, audit, auth, bensons, cache, demodulated, dnbradio,
                   favourites, feeds,
                   fetch as fetch_core, getdarker, hardscore, latest, legacy,
                   mikus, mixcloud, moxser, pirate, playback, radio, raves,
-                  ravearchive, soundcloud, toronto, ukraves)
+                  ravearchive, soundcloud, toronto, ukraves, webplay)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 from core.resolver import stream_budget  # noqa: E402
@@ -944,9 +944,11 @@ RESOLVER_SERVICE_TOKEN = (os.environ.get("RAVEWEB_RESOLVER_TOKEN") or "").strip(
 # cannot hold the browser session cookie.  It is deliberately not a general
 # /api/* credential: these are the exact endpoints and subtrees it may open.
 # Subtree entries end in "/" so neighbouring routes (e.g. /api/podcasts) never
-# match, and the download/stream children of /api/ezgarage and /api/ukraves,
-# favourites, downloads and admin stay session-only.  /api/mega/stream is never
-# in this list: it remains HMAC-token-only.
+# match, and the download children of /api/ezgarage and /api/ukraves,
+# favourites, downloads and admin stay session-only.  /api/mega/stream and the
+# two Mediafire stream paths are never in this list: they stay session/HMAC-
+# only.  /api/webplay is the one minting endpoint for the latter; it is a
+# GET/HEAD-only route and the route itself insists on the Bearer form.
 RESOLVER_TOKEN_METHOD_PATHS = frozenset((
     "/api/resolve",    # resolver surface; the route defines GET/POST
     "/api/mega/sign",  # mint a short-lived stream token (not the stream itself)
@@ -957,6 +959,7 @@ RESOLVER_TOKEN_GET_PATHS = frozenset((
     "/api/ezgarage",
     "/api/live",
     "/api/latest",
+    "/api/webplay",    # mint a signed /api/(ezgarage|ukraves)/<id>/stream URL
 ))
 RESOLVER_TOKEN_GET_PREFIXES = (
     "/api/live/",     # genre pages, including their ?page= pagination
@@ -975,7 +978,7 @@ def _resolver_token_path_allowed(path, method):
     return any(path.startswith(prefix) for prefix in RESOLVER_TOKEN_GET_PREFIXES)
 
 
-def _resolver_token_ok():
+def _resolver_token_ok(require_bearer=False):
     """Bearer/X-Resolve-Token auth for media players (Kodi), narrowly scoped."""
     if not _resolver_token_path_allowed(request.path, request.method):
         return False
@@ -985,6 +988,10 @@ def _resolver_token_ok():
     supplied = (request.headers.get("Authorization") or "").strip()
     if supplied.lower().startswith("bearer "):
         supplied = supplied[7:].strip()
+    elif require_bearer:
+        # ``/api/webplay`` mints a bearer capability; keep its credential
+        # surface to the documented ``Authorization: Bearer`` form.
+        return False
     else:
         supplied = (request.headers.get("X-Resolve-Token") or "").strip()
     if not supplied:
@@ -1023,6 +1030,19 @@ def _auth_guard():
         # /api/mega/sign; the route validates it again and fails closed.
         if path == "/api/mega/stream" and mega_stream_has_valid_token(request.args):
             return None
+        # The two web-proxied Mediafire stream paths accept a short-lived
+        # signature minted by /api/webplay.  The signature is bound to the
+        # exact request path, so it cannot be replayed at any other endpoint
+        # (including the /file download children and /api/webplay itself).
+        if (request.method in ("GET", "HEAD")
+                and webplay.has_valid_signature(path, request.args)):
+            return None
+        # /api/webplay mints a bearer capability, so its own credential is
+        # limited to GET/HEAD (the route is GET/HEAD only).  Return a precise
+        # 405 instead of letting routing/auth obscure the method contract.
+        if path == "/api/webplay" and request.method not in ("GET", "HEAD"):
+            return _json_error("method not allowed", 405,
+                               headers={"Allow": "GET, HEAD"})
         # Media players (Kodi) may use a configured service token only for the
         # exact resolver endpoints and read-only source lists in
         # _resolver_token_path_allowed(); this is not a general /api/* bypass.
@@ -1041,6 +1061,32 @@ def _auth_guard():
         return None
     target = request.full_path[:-1] if request.full_path.endswith("?") else request.full_path
     return redirect(url_for("login_page", next=_safe_next(target) or "/"))
+
+
+@app.get("/api/webplay")
+def api_webplay():
+    """Mint a short-lived signed URL for one Mediafire stream row.
+
+    Kodi can read the source lists with ``RAVEWEB_RESOLVER_TOKEN`` but cannot
+    add that bearer to the URL an ``<audio>`` player is handed, and it has no
+    browser cookie.  This endpoint exchanges the bearer for a signed URL that
+    the two stream paths accept on their own.
+    """
+    if not _resolver_token_ok(require_bearer=True):
+        return _json_error("authentication required", 401)
+    path = request.args.get("path", "")
+    if not webplay.is_signable_path(path):
+        return _json_error(
+            "path must be /api/(ezgarage|ukraves)/<id>/stream", 400,
+            error_code="invalid_path")
+    try:
+        relative = webplay.signed_path(path)
+    except webplay.WebplayError as exc:
+        return _json_error(exc.message, exc.code)
+    response = jsonify({"ok": True,
+                        "url": request.url_root.rstrip("/") + relative})
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 def _render_login(next_url="", error="", status=200, retry_after=None):

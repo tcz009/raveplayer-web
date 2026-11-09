@@ -22,6 +22,7 @@ A read-only owner stats feed (`GET /api/admin/stats`) is documented in
 | `RAVEWEB_FRIENDS_PASSWORD` | first-run alternative | Friends plaintext hashed in memory; generated hash logged once for `RAVEWEB_FRIENDS_PASSWORD_HASH`. |
 | `RAVEWEB_ENV` | recommended | Set to `production` on the host. Enables the strict secret-key check. `RAVEWEB_PROD=1` works too; `FLASK_ENV=production` is accepted. |
 | `RAVEWEB_WIDGET_TOKEN` | optional | Bearer token for the read-only `GET /api/admin/stats` Control Centre feed; empty disables bearer access. |
+| `RAVEWEB_RESOLVER_TOKEN` | optional | Narrow read-only bearer for Kodi/media players: `/api/resolve`, `/api/mega/sign`, selected source lists and `GET /api/webplay`. Empty disables bearer access. See [`WEBPLAY.md`](WEBPLAY.md). |
 | `RAVEWEB_AUTH_DB` | `$RAVEWEB_DATA/auth.sqlite3` | Persistent SQLite audit/session store (login events, sessions, stats, shared login-failure counters). |
 
 Optional tuning:
