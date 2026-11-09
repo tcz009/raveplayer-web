@@ -40,6 +40,8 @@ NEGATIVE_TTL = 5 * 60
 TIMEOUT = 25
 MAX_PROBE_BYTES = 4096
 AUDIO_EXTENSIONS = (".mp3", ".m4a")
+# One cache entry per file id; Drive ids are caller-supplied, so bound it.
+MAX_CACHE_ENTRIES = 512
 
 _LOCK = threading.RLock()
 _CACHE = {}
@@ -151,12 +153,27 @@ def _cache_get(key):
     return record
 
 
+def _sweep_cache_locked(now=None):
+    """Drop expired entries, then enforce the insertion cap (lock held)."""
+    now = _CLOCK() if now is None else now
+    for key in [key for key, value in _CACHE.items()
+                if value.get("expires", 0.0) <= now]:
+        _CACHE.pop(key, None)
+    while len(_CACHE) > MAX_CACHE_ENTRIES:
+        oldest = next(iter(_CACHE), None)
+        if oldest is None:
+            break
+        _CACHE.pop(oldest, None)
+
+
 def _remember(key, value):
     _CACHE[key] = {"value": value, "expires": _CLOCK() + TTL}
+    _sweep_cache_locked()
 
 
 def _remember_error(key, error):
     _CACHE[key] = {"error": error, "expires": _CLOCK() + NEGATIVE_TTL}
+    _sweep_cache_locked()
 
 
 def _probe(url):

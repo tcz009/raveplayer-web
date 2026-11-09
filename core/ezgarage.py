@@ -45,6 +45,9 @@ MIN_GAP = 1.2
 MAX_BACKOFF = 120
 MAX_PAGE_BYTES = 4 * 1024 * 1024
 TIMEOUT = 25
+# The curated list is small, but resolve_page() accepts arbitrary Mediafire
+# pages; keep this process cache bounded so a caller cannot grow it forever.
+MAX_CACHE_ENTRIES = 512
 
 SETS = [
     {"id": "72aswcrx4hlw2sh", "title": "DJ EZ @ La Cosa Nostra"},
@@ -168,8 +171,25 @@ def _cache_entry(set_id):
     return cached
 
 
+def _sweep_cache_locked(now=None):
+    """Drop expired entries, then enforce the LRU-ish insertion cap.
+
+    Called while ``_LOCK`` is held (by the two remember helpers).
+    """
+    now = _CLOCK() if now is None else now
+    for key in [key for key, value in _CACHE.items()
+                if value.get("expires", 0.0) <= now]:
+        _CACHE.pop(key, None)
+    while len(_CACHE) > MAX_CACHE_ENTRIES:
+        oldest = next(iter(_CACHE), None)
+        if oldest is None:
+            break
+        _CACHE.pop(oldest, None)
+
+
 def _remember_url(set_id, url):
     _CACHE[set_id] = {"url": url, "expires": _CLOCK() + TTL}
+    _sweep_cache_locked()
 
 
 def _remember_error(set_id, error):
@@ -183,6 +203,7 @@ def _remember_error(set_id, error):
         "retry_after": error.retry_after,
         "expires": _CLOCK() + ttl,
     }
+    _sweep_cache_locked()
 
 
 def _raise_cached(cached):

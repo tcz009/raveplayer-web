@@ -51,6 +51,13 @@ from core import (archive, audit, auth, bensons, cache, demodulated, dnbradio,
                   ravearchive, soundcloud, toronto, ukraves)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
+from core.resolver.service import resolver_bp  # noqa: E402
+from core.resolver.mega_stream import (  # noqa: E402
+    has_valid_token as mega_stream_has_valid_token,
+    mega_stream_bp,
+)
+app.register_blueprint(resolver_bp)
+app.register_blueprint(mega_stream_bp)
 app.config["JSON_SORT_KEYS"] = False
 
 
@@ -885,6 +892,11 @@ def _auth_guard():
         if path == "/api/csp-report":
             return None
         if path == "/api/admin/stats" and _widget_authorized():
+            return None
+        # A media player (Kodi, VLC, a TV) cannot present the browser session
+        # cookie.  /api/mega/stream accepts a short-lived HMAC token minted by
+        # /api/mega/sign; the route validates it again and fails closed.
+        if path == "/api/mega/stream" and mega_stream_has_valid_token(request.args):
             return None
         if not _session_valid():
             return _json_error("authentication required", 401)
