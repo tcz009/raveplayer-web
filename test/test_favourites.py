@@ -81,6 +81,9 @@ def test_delete_does_not_touch_other_entries(web):
     {"kind": "stream", "title": "x", "target": "javascript:alert(1)"},
     {"kind": "stream", "title": "x", "target": "not a url"},
     {"kind": "stream", "title": "x", "target": "http://[::1/" },
+    {"kind": "stream", "title": "x", "target": "//evil.example/a.mp3"},
+    {"kind": "stream", "title": "x", "target": "/static/app.js"},
+    {"kind": "stream", "title": "x", "target": "/api/../etc/passwd"},
     {"kind": "pack", "title": {"nested": 1}, "target": "x"},
     {"kind": "pack", "title": "x", "target": "  "},
 ])
@@ -174,6 +177,18 @@ def test_broken_provider_does_not_500(web, monkeypatch):
     assert web.post("/api/favourites", json=STREAM_FAV).get_json() == {"saved": False}
     monkeypatch.setattr("app.favourites.remove", boom)
     assert web.delete("/api/favourites/x").status_code == 404
+
+
+def test_same_origin_proxy_favourite_round_trip(web):
+    target = "/api/ezgarage/72aswcrx4hlw2sh/stream"
+    response = web.post("/api/favourites", json={
+        "kind": "stream", "title": "DJ EZ @ La Cosa Nostra", "target": target})
+    assert response.get_json() == {"saved": True}
+    item = web.get("/api/favourites").get_json()["items"][0]
+    assert item["play"] == target
+    assert item["fav_key"] == "stream:" + target
+    removed = web.delete("/api/favourites/stream:" + target)
+    assert removed.status_code == 200 and removed.get_json() == {"removed": True}
 
 
 def test_legacy_referer_target_is_accepted(web):

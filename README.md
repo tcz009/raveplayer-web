@@ -35,25 +35,32 @@ The sections behind the groups:
   [20bensons.com](https://20bensons.com/) homepage, in page order. Titles come
   from the filenames (spaces/`%20`, apostrophes and the `-SOUR` tag are
   handled); a year or event fact is derived where the filename carries one.
-  Streams go through `/api/stream` and MP3s download from 20bensons.com only.
+  Streams go through `/api/stream`, MP3s download from 20bensons.com only, and
+  every row can be favourited.
 - **UK Raves Downloads** — event downloads from
   [ukraves.co.uk](https://www.ukraves.co.uk/mixes/downloads). The room follows
   the site's pagination (20 cards per category), resolves each `/go/mix/<id>`
   redirect once, plays/downloads Mediafire rows through the shared Mediafire
-  resolver, and marks YouTube rows as an external hand-off. Credit: UK Raves.
+  resolver, and omits YouTube hand-offs from the downloads room. Mediafire and
+  direct-file rows can be favourited; the favourite stores the stable
+  same-origin play URL. Credit: UK Raves.
 - **Mikus Musik** — posts from the
   [Mikus Musik blog](http://mikusmusik.blogspot.com/) via Blogger's JSON feed.
   Detail rows open Mixcloud/SoundCloud inline, hand YouTube off, and resolve
-  Google Drive file ids to a direct MP3 when Drive serves audio. Credit: Mikus
-  Musik.
+  Google Drive file ids to a direct MP3 when Drive serves audio. Direct Mikus
+  MP3s and Drive rows are playable, favouritable and downloadable (the Drive
+  favourite uses `/api/mikus/drive/<id>/stream`, a stable same-origin proxy).
+  Credit: Mikus Musik.
 - **Demodulated Mixtapes** — the
   [Demodulated Mixtapes](http://mixtapes.demodulated.com/) WordPress feed.
-  Full sides play/download, samples are labelled, and the ZIP is deliberately
-  excluded from the player. Credit: Demodulated Mixtapes.
+  Full sides play/download and are favouritable; samples are playable and
+  favouritable but never downloadable; the ZIP is deliberately excluded from
+  the player. Credit: Demodulated Mixtapes.
 - **By Year** — the same collection browsed by year.
 - **Podcasts & Mixes** — present-day shows from RSS feeds (`feeds.json`),
   including the Rat Pack and DejaVu FM Podomatic shows. Podomatic MP3/M4A
-  enclosures play inline and download from the podomatic.com host; DejaVu's
+  enclosures play inline, are favouritable and download from the podomatic.com
+  host; other RSS enclosures are favouritable but not downloadable. DejaVu's
   large (~10 MB) feed is fetched with an explicit per-feed body allowance.
 - **DNB Radio** — recent jungle/DnB shows, stream resolved on demand.
 - **UK Garage** — DJ EZ and garage sets from Mixcloud plus Archive garage packs
@@ -85,23 +92,25 @@ The sections behind the groups:
 - **Rave Nights** — the 55-name researched catalogue of promotions, venues and
   pirate stations, opening the Archive packs and Mixcloud sets recorded for
   each.
-- **Favourites** — stored server-side in `RAVEWEB_DATA`.
+- **Favourites** — stored server-side in `RAVEWEB_DATA`; every playable row in
+  the rooms above carries a heart, including direct URLs, Kodi
+  `|Referer=`-suffixed legacy targets and same-origin proxies.
 - **Downloads** — explicit, direct-file saves kept under `RAVEWEB_DATA/downloads`
   and scoped per owner/friends identity (legacy global library becomes the
   owner's; see [`docs/PER-USER.md`](docs/PER-USER.md))
   (Archive tracks, Moxser MP3s, Hardscore MP3/M4A, Pirate Radio Archives direct
   files, Toronto Rave Mixtape Archive MP3s, 20bensons.com MP3s, UK Raves
-  Mediafire files, Mikus Google Drive MP3s, Demodulated mixset MP3s and
-  Podomatic podcast enclosures). Each row shows size/date, plays from the local
-  copy offline, can be saved to another device (Content-Disposition + Range)
-  and deleted.
+  Mediafire files, Mikus Google Drive and direct MP3s, Demodulated full-side
+  MP3s and Podomatic podcast enclosures). Each row shows size/date, plays from
+  the local copy offline, carries a favourite, can be saved to another device
+  (Content-Disposition + Range) and deleted.
   **Background jobs** (1.6.23) keep saving after the progress panel is dismissed
   or the tab closes: a spinner/percent chip links to the Downloads view, where
   queued/downloading rows can be cancelled; owners see all users' jobs, friends
   only their own. See `docs/DOWNLOADS.md`. Provider
-  pages (Mixcloud/SoundCloud/YouTube), live streams, HLS, podcasts, legacy scrapers
-  (except the promoted Toronto direct-MP3 source) and GetDarker are never
-  downloadable in phase 1; nothing downloads
+  pages (Mixcloud/SoundCloud/YouTube), live streams, HLS, Demodulated samples,
+  non-Podomatic RSS enclosures, legacy scrapers (except the promoted Toronto
+  direct-MP3 source) and GetDarker are never downloadable; nothing downloads
   automatically. See [`docs/DOWNLOADS.md`](docs/DOWNLOADS.md).
 
 
@@ -363,6 +372,12 @@ an owner session or `Authorization: Bearer $RAVEWEB_WIDGET_TOKEN`; friends are
 | `/api/ravearchive`, `/api/ravearchive/<slug>` | Rave Archive UK releases; detail returns the Mixcloud `embed` row |
 | `/api/getdarker` | GetDarker sets (Mixcloud `embed` rows, source link fallback) |
 | `/api/pirate`, `/api/pirate/<station>` | Curated Pirate Radio Archives: stations then entries |
+| `/api/20bensons` | 20bensons.com direct MP3s |
+| `/api/ukraves`, `/api/ukraves/<id>/stream`, `/api/ukraves/<id>/file` | UK Raves Mediafire rows and same-origin play/download |
+| `/api/ezgarage`, `/api/ezgarage/<id>/stream`, `/api/ezgarage/<id>/file` | EZ Garage Mediafire sets and same-origin play/download |
+| `/api/mikus`, `/api/mikus/<post>`, `/api/mikus/drive/<id>` | Mikus posts, Drive resolver |
+| `/api/mikus/drive/<id>/stream` | stable same-origin playback proxy for a Mikus Drive row |
+| `/api/demodulated`, `/api/demodulated/<post>` | Demodulated posts and full/sample sides |
 | `/api/podcasts`, `/api/podcast/<id>` | RSS feeds |
 | `/api/dnb`, `/api/dnb/<mix>` | DNB Radio |
 | `/api/years`, `/api/year/<year>` | by-year browse |

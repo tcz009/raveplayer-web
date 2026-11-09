@@ -132,6 +132,8 @@ def test_download_saves_lists_plays_offline_and_deletes(web, tmp_path, monkeypat
     item = listing["items"][0]
     assert item["label"] == "Test Mix"
     assert item["download_key"] == identifier
+    assert item["fav"] == {"kind": "stream", "target": item["play"],
+                           "title": "Test Mix"}
     assert item["sub"].startswith("1003 B")  # exact byte size
     assert listing["storage"]["used"] == 1003
     assert listing["storage"]["limit"] > 0
@@ -175,6 +177,8 @@ def test_download_rejects_ineligible_requests(web, tmp_path, monkeypatch):
         {"url": "https://hardscore.com/mixes/x.mp3", "source": "archive", "title": "x"},
         {"url": "https://hardscore.com/mixes/x", "source": "hardscore", "title": "x"},
         {"url": ARCHIVE_URL, "source": "podcast", "title": "x"},
+        {"url": "https://evil.example/musik/x.mp3", "source": "mikus", "title": "x"},
+        {"url": "https://20bensons.com/other/x.mp3", "source": "20bensons", "title": "x"},
         {"url": "", "source": "archive", "title": "x"},
     ]
     for payload in cases:

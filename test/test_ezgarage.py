@@ -231,6 +231,8 @@ def test_room_has_23_rows_with_real_art_play_and_download(web):
         assert row["play"] == "/api/ezgarage/%s/stream" % source["id"]
         assert row["file"] == "/api/ezgarage/%s/file" % source["id"]
         assert row["download"] == {"source": "mediafire", "id": source["id"]}
+        assert row["fav"] == {"kind": "stream", "target": row["play"],
+                              "title": source["title"]}
 
 
 def test_ezgarage_routes_require_auth(anon):

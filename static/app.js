@@ -1303,14 +1303,10 @@
     }
   }
 
-  // Local Downloads already live on this server and are Range-served by
-  // /api/downloads/<id>/stream — do not wrap those in the remote stream proxy.
+  // Local Downloads and the curated source proxies already live on this
+  // server (Range-served): never wrap an /api/ path in the remote stream proxy.
   function audioSource(url) {
-    if (typeof url === "string" && url.startsWith("/api/downloads/")) return url;
-    // EZ Garage and UK Raves resolve a Mediafire page and proxy the signed
-    // MP3 from the same-origin route, so those must not be wrapped again.
-    if (typeof url === "string" && url.startsWith("/api/ezgarage/")) return url;
-    if (typeof url === "string" && url.startsWith("/api/ukraves/")) return url;
+    if (typeof url === "string" && url.startsWith("/api/")) return url;
     return `/api/stream?u=${encodeURIComponent(url)}`;
   }
 

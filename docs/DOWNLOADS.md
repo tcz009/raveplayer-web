@@ -1,9 +1,9 @@
 # Downloads / offline + background jobs (web, 1.6.23)
 
 Explicit, direct-file saves for the web player, scoped per signed-in identity since 1.6.26. Nothing is fetched until the
-user presses **Download** on an eligible row, and only the five curated direct
-sources can ever be saved. The same rule is shared with the Kodi add-on so both
-platforms offer the same rows.
+user presses **Download** on an eligible row, and only a direct MP3/M4A from an
+allowlisted source can ever be saved. The same rule is shared with the Kodi
+add-on so both platforms offer the same rows.
 
 ## Eligibility (server-enforced, not client-trusted)
 
@@ -16,13 +16,29 @@ and the posted URL passes `app._download_allowed`:
 | `moxser` | `enceladus.feralhosting.com` / `*.feralhosting.com` | `.mp3`, `.m4a` |
 | `hardscore` | `hardscore.com` / `*.hardscore.com` | `.mp3`, `.m4a` |
 | `pirate` | exact `stream_url`s in `resources/pirate-radio.json` | `.mp3`, `.m4a` |
-| `toronto` | `torontoravemixtapearchive.com` `/files/mixtape/*.mp3`, `/files/xstatic/*.mp3` | `.mp3` |
+| `toronto` | `torontoravemixtapearchive.com` `/files/mixtape/*`, `/files/xstatic/*` | `.mp3` |
+| `ravetapepacks` | `ravetapepacks.com` / `*.ravetapepacks.com` `/music/*` | `.mp3`, `.m4a` |
+| `jungletapes` | `jungletapes.com` / `*.jungletapes.com` | `.mp3`, `.m4a` |
+| `ezgarage` / `mediafire` | signed `*.mediafire.com` file hosts (not the file page) | `.mp3`, `.m4a` |
+| `20bensons` | exact `20bensons.com` `/mp3/*` | `.mp3`, `.m4a` |
+| `ukraves` | signed `*.mediafire.com` file hosts behind a UK Raves `/go/mix` redirect | `.mp3`, `.m4a` |
+| `mikus` | `drive.usercontent.google.com/download`, `drive.google.com`, `docs.google.com`; exact `www.terraincognita.co.uk` / `terraincognita.co.uk` | `.mp3`, `.m4a` |
+| `demodulated` | `demodulated.com` / `*.demodulated.com` `/music/mixsets/*` (never a sample row) | `.mp3`, `.m4a` |
+| `podomatic` | `podomatic.com` / `*.podomatic.com` | `.mp3`, `.m4a` |
 
-Always rejected: Mixcloud/SoundCloud/YouTube/Vimeo widget or page URLs, player
-and API pages, live radio/HLS/`.m3u8`, podcast/RSS enclosures, Legacy-scraper tracks (the
-promoted Toronto source is eligible) and GetDarker rows (phase 1 scope), non-http(s) schemes, URLs with
-credentials, and non-file paths. Every redirect hop is re-validated by the
-stream proxy's `_open_stream` (public addresses only, DNS pinned).
+Always rejected: Mixcloud/SoundCloud/YouTube/Vimeo widget, page or hand-off
+URLs, player and API pages, live radio/HLS/`.m3u8`, Demodulated samples, ZIPs,
+non-Podomatic RSS enclosures, GetDarker rows (no allowlisted host yet),
+non-http(s) schemes, URLs with credentials, and non-file paths. Every redirect
+hop is re-validated by the stream proxy's `_open_stream` (public addresses
+only, DNS pinned).
+
+Every playable row also carries a favourite (`item.fav`, `kind:"stream"`). The
+stored target is either the direct URL, a Kodi `|Referer=`-suffixed legacy
+target, or a stable same-origin proxy (`/api/ezgarage/<id>/stream`,
+`/api/ukraves/<id>/stream`, `/api/mikus/drive/<id>/stream`,
+`/api/downloads/<id>/stream`). Embeds, external hand-offs and live streams have
+no favourite because there is no stable audio target to replay.
 
 ## API
 
@@ -108,13 +124,13 @@ completion toast when you are elsewhere.
 
 ## Scope / later phases
 
-Direct-file eligibility is exactly the five sources above; background jobs use
-the same predicate. Background jobs are in-process workers whose state lives in the shared auth
+Direct-file eligibility is exactly the sources above; background jobs use the
+same predicate. Background jobs are in-process workers whose state lives in the shared auth
 SQLite `download_jobs` table (WAL; no external queue/broker). A restart/worker
 death marks interrupted rows failed rather than resuming them. Multi-user accounting is only the owner/friends
 identity split, not arbitrary accounts. Podcast/RSS enclosures, Legacy direct
 files and GetDarker could be added later with the same predicate; they are
-deliberately excluded now to match the Kodi add-on's context-menu eligibility.
+deliberately excluded now because no exact host is allowlisted.
 
 ## Tests
 

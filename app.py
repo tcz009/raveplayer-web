@@ -233,6 +233,9 @@ DOWNLOAD_BLOCKED_HOSTS = (
     "mixcloud.com", "player-widget.mixcloud.com", "soundcloud.com",
     "w.soundcloud.com", "youtube.com", "youtu.be", "vimeo.com",
 )
+# Exact hosts only: the Drive resolver and Mikus Musik's own audio host.
+DRIVE_HOSTS = ("drive.usercontent.google.com", "drive.google.com", "docs.google.com")
+MIKUS_DIRECT_HOSTS = ("www.terraincognita.co.uk", "terraincognita.co.uk")
 DOWNLOAD_SOURCE_LABELS = {
     "archive": "Internet Archive",
     "moxser": "Moxser",
@@ -1515,10 +1518,13 @@ def api_latest():
                                  archive.thumb(identifier),
                                  {"kind": "pack", "target": identifier, "title": title}))
         elif kind == "episode" and entry.get("url"):
-            url = str(entry["url"])
-            items.append(_track(title, "%s · %s" % (entry.get("source", ""), stamp), url,
-                                ART + "podcasts.png",
-                                {"kind": "stream", "target": url, "title": title}))
+            url = _podomatic_url(str(entry["url"]))
+            item = _track(title, "%s · %s" % (entry.get("source", ""), stamp), url,
+                          ART + "podcasts.png",
+                          {"kind": "stream", "target": url, "title": title})
+            if _is_podomatic_url(url):
+                _mark_download(item, "podomatic", url)
+            items.append(item)
         elif kind == "dnb" and entry.get("id") is not None:
             item = _track(title, "%s · %s" % (entry.get("source", ""), stamp), None,
                           ART + "dnb.png",
@@ -1978,7 +1984,8 @@ def api_getdarker():
         media = _http_url(entry.get("media"))
         if media:
             items.append(_track(title, _source_sub("GetDarker", entry.get("date")),
-                                media, ART + "getdarker.png"))
+                                media, ART + "getdarker.png",
+                                {"kind": "stream", "target": media, "title": title}))
             continue
         link = _http_url(entry.get("link"))
         if link:
@@ -2092,7 +2099,8 @@ def api_ezgarage():
         set_id = row["id"]
         play = "/api/ezgarage/%s/stream" % urllib.parse.quote(set_id, safe="")
         item = _track(row["title"], _source_sub("DJ EZ", ezgarage.SOURCE_LABEL),
-                      play, ART + "djez.png")
+                      play, ART + "djez.png",
+                      {"kind": "stream", "target": play, "title": row["title"]})
         # Resolve the page server-side at download time; the client only ever
         # sends the curated set id, never a Mediafire URL.
         item["download"] = {"source": "mediafire", "id": set_id}
@@ -2203,7 +2211,8 @@ def api_20bensons():
         if not title or not url:
             continue
         sub = _source_sub(row.get("event"), row.get("year"), bensons.SOURCE_LABEL)
-        item = _track(title, sub or bensons.SOURCE_LABEL, url, ART + "20bensons.png")
+        item = _track(title, sub or bensons.SOURCE_LABEL, url, ART + "20bensons.png",
+                      {"kind": "stream", "target": url, "title": title})
         if row.get("year"):
             item["fact"] = row["year"]
         _mark_download(item, "20bensons", url)
@@ -2233,13 +2242,15 @@ def api_ukraves():
             mix_id = _mix_id(row.get("id"))
             if not mix_id:
                 continue
-            item = _track(title, sub, "/api/ukraves/%s/stream" % mix_id,
-                          ART + "ukraves.png")
+            play = "/api/ukraves/%s/stream" % mix_id
+            item = _track(title, sub, play, ART + "ukraves.png",
+                          {"kind": "stream", "target": play, "title": title})
             item["file"] = "/api/ukraves/%s/file" % mix_id
             item["download"] = {"source": "ukraves", "id": mix_id}
         elif kind == "direct" and _http_url(provider.get("url")):
             target = _http_url(provider.get("url"))
-            item = _track(title, sub, target, ART + "ukraves.png")
+            item = _track(title, sub, target, ART + "ukraves.png",
+                          {"kind": "stream", "target": target, "title": title})
         else:
             # YouTube/external hand-offs opened a browser pop-up the owner does
             # not want in a downloads room; only real files are listed.
@@ -2343,9 +2354,12 @@ def api_mikus_post(post_id):
         identifier = drive.file_id(file_row.get("id"))
         if not identifier:
             continue
-        item = _track(_drive_label(file_row),
+        label = _drive_label(file_row)
+        play = "/api/mikus/drive/%s/stream" % urllib.parse.quote(identifier, safe="")
+        item = _track(label,
                       "Google Drive · play if direct or download · Mikus Musik",
-                      None, ART + "mikus.png")
+                      None, ART + "mikus.png",
+                      {"kind": "stream", "target": play, "title": label})
         item["play_via"] = "/api/mikus/drive/%s" % urllib.parse.quote(identifier, safe="")
         item["download"] = {"source": "mikus", "id": identifier}
         items.append(item)
@@ -2357,8 +2371,12 @@ def api_mikus_post(post_id):
     for url in row.get("media") or []:
         target = _http_url(url)
         if target:
-            items.append(_track("Direct MP3", "Mikus Musik", target,
-                                ART + "mikus.png"))
+            item = _track("Direct MP3", "Mikus Musik", target,
+                          ART + "mikus.png",
+                          {"kind": "stream", "target": target,
+                           "title": "Direct MP3"})
+            _mark_download(item, "mikus", target)
+            items.append(item)
     if not items and _http_url(row.get("url")):
         items.append(_external_row(title, "Open the post · Mikus Musik",
                                    _http_url(row.get("url")), ART + "mikus.png"))
@@ -2379,6 +2397,22 @@ def api_mikus_drive(file_id):
     except drive.DriveError as exc:
         return _json_error(exc.message, exc.code)
     return jsonify({"url": url, "title": "Google Drive MP3"})
+
+
+@app.get("/api/mikus/drive/<file_id>/stream")
+def api_mikus_drive_stream(file_id):
+    """Stable same-origin playback URL for a Mikus Drive row.
+
+    Favourites cannot store the short-lived signed URL, so the row's favourite
+    target is this route: it resolves the file id again and proxies the audio
+    through the same SSRF/Range path as every other stream.
+    """
+    try:
+        url = drive.resolve(file_id)
+    except drive.DriveError as exc:
+        return _json_error(exc.message, exc.code)
+    options = {"user-agent": drive.BROWSER_UA}
+    return _serve_stream(url, options, request.headers.get("Range"), None)
 
 
 @app.get("/api/demodulated")
@@ -2422,10 +2456,13 @@ def api_demodulated_post(post_id):
         sample = bool(track.get("sample"))
         sub = _source_sub("Sample" if sample else "Full side",
                           row.get("published"), "Demodulated Mixtapes")
-        item = _track(label, sub, url, ART + "demodulated.png")
+        item = _track(label, sub, url, ART + "demodulated.png",
+                      {"kind": "stream", "target": url, "title": label})
         if sample:
+            # Samples are playable/favouritable previews, never a download.
             item["fact"] = "SAMPLE"
-        _mark_download(item, "demodulated", url)
+        else:
+            _mark_download(item, "demodulated", url)
         items.append(item)
     if not items and _http_url(row.get("url")):
         items.append(_external_row(title, "ZIP only — open the source page",
@@ -2977,11 +3014,23 @@ def _fav_payload():
     if kind == "stream":
         try:
             base = _split_kodi_target(target)[0]
-            parsed = urllib.parse.urlsplit(base)
         except ValueError:
             return None, "stream target must be an http(s) url"
-        if parsed.scheme not in ("http", "https") or not parsed.hostname:
-            return None, "stream target must be an http(s) url"
+        if base.startswith("/"):
+            # Curated sources expose stable same-origin proxies
+            # (/api/ezgarage/<id>/stream, /api/ukraves/<id>/stream,
+            # /api/mikus/drive/<id>/stream, /api/downloads/<id>/stream).
+            # Only app API paths are valid: never "//host" or a bare page.
+            if (not base.startswith("/api/") or base.startswith("//")
+                    or "\\" in base or "/../" in base or base.endswith("/..")):
+                return None, "stream target must be an http(s) url or an /api/ path"
+        else:
+            try:
+                parsed = urllib.parse.urlsplit(base)
+            except ValueError:
+                return None, "stream target must be an http(s) url"
+            if parsed.scheme not in ("http", "https") or not parsed.hostname:
+                return None, "stream target must be an http(s) url"
     elif kind in ("legacy_post", "dnb"):
         if not re.match(r"^\d{1,12}$", target):
             return None, "invalid %s id" % kind
@@ -3942,10 +3991,13 @@ def _download_allowed(source, url):
         if host in ("mediafire.com", "www.mediafire.com"):
             return False, "not a Mediafire direct file"
     elif source == "mikus":
-        if host not in ("drive.usercontent.google.com", "drive.google.com",
-                        "docs.google.com"):
-            return False, "not a Google Drive file"
-        if host == "drive.usercontent.google.com":
+        if host in MIKUS_DIRECT_HOSTS:
+            # Mikus posts its own MP3s on terraincognita.co.uk.  The exact
+            # host is allowlisted; the extension check above still applies.
+            pass
+        elif host not in DRIVE_HOSTS:
+            return False, "not a Mikus Musik or Google Drive file"
+        elif host == "drive.usercontent.google.com":
             if parts.path.rstrip("/") != "/download":
                 return False, "not a Google Drive direct file"
     elif source == "demodulated":
@@ -3960,7 +4012,7 @@ def _download_allowed(source, url):
 
 
 def _mark_download(item, source, url=None):
-    """Expose the Download action only for eligible rows from the four sources."""
+    """Expose the Download action only for eligible allowlisted rows."""
     if url is not None and not _download_allowed(source, url)[0]:
         return item
     item["download"] = {"source": source}
@@ -3986,6 +4038,8 @@ def _download_item(entry):
                   DOWNLOAD_SOURCE_ART.get(entry.get("source"), ART + "downloads.png"))
     item["download_key"] = identifier
     item["file"] = "/api/downloads/%s/file" % urllib.parse.quote(identifier, safe="")
+    item["fav"] = {"kind": "stream", "target": item["play"],
+                   "title": item["label"]}
     return item
 
 
@@ -4231,7 +4285,12 @@ def _job_worker(job):
             except ezgarage.EzGarageError as exc:
                 raise DownloadError(exc.message, exc.code)
         elif source in ("ukraves", "mikus"):
-            source_url = _resolve_source_download(source, source_url)
+            # Only curated stable page/view URLs need resolving here; a Mikus
+            # direct MP3 on terraincognita is already the file to fetch.
+            stable = (ukraves.mix_id_for_url(source_url) if source == "ukraves"
+                      else drive.file_id(source_url))
+            if stable:
+                source_url = _resolve_source_download(source, source_url)
             allowed, error = _download_allowed(source, source_url)
             if not allowed:
                 raise DownloadError(error, 400)
@@ -4302,7 +4361,8 @@ def api_download_job_create():
         url = ezgarage.page_url(set_id)
         if not title:
             title = row["title"]
-    elif source in ("ukraves", "mikus"):
+    elif (source in ("ukraves", "mikus")
+          and (payload.get("source_id") or payload.get("id"))):
         # Stable id only; the worker resolves the signed URL when it starts.
         try:
             url = _source_stable_url(source, payload.get("source_id") or payload.get("id"))
@@ -4521,7 +4581,8 @@ def api_download_create():
             return _json_error(error, 400)
         if not title:
             title = row["title"]
-    elif source in ("ukraves", "mikus"):
+    elif (source in ("ukraves", "mikus")
+          and (payload.get("source_id") or payload.get("id"))):
         # Resolve server-side from a curated id, never a caller-supplied
         # signed URL.  The stable page URL is the library identity.
         try:

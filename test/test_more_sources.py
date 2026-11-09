@@ -85,6 +85,8 @@ def test_20bensons_room_pages_at_40_and_marks_downloads(web, monkeypatch):
     assert "Fantazia" in item["sub"]
     assert item["play"].startswith("https://20bensons.com/mp3/")
     assert item["download"] == {"source": "20bensons"}
+    assert item["fav"] == {"kind": "stream", "target": item["play"],
+                           "title": item["label"]}
     assert item["art"] == "/static/art/20bensons.png"
     last = web.get("/api/20bensons?page=6").get_json()
     assert len(last["items"]) == 34
@@ -183,8 +185,24 @@ def test_ukraves_room_lists_only_real_downloads(web, monkeypatch):
     assert payload["items"][0]["play"] == "/api/ukraves/7524/stream"
     assert payload["items"][0]["file"] == "/api/ukraves/7524/file"
     assert payload["items"][0]["download"] == {"source": "ukraves", "id": "7524"}
+    assert payload["items"][0]["fav"] == {
+        "kind": "stream", "target": "/api/ukraves/7524/stream",
+        "title": payload["items"][0]["label"]}
     # YouTube/external hand-offs are excluded: no pop-up rows in a downloads room.
     assert len(payload["items"]) == 1
+
+
+def test_ukraves_direct_mp3_rows_are_favouritable_not_downloadable(web, monkeypatch):
+    rows = ukraves.parse_page(_fixture("ukraves-downloads.html"), 1)[0][:1]
+    monkeypatch.setattr(app_module.ukraves, "page_entries", lambda page: (rows, False))
+    direct = "https://files.ukraves.example/sets/doc-scott.mp3"
+    monkeypatch.setattr(app_module.ukraves, "describe_many", lambda page_rows: [
+        dict(page_rows[0], provider={"kind": "direct", "url": direct})])
+    item = web.get("/api/ukraves").get_json()["items"][0]
+    assert item["play"] == direct
+    assert item["fav"] == {"kind": "stream", "target": direct, "title": item["label"]}
+    # The direct host is not allowlisted, so no Download action is offered.
+    assert "download" not in item
 
 
 def test_ukraves_youtube_stream_route_is_a_handoff_not_a_500(web, monkeypatch):
@@ -297,12 +315,51 @@ def test_mikus_room_and_detail_expose_embeds_handoffs_and_drive(web, monkeypatch
     assert drive_row["play_via"].startswith("/api/mikus/drive/")
     assert drive_row["download"] == {"source": "mikus",
                                      "id": "1tHRuSSMfNAdT1zicgYSrXegN0_RbvhS7"}
+    assert drive_row["fav"] == {
+        "kind": "stream",
+        "target": "/api/mikus/drive/1tHRuSSMfNAdT1zicgYSrXegN0_RbvhS7/stream",
+        "title": "Google Drive MP3"}
+    # Embed and hand-off rows have no stable audio target: no favourite either.
+    assert "fav" not in mixcloud_row
+    assert "fav" not in youtube_row
+    assert "download" not in mixcloud_row
+
+
+def test_mikus_direct_mp3_row_is_favouritable_and_downloadable(web, monkeypatch):
+    posts = mikus.parse_feed(_json("mikus-posts.json"))
+    monkeypatch.setattr(app_module.mikus, "posts", lambda: posts)
+    detail = web.get("/api/mikus/5092857775336541428").get_json()
+    row = next(item for item in detail["items"] if item["label"] == "Direct MP3")
+    assert row["play"].startswith("http://www.terraincognita.co.uk/musik/")
+    assert row["fav"] == {"kind": "stream", "target": row["play"],
+                          "title": "Direct MP3"}
+    assert row["download"] == {"source": "mikus"}
 
 
 def test_mikus_drive_route_returns_a_direct_url(web, monkeypatch):
     monkeypatch.setattr(app_module.drive, "resolve", lambda file_id: SIGNED)
     payload = web.get("/api/mikus/drive/1tHRuSSMfNAdT1zicgYSrXegN0_RbvhS7").get_json()
     assert payload["url"] == SIGNED
+
+
+def test_mikus_drive_stream_is_a_stable_same_origin_proxy(web, monkeypatch):
+    monkeypatch.setattr(app_module.drive, "resolve", lambda file_id: SIGNED)
+    seen = {}
+
+    def fake_serve(target, options, requested_range=None, ref_override=None,
+                   disposition=None):
+        seen.update(target=target, options=options, requested_range=requested_range)
+        return app_module.Response(b"ID3", mimetype="audio/mpeg")
+
+    monkeypatch.setattr(app_module, "_serve_stream", fake_serve)
+    response = web.get(
+        "/api/mikus/drive/1tHRuSSMfNAdT1zicgYSrXegN0_RbvhS7/stream",
+        headers={"Range": "bytes=0-3"})
+    assert response.status_code == 200
+    assert response.data == b"ID3"
+    assert seen["target"] == SIGNED
+    assert seen["requested_range"] == "bytes=0-3"
+    assert "user-agent" in seen["options"]
 
 
 # --------------------------------------------------------------------------- Demodulated
@@ -337,7 +394,11 @@ def test_demodulated_room_and_detail_mark_samples(web, monkeypatch):
     sides = [item for item in detail["items"] if item.get("fact") != "SAMPLE"]
     samples = [item for item in detail["items"] if item.get("fact") == "SAMPLE"]
     assert len(sides) == 2 and len(samples) == 2
-    assert all(item["download"] == {"source": "demodulated"} for item in detail["items"])
+    # Full sides are downloadable; samples are playable/favouritable previews.
+    assert all(item["download"] == {"source": "demodulated"} for item in sides)
+    assert all("download" not in item for item in samples)
+    assert all(item["fav"]["kind"] == "stream" for item in detail["items"])
+    assert all(item["fav"]["target"] == item["play"] for item in detail["items"])
     assert all("music/mixsets/" in item["play"] for item in detail["items"])
     assert not any(item["play"].endswith(".zip") for item in detail["items"])
 
@@ -386,12 +447,33 @@ def test_podcast_episodes_resolve_podomatic_downloads(web, monkeypatch):
     payload = web.get("/api/podcast/rat-pack").get_json()
     assert payload["items"][0]["download"] == {"source": "podomatic"}
     assert payload["items"][0]["play"].startswith("https://ratpack.podomatic.com/")
+    assert payload["items"][0]["fav"] == {
+        "kind": "stream", "target": payload["items"][0]["play"],
+        "title": payload["items"][0]["label"]}
 
     dejavu_payload = web.get("/api/podcast/dejavu-fm").get_json()
     first = dejavu_payload["items"][0]
     assert first["play"].startswith("https://dejavufmpodcast.podomatic.com/")
     assert "pdcn.co" not in first["play"]
     assert first["download"] == {"source": "podomatic"}
+    assert first["fav"]["target"] == first["play"]
+
+
+def test_latest_podomatic_episode_has_fav_and_download(web, monkeypatch):
+    monkeypatch.setattr("app.latest.merge", lambda limit=60: [
+        {"kind": "episode", "title": "Rat Pack 1",
+         "url": "https://ratpack.podomatic.com/enclosure/one.mp3",
+         "source": "Rat Pack", "when": None},
+        {"kind": "episode", "title": "Other show",
+         "url": "https://cdn.example/two.mp3", "source": "Other", "when": None},
+    ])
+    first, second = web.get("/api/latest").get_json()["items"]
+    assert first["fav"] == {"kind": "stream", "target": first["play"],
+                            "title": "Rat Pack 1"}
+    assert first["download"] == {"source": "podomatic"}
+    # Non-Podomatic enclosures are playable/favouritable but not downloadable.
+    assert second["fav"]["target"] == "https://cdn.example/two.mp3"
+    assert "download" not in second
 
 
 # --------------------------------------------------------------------------- downloads + live
@@ -411,6 +493,9 @@ def test_download_allowlists_are_exact_hosts():
     assert not allowed("ukraves", "https://www.mediafire.com/file/x/y.mp3")[0]
     assert allowed("mikus", "https://drive.usercontent.google.com/download?id=x")[0]
     assert not allowed("mikus", "https://drive.google.com/file/d/x/view")[0]
+    assert allowed("mikus", "http://www.terraincognita.co.uk/musik/one.mp3")[0]
+    assert not allowed("mikus", "https://evil.example/musik/one.mp3")[0]
+    assert not allowed("mikus", "http://www.terraincognita.co.uk/musik/one.zip")[0]
 
 
 def test_ukraves_download_resolves_the_mediafire_page(web, monkeypatch):
@@ -444,6 +529,22 @@ def test_mikus_download_uses_the_drive_view_as_stable_identity(web, monkeypatch)
     assert listing[0]["sub"].endswith("Mikus Musik")
 
 
+def test_mikus_direct_mp3_download_is_allowlisted(web, monkeypatch):
+    url = "http://www.terraincognita.co.uk/musik/One%20Last%20Session.mp3"
+    monkeypatch.setattr(app_module, "_open_stream",
+                        lambda target, headers, deadline: _fake_stream(target))
+    response = web.post("/api/downloads", data=json.dumps({
+        "source": "mikus", "url": url, "title": "One Last Session",
+    }), content_type="application/json")
+    assert response.status_code == 200, response.get_data(as_text=True)
+    listing = web.get("/api/downloads").get_json()["items"]
+    assert listing[0]["label"] == "One Last Session"
+    assert listing[0]["sub"].endswith("Mikus Musik")
+    # A saved download is itself a track row with a stable same-origin favourite.
+    assert listing[0]["fav"] == {"kind": "stream", "target": listing[0]["play"],
+                                 "title": "One Last Session"}
+
+
 def test_live_room_includes_the_two_new_stations(web):
     payload = web.get("/api/live").get_json()
     by_label = {item["label"]: item for item in payload["items"]}
@@ -452,6 +553,9 @@ def test_live_room_includes_the_two_new_stations(web):
     assert by_label["OSA Radio"]["play"] == "https://osa.radioca.st/stream"
     assert by_label["OSA Radio"]["art"] == "/static/art/osa.png"
     assert "duration" not in by_label["DejaVu FM"]
+    assert by_label["DejaVu FM"]["fav"]["target"] == by_label["DejaVu FM"]["play"]
+    # Live streams are never download targets.
+    assert all("download" not in item for item in payload["items"])
 
 
 def test_new_rooms_are_in_the_menu_and_hubs(web):
