@@ -105,9 +105,13 @@ def test_parse_supported_forms(url):
     assert link.handle == HANDLE
     assert link.key == KEY
     assert link.key_bytes.hex() == KEY_HEX
-    assert link.cache_key() == "mega:%s:%s" % (HANDLE, KEY)
+    assert link.cache_key().startswith("mega:")
+    assert KEY not in link.cache_key()
     assert link.canonical == NEW_URL
-    assert str(link) == NEW_URL
+    # Neither repr nor str may leak the fragment key (logs/debuggers).
+    assert KEY not in repr(link)
+    assert KEY not in str(link)
+    assert str(link) == "https://mega.nz/file/%s" % HANDLE
     assert mega.supports(url) is True
 
 
@@ -331,12 +335,32 @@ def test_mega_nz_storage_host_is_allowed():
     "javascript:alert(1)",
     "http://gfs1.userstorage.mega.co.nz/dl/x#frag",
     "http://gfs1.userstorage.mega.co.nz:99999/dl/x",
+    "http://gfs1.userstorage.mega.co.nz:22/dl/x",     # non-web port
+    "https://gfs1.userstorage.mega.co.nz:8443/dl/x",  # non-web port
 ])
 def test_download_url_allowlist_and_private_host_rejection(download_url):
     with pytest.raises(mega.FormatChanged):
         mega.resolve(
             NEW_URL, transport=_fake(body=_body(g=download_url)),
             sleep=lambda _: None)
+
+
+@pytest.mark.parametrize("download_url", [
+    "http://gfs1.userstorage.mega.co.nz/dl/x",
+    "http://gfs1.userstorage.mega.co.nz:80/dl/x",
+    "https://gfs1.userstorage.mega.co.nz:443/dl/x",
+])
+def test_download_url_accepts_only_standard_ports(download_url):
+    result = mega.resolve(
+        NEW_URL, transport=_fake(body=_body(g=download_url)),
+        sleep=lambda _: None)
+    assert result["url"] == download_url
+
+
+def test_link_rejects_non_web_port():
+    for port in (22, 8443, 8080):
+        with pytest.raises(mega.Unsupported):
+            mega.parse_link("https://mega.nz:%d/file/%s#%s" % (port, HANDLE, KEY))
 
 
 def test_bad_link_key_fails_attribute_decryption():
@@ -652,3 +676,14 @@ def test_single_flight_shares_negative_result():
     assert calls == [1]
     assert len(errors) == 4
     assert all(isinstance(exc, mega.NotFound) for exc in errors)
+
+
+def test_provider_cache_is_bounded(monkeypatch):
+    mega.clear_memory()
+    monkeypatch.setattr(mega, "MAX_CACHE_ENTRIES", 3)
+    for index in range(10):
+        mega._cache_put_value(
+            "k%d" % index,
+            {"url": "http://gfs1.userstorage.mega.co.nz/dl/%d" % index})
+    assert len(mega._CACHE) <= 3
+    mega.clear_memory()

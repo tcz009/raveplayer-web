@@ -16,9 +16,17 @@ Two adapters ship here:
 |---|---|---|
 | `podomatic` | `*.podomatic.com` enclosure URLs and `pdcn.co/e/...` links | canonical `https://<show>.podomatic.com/enclosure/...` |
 | `direct` | allowlisted public `http(s)` `.mp3` / `.m4a` URLs | the same URL, normalised, plus optional headers |
+| `mediafire` | `*.mediafire.com` `/file/` or `/download/` pages | signed `download*.mediafire.com` URL |
+| `drive` | `drive.google.com` / `docs.google.com` file links | short-lived `drive.usercontent.google.com` URL |
+| `mega` | `mega.nz` / `mega.co.nz` / `mega.io` file links with fragment key | short-lived `*.userstorage.mega.*` URL (+ `stream` field) |
 
-Provider adapters for Mediafire, Google Drive and Mega are **interfaces only**
-in this branch; see [Plugging in new adapters](#plugging-in-new-adapters).
+Mediafire, Google Drive and Mega are implemented as service adapters.  This
+revision also carries the fixes from the `RESOLVER-SECURITY-1.6.62` audit:
+mandatory result allowlists, 80/443-only ports, bounded caches/limiter state,
+hashed cache keys, wall-clock-bounded page fetches with no global provider
+lock, and a fail-closed auth fallback.  See
+[Security model](#security-model-ssrf--open-proxy) and
+[Configuration](#configuration).
 
 ---
 
@@ -40,11 +48,17 @@ Content-Type: application/json
 ```
 
 * `u` and `url` are accepted as aliases (`GET` query or JSON/form field).
+* **Prefer POST for every provider link, and require it for MEGA file links.**
+  A real browser never sends a URL fragment in a GET; a MEGA GET therefore
+  loses the decryption key, while a client that percent-encodes `#` as `%23`
+  puts the key in the query string, reverse-proxy logs and browser history.
+  Send MEGA links as a JSON `url` (or form `url`) with POST.
 * Maximum URL length is **2048 bytes**; request bodies over **8 KiB** are
   rejected before parsing.
-* Only `http` and `https` are accepted. Credentials in the URL, backslashes,
-  control characters and fragments are rejected or stripped (fragments are
-  stripped).
+* Only `http` and `https` are accepted, and only ports **80/443**. Credentials
+  in the URL, backslashes and control characters are rejected; fragments are
+  stripped from the cached/normalised form (MEGA adapters see the raw URL so
+  they can read the key, but it never becomes a cache key).
 * The endpoint accepts JSON only for the normal path; a form-encoded `url=`
   field is also accepted for simple clients.
 
@@ -117,7 +131,10 @@ as defence in depth; when mounted standalone (tests/embeds) it returns `401
 {"ok": false, "error": "authentication required", "code": "unauthorized"}`.
 `RESOLVER_AUTH_CHECK` (Flask config, callable or bool) can inject a checker for
 an embedding application; it is *not* an auth bypass and defaults to the app's
-`_session_valid`.
+`_session_valid`.  The blueprint **fails closed**: if the app module or its
+`_session_valid` cannot be imported, every request is `401`.  The presence of
+`auth`/`sid` in the signed cookie is never accepted on its own, because that
+would skip identity/role checks, session age, revocation and block state.
 
 There is no API-token mode. A Kodi client must present the same authenticated
 session cookie as the web UI (or call through a component that already has
@@ -135,8 +152,10 @@ The endpoint is intentionally **not** a generic proxy.
    allowlist; everything else is `400 unknown`.
 2. **Allowlist.** Matching is exact-host or dot-boundary subdomain
    (`example.com` matches `cdn.example.com`, never `notexample.com`).
-   Wildcards are rejected. `RESOLVER_DIRECT_HOSTS` replaces the curated list;
-   set it empty to disable direct URLs entirely.
+   Wildcards are rejected.  **Every adapter must expose a non-empty
+   `HostAllowlist` as `allowlist`;** the service fails closed (`502 upstream`)
+   when it is absent and rechecks the resolved host against it.  `RESOLVER_DIRECT_HOSTS` replaces the curated direct
+   list; set it empty to disable direct URLs entirely.
 3. **Private/loopback rejection.** `127.0.0.0/8`, `10/8`, `172.16/12`,
    `192.168/16`, `169.254/16`, `::1`, ULA/link-local, multicast, reserved,
    `localhost`, single-label Docker/K8s names and `.local`/`.internal` names
@@ -144,9 +163,12 @@ The endpoint is intentionally **not** a generic proxy.
    mixed public/private answers fail closed. Failures/DNS errors are `400
    blocked`. This guard deliberately ignores `RAVEWEB_ALLOW_PRIVATE=1`:
    unlike page scraping, this service returns URLs to clients elsewhere.
-4. **No redirects.** Adapters return a URL; they never ask a client to follow
-   a redirect. The optional HEAD probe uses a redirect-free HTTP client and
-   reports 3xx/4xx/5xx as errors rather than following them.
+4. **No blind redirects.** Adapters return a URL; they never ask a client to
+   follow a redirect.  The optional HEAD probe and the Mediafire page fetch
+   refuse every 3xx.  The Drive adapter may follow a 3xx only to an
+   allowlisted Drive host (max 3 hops) and re-runs the public-host check on
+   every hop; a redirect to loopback/LAN/an unlisted host is refused with no
+   second request.
 5. **No media proxying.** The service never opens the media stream, so it
    cannot be used to exfiltrate bytes or bypass client-side egress rules.
 6. **Header hygiene.** Only safe request headers are returned. `Cookie`,
@@ -154,22 +176,36 @@ The endpoint is intentionally **not** a generic proxy.
    `Transfer-Encoding`, proxy/forwarding headers and CRLF injection are
    rejected; an adapter returning them produces `502 upstream`.
 7. **Result re-check.** The service independently validates the adapter's
-   returned URL (scheme/length/credentials) and re-runs the public-host check.
-   A buggy provider adapter cannot return a private URL.
+   returned URL (scheme/length/credentials/port), enforces the adapter's
+   allowlist, and re-runs the public-host check.  A buggy provider adapter
+   cannot return a private URL or an arbitrary public host.
 
-Rate limiting and caching are per target host:
+Rate limiting and caching are per **registrable domain**, not per exact host:
 
 * **Token bucket** (`RESOLVER_RATE_PER_MINUTE`, `RESOLVER_BURST`) is consumed
-  only on a cache miss, just before the adapter runs. Different hosts have
-  independent buckets; a cached resolution does not consume a token.
+  only on a cache miss, just before the adapter runs.  `n1.mediafire.com`,
+  `n2.mediafire.com` and `mediafire.com` share one bucket (same for
+  `*.google.com`, `*.mega.co.nz`), so minting a new subdomain does not mint a
+  new burst.  The bucket map is capped (4096 keys, LRU).
+* **Per-identity quota hook.** `ResolverService(identity_quota=...)` accepts
+  `identity -> retry_after` and is called with the opaque session identity.
+  The default service enables `RESOLVER_IDENTITY_RATE_PER_MINUTE=120`,
+  `RESOLVER_IDENTITY_BURST=30`; set the rate to `0` to disable.  A hook
+  exception fails closed (429).  Tests and single-user embeds can pass
+  `identity_quota=None`.
 * **Positive cache** TTL `RESOLVER_CACHE_TTL` (and never beyond the adapter's
   `expires`), **negative cache** for definitive `404`/`upstream` failures for
   `RESOLVER_NEGATIVE_TTL`. Timeouts, rate limits, blocked and unsupported
-  results are **not** negatively cached.
+  results are **not** negatively cached.  Entries are keyed by
+  `sha256(source + "\0" + raw_url)`, never the raw URL/fragment; the cache is
+  capped at 2048 entries.
+* **Bounded provider state.** Mega/Mediafire/Drive caches have TTL sweeps and
+  entry caps; per-host single-flight locks are LRU-capped and only idle locks
+  are evicted, so the map cannot grow without bound.
 * **Single-flight per host.** Concurrent requests for the same URL share the
   first result; different URLs on the same host are serialised so a provider
-  never sees parallel resolution work from one worker. This is per process,
-  like the provider fetch gate; multiple gunicorn workers each have a cache.
+  never sees parallel resolution work from one worker. This is per process;
+  multiple gunicorn workers each have a cache.
 
 ---
 
@@ -183,8 +219,10 @@ request) or when `build_default_service()` is called.
 | `RESOLVER_TIMEOUT` | `5` | Per-request timeout for adapter HTTP work; clamped to `0.5 .. 15` seconds |
 | `RESOLVER_CACHE_TTL` | `300` | Positive cache seconds (never past `Resolved.expires_at`) |
 | `RESOLVER_NEGATIVE_TTL` | `15` | Negative cache seconds; `0` disables |
-| `RESOLVER_RATE_PER_MINUTE` | `60` | Per-host token refill; `0` disables limiting |
-| `RESOLVER_BURST` | `10` | Per-host bucket size |
+| `RESOLVER_RATE_PER_MINUTE` | `60` | Per-registrable-domain token refill; `0` disables limiting |
+| `RESOLVER_BURST` | `10` | Per-registrable-domain bucket size |
+| `RESOLVER_IDENTITY_RATE_PER_MINUTE` | `120` | Per-session request refill; `0` disables the hook |
+| `RESOLVER_IDENTITY_BURST` | `30` | Per-session bucket size |
 | `RESOLVER_DIRECT_HOSTS` | curated list | Comma-separated exact/suffix hosts. **Replaces** the defaults; empty disables direct audio |
 | `RESOLVER_ADAPTERS` | all importable | Comma-separated optional module names (`mediafire,drive,mega`); empty/absent auto-loads every module that exists |
 | `RESOLVER_VERIFY` | `0` | `1` enables optional HEAD audio verification for Podomatic/direct (extra upstream request; off by default because the service is pass-through) |
@@ -210,7 +248,10 @@ app.config["RESOLVER_SERVICE"] = ResolverService(
 | `core/resolver/base.py` | `Resolver` protocol, `Resolved`, typed errors, URL normalisation, `HostAllowlist`, SSRF/private checks, header sanitising, bounded timeout helper, `UrllibHTTPClient` (redirect-free, capped bodies) |
 | `core/resolver/direct.py` | allowlisted `.mp3`/`.m4a` pass-through; optional referer/UA headers; optional HEAD probe |
 | `core/resolver/podomatic.py` | `*.podomatic.com` enclosures and `pdcn.co/e/...` canonicalisation; rejects pages, feeds and playlists |
-| `core/resolver/cache.py` | TTL + negative cache + per-host single-flight, injectable clock |
+| `core/resolver/cache.py` | TTL + negative cache + bounded per-host single-flight, injectable clock |
+| `core/resolver/mediafire.py` | Mediafire page → signed URL via the injected bounded client |
+| `core/resolver/drive.py` | Drive file → signed URL via the injected bounded client; allowlisted redirect hops |
+| `core/resolver/mega.py` | MEGA file link → storage URL + stream metadata; typed error mapping |
 | `core/resolver/service.py` | Flask blueprint, session auth, error→status mapping, per-host token bucket, adapter registry, optional adapter discovery |
 | `core/resolver/__init__.py` | Flask-free exports; lazily exposes the service names |
 
@@ -268,18 +309,22 @@ Rules for adapter authors:
 
 * `matches()` must never perform I/O; it is called before the cache and rate
   limiter on every request.
-* Allowlist the provider's direct-file hosts with `base.HostAllowlist`; do not
-  accept arbitrary paths. Reject page/player/playlist URLs with
+* **Mandatory:** publish the provider's direct-file hosts as
+  `self.allowlist = base.HostAllowlist([...])`.  A missing/empty allowlist
+  fails closed (`502 upstream`), and any result outside it is rejected.  Do
+  not accept arbitrary paths; reject page/player/playlist URLs with
   `base.UnsupportedMedia`.
 * Call `base.assert_public_url(url, dns=self.dns)` before returning a URL (the
   service also re-checks, defence in depth). Never pass `allow_private`.
-* Optionally expose ``self.allowlist = base.HostAllowlist([...])``. When
-  present, the service verifies the resolved URL's host against it (a
-  provider bug cannot return an arbitrary public host). The shipped
-  Podomatic and direct adapters both expose one.
-* Use `self.http` (`UrllibHTTPClient`) for metadata. It caps bodies at 1 MiB,
-  clamps timeouts, refuses redirects and re-checks the destination. Do not use
-  `requests`/`urllib` directly for provider pages without the same guards.
+* `self.allowlist` is required (see above).  The shipped Podomatic, direct,
+  Mediafire, Drive and Mega adapters all expose one.
+* Use `self.http` (`UrllibHTTPClient`) for **all** provider pages/metadata. It
+  caps bodies (the default service uses 4 MiB), clamps timeouts, enforces a
+  wall-clock read deadline, refuses redirects and re-checks the destination
+  against the SSRF policy.  Do not use `requests`/`urllib` directly, and do
+  not hold a module-global lock across a fetch.  If you need a provider
+  redirect, validate every hop against the provider allowlist and re-run
+  `assert_public_url` before following it (see `drive.py`).
 * Raise `base.NotFound` for 404/410, `base.UpstreamTimeout` for socket
   timeouts, `base.UpstreamError` for other provider failures, and
   `base.UnsupportedMedia` for non-media URLs. These map to the HTTP table
@@ -307,8 +352,9 @@ before `direct` (the default builder already does).
 
 Kodi has no special endpoint; it consumes the same JSON:
 
-1. Call `GET /api/resolve?u=<url-encoded provider URL>` with the session
-   cookie used by the web app.
+1. Call `POST /api/resolve` with `{"url": "<provider URL>"}` and the session
+   cookie used by the web app.  GET is retained for simple non-MEGA callers,
+   but MEGA links need POST so the fragment key is not lost/leaked.
 2. On `200`, set the Kodi `ListItem` path to `url` and apply `headers` as
    `setProperty("...")`/`http-header` values in the add-on's player.
 3. On `expires`, do not cache the URL past that timestamp; re-resolve on the
@@ -330,11 +376,16 @@ Offline, no DNS or network:
 ```
 
 Covers adapter matching/resolution with fake DNS and fake HTTP, Podomatic
-page/playlist rejection, cache TTL/negative/single-flight, per-host rate
-limiting, auth `401`, blocked/private hosts, every error→status mapping,
-arbitrary-host rejection, the GET/POST JSON contract and no-redirect/no-store
-headers. The shared `test/conftest.py` still imports the web app, so run from
-the repo root (the worktree's parent `.venv` works during review).
+page/playlist rejection, cache TTL/negative/single-flight, per-domain rate
+limiting, bounded limiter/host-lock state, the per-identity quota hook,
+fail-closed auth, blocked/private hosts, 80/443 port rejection, mandatory
+result allowlists, hashed cache keys, every error→status mapping, the
+GET/POST JSON contract and no-store headers.  The Mediafire/Drive regression
+tests in `test/test_resolver_mediafire_drive.py` additionally cover the
+wall-clock slow-drip deadline, 302-to-loopback refusal, concurrent distinct
+URLs and timeout propagation.  The shared `test/conftest.py` still imports the
+web app, so run from the repo root (the worktree's parent `.venv` works during
+review).
 
 ## Non-goals
 

@@ -31,6 +31,8 @@ from __future__ import annotations
 
 import base64
 import binascii
+import collections
+import hashlib
 import gzip
 import html
 import io
@@ -134,6 +136,9 @@ BACKOFF_BASE = 0.5
 MAX_BACKOFF = 5.0
 FLIGHT_WAIT = DEADLINE + 5.0
 MAX_RESPONSE_BYTES = 64 * 1024
+# Cache entries are cheap but a caller can mint a new handle/key per request;
+# keep the provider cache bounded and sweep expired entries on every write.
+MAX_CACHE_ENTRIES = 1024
 
 _FILE_PATH_RE = re.compile(r"^/file/([A-Za-z0-9_-]{6,16})/?$")
 _HANDLE_RE = re.compile(r"^[A-Za-z0-9_-]{6,16}$")
@@ -218,7 +223,8 @@ class MegaLink:
     """
 
     handle: str
-    key: str
+    # Never let the fragment key reach a repr, log line or debugger view.
+    key: str = field(repr=False)
     key_bytes: bytes = field(repr=False)
 
     @property
@@ -226,10 +232,18 @@ class MegaLink:
         return "https://mega.nz/file/%s#%s" % (self.handle, self.key)
 
     def cache_key(self):
-        return "mega:%s:%s" % (self.handle, self.key)
+        # Hash the capability instead of storing it in a cache key.  The key
+        # still distinguishes entries (and the handle) without exposing the
+        # 32-byte fragment to a cache dump.
+        return "mega:" + hashlib.sha256(
+            ("%s:%s" % (self.handle, self.key)).encode("ascii")).hexdigest()
+
+    def __repr__(self):
+        return "MegaLink(handle=%r)" % (self.handle,)
 
     def __str__(self):
-        return self.canonical
+        # Handle only: printing the canonical URL would print the key.
+        return "https://mega.nz/file/%s" % (self.handle,)
 
 
 # --------------------------------------------------------------------------- #
@@ -738,8 +752,8 @@ def _validate_download_url(raw):
         port = parts.port
     except ValueError:
         raise FormatChanged("MEGA download URL has an invalid port")
-    if port is not None and not 1 <= port <= 65535:
-        raise FormatChanged("MEGA download URL has an invalid port")
+    if port is not None and port not in (80, 443):
+        raise FormatChanged("MEGA download URL has an unexpected port")
 
     host = (parts.hostname or "").lower().rstrip(".")
     if not host:
@@ -770,7 +784,7 @@ class _CacheEntry(object):
         self.expires = expires
 
 
-_CACHE = {}
+_CACHE = collections.OrderedDict()
 _CACHE_LOCK = threading.RLock()
 _FLIGHTS = {}
 _FLIGHTS_LOCK = threading.Lock()
@@ -803,6 +817,14 @@ def _clone_error(exc):
     return exc
 
 
+def _trim_cache_locked(now):
+    for stale in [key for key, entry in _CACHE.items()
+                  if entry.expires <= now]:
+        _CACHE.pop(stale, None)
+    while len(_CACHE) > MAX_CACHE_ENTRIES:
+        _CACHE.popitem(last=False)
+
+
 def _cache_get(key):
     with _CACHE_LOCK:
         entry = _CACHE.get(key)
@@ -811,6 +833,7 @@ def _cache_get(key):
         if entry.expires <= _monotonic():
             _CACHE.pop(key, None)
             return None
+        _CACHE.move_to_end(key)
         return entry
 
 
@@ -820,6 +843,8 @@ def _cache_put_value(key, value):
             value=_copy_result(value),
             expires=_monotonic() + URL_TTL,
         )
+        _CACHE.move_to_end(key)
+        _trim_cache_locked(_monotonic())
 
 
 def _cache_put_error(key, error):
@@ -833,6 +858,8 @@ def _cache_put_error(key, error):
             error=_clone_error(error),
             expires=_monotonic() + ttl,
         )
+        _CACHE.move_to_end(key)
+        _trim_cache_locked(_monotonic())
 
 
 def clear_memory():
@@ -1045,13 +1072,31 @@ def _map_error(exc):
         return _base.UpstreamError(str(exc))
     return _base.UpstreamError(str(exc))
 
+# HostAllowlist form of the storage-host rules above.  The service requires
+# every adapter to publish a non-empty allowlist and rechecks the result
+# against it (defence in depth if MEGA ever changes its API response).
+MEGA_ALLOWLIST_HOSTS = (
+    "g.api.mega.co.nz",
+    "g.api.mega.nz",
+    "userstorage.mega.co.nz",
+    "userstorage.mega.nz",
+    "userstorage.mega.io",
+)
+
+
 class MegaResolver(object):
     """Adapter glue: Mega capability link -> Resolved."""
 
     source = "mega"
+    allowlist = (_base.HostAllowlist(MEGA_ALLOWLIST_HOSTS)
+                 if _base is not None else None)
 
     def __init__(self, timeout=None, http=None, dns=None, clock=None):
-        self.timeout = timeout
+        self.timeout = (_base.clamp_timeout(timeout)
+                        if _base is not None else timeout)
+        self.http = http
+        self.dns = dns
+        self.clock = clock
 
     def matches(self, url):
         try:

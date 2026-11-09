@@ -68,6 +68,10 @@ class EchoAdapter(object):
     """Matches everything and returns the input URL unless configured to fail."""
 
     source = "echo"
+    # Every real adapter must publish one; the test adapter covers the hosts
+    # used by this module (the service now fails closed without it).
+    allowlist = base.HostAllowlist(
+        ("example", "example.com", "mediafire.com", "mega.nz"))
 
     def __init__(self, error=None, result=None, calls=None):
         self.error = error
@@ -725,3 +729,135 @@ def test_build_default_service_is_offline_until_used(fake_dns, clock, monkeypatc
     assert sources[:1] == ["podomatic"]
     assert "direct" in sources
     assert fake_dns.calls == []
+
+
+# --------------------------------------------------------------------------- hardening
+
+
+def test_normalize_url_restricts_ports():
+    assert base.normalize_url("https://cdn.example.com:443/a.mp3") == \
+        "https://cdn.example.com/a.mp3"
+    assert base.normalize_url("http://cdn.example.com:80/a.mp3") == \
+        "http://cdn.example.com/a.mp3"
+    for url in ("https://cdn.example.com:8443/a.mp3",
+                "https://cdn.example.com:22/a.mp3",
+                "http://cdn.example.com:8080/a.mp3"):
+        with pytest.raises(base.InvalidRequest):
+            base.normalize_url(url)
+
+
+def test_validate_resolved_rejects_non_web_port(clock):
+    resolved = base.Resolved(
+        "https://cdn.example.com:8443/a.mp3", {}, clock.now + 60, "direct")
+    with pytest.raises(base.UpstreamError):
+        base.validate_resolved(resolved, now=clock.now)
+
+
+def test_check_public_host_restricts_ports(fake_dns):
+    with pytest.raises(base.BlockedURL):
+        base.check_public_host("cdn.example.com", 8443, dns=fake_dns)
+    assert fake_dns.calls == []
+    assert base.check_public_host("cdn.example.com", 443, dns=fake_dns)
+
+
+def test_registrable_domain_buckets_provider_subdomains():
+    assert base.registrable_domain("n12.mediafire.com") == "mediafire.com"
+    assert base.registrable_domain("gfs208n127.userstorage.mega.co.nz") == \
+        "mega.co.nz"
+    assert base.registrable_domain("www.google.com") == "google.com"
+    assert base.registrable_domain("93.184.216.34") == "93.184.216.34"
+
+
+def test_auth_fails_closed_without_app_checker(client, monkeypatch):
+    """auth+sid alone must never authenticate once the app check is gone."""
+    def unavailable(name, package=None):
+        raise ImportError("standalone mount")
+
+    monkeypatch.setattr(resolver_service.importlib, "import_module", unavailable)
+    with client.session_transaction() as sess:
+        sess["auth"] = True
+        sess["sid"] = "looks-like-a-session"
+        sess["identity"] = "owner"
+        sess["role"] = "admin"
+    response = client.get("/api/resolve?u=https://cdn.example.com/a.mp3")
+    assert response.status_code == 401
+    assert response.get_json()["code"] == "unauthorized"
+
+
+def test_service_identity_quota_hook(client, authed, flask_app, fake_dns, clock):
+    service = ResolverService(
+        adapters=[EchoAdapter()],
+        cache=resolver_cache.ResolverCache(clock=clock),
+        limiter=TokenBucket(rate_per_minute=0),
+        dns=fake_dns,
+        clock=clock,
+        identity_quota=lambda identity: 5 if identity == "friends" else 0,
+    )
+    attach(flask_app, service)
+    with client.session_transaction() as sess:
+        sess["identity"] = "friends"
+    response = client.get("/api/resolve?u=https://fake.example/a.mp3")
+    assert response.status_code == 429
+    assert response.get_json()["retry_after"] == 5
+
+
+def test_service_cache_key_does_not_contain_the_url(fake_dns, clock):
+    service = make_service(fake_dns, clock, [EchoAdapter()])
+    service.resolve("https://fake.example/x.mp3#FRAGMENT-SECRET")
+    keys = list(service.cache._entries)
+    assert keys
+    for key in keys:
+        assert len(key) == 64
+        assert "FRAGMENT-SECRET" not in key
+        assert "fake.example" not in key
+
+
+def test_token_bucket_buckets_by_registrable_domain(
+        client, authed, flask_app, fake_dns, clock):
+    service = ResolverService(
+        adapters=[EchoAdapter()],
+        cache=resolver_cache.ResolverCache(clock=clock),
+        limiter=TokenBucket(rate_per_minute=1, burst=1, clock=FakeClock()),
+        dns=fake_dns,
+        clock=clock,
+    )
+    attach(flask_app, service)
+    first = client.get("/api/resolve?u=https://n1.mediafire.com/a.mp3")
+    assert first.status_code == 200
+    second = client.get("/api/resolve?u=https://n2.mediafire.com/b.mp3")
+    assert second.status_code == 429
+
+
+def test_token_bucket_state_is_bounded():
+    bucket = TokenBucket(rate_per_minute=600, burst=1,
+                         clock=FakeClock(), max_keys=4)
+    for index in range(50):
+        bucket.take("host-%d.example" % index)
+    assert len(bucket) == 4
+
+
+def test_cache_host_locks_are_bounded(clock):
+    cache = resolver_cache.ResolverCache(clock=clock, max_host_locks=2)
+    for index in range(10):
+        cache.run(
+            "key-%d" % index,
+            "h%d.example" % index,
+            lambda: base.Resolved("https://cdn.example.com/a.mp3", {},
+                                  clock.now + 60, "direct"),
+        )
+    assert len(cache._host_locks) <= 2
+
+
+def test_adapter_without_allowlist_fails_closed(fake_dns, clock):
+    class NoAllowlistAdapter(EchoAdapter):
+        allowlist = None
+
+    service = ResolverService(
+        adapters=[NoAllowlistAdapter()],
+        cache=resolver_cache.ResolverCache(clock=clock),
+        limiter=TokenBucket(rate_per_minute=0),
+        dns=fake_dns,
+        clock=clock,
+    )
+    with pytest.raises(base.UpstreamError):
+        service.resolve("https://fake.example/x")

@@ -58,18 +58,34 @@ def cacheable_error(error):
     return False
 
 
+class _HostSlot(object):
+    """One per-host lock plus an in-use count for safe LRU eviction.
+
+    Evicting a lock while another thread is waiting on it would let a third
+    caller create a second lock for the same host and break single-flight.
+    Only idle slots are reclaimed.
+    """
+
+    __slots__ = ("lock", "users")
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.users = 0
+
+
 class ResolverCache(object):
     """TTL + negative cache + per-host single-flight."""
 
     def __init__(self, positive_ttl=300.0, negative_ttl=15.0,
-                 max_entries=2048, clock=time.time):
+                 max_entries=2048, clock=time.time, max_host_locks=1024):
         self.positive_ttl = max(1.0, float(positive_ttl))
         self.negative_ttl = max(0.0, float(negative_ttl))
         self.max_entries = max(1, int(max_entries))
+        self.max_host_locks = max(1, int(max_host_locks))
         self.clock = clock
         self._entries = collections.OrderedDict()
         self._lock = threading.RLock()
-        self._host_locks = {}
+        self._host_locks = collections.OrderedDict()
 
     # -- public API -----------------------------------------------------
 
@@ -161,36 +177,54 @@ class ResolverCache(object):
             if entry.value is not None:
                 return entry.value
 
-        lock = self._host_lock(host)
-        with lock:
-            # Another thread may have filled this key while we waited for the
-            # host slot.
-            entry = self.lookup(key)
-            if entry is not None:
-                if entry.error is not None:
-                    raise entry.error
-                if entry.value is not None:
-                    return entry.value
-            try:
-                resolved = factory()
-            except base.ResolverError as exc:
-                self.store_error(key, exc)
-                raise
-            if not isinstance(resolved, base.Resolved):
-                error = base.UpstreamError("resolver returned an invalid result")
-                self.store_error(key, error)
-                raise error
-            self.store(key, resolved)
-            return resolved
-
-    def _host_lock(self, host):
         host = str(host or "").lower()
+        slot = self._acquire_host_slot(host)
+        try:
+            with slot.lock:
+                # Another thread may have filled this key while we waited for
+                # the host slot.
+                entry = self.lookup(key)
+                if entry is not None:
+                    if entry.error is not None:
+                        raise entry.error
+                    if entry.value is not None:
+                        return entry.value
+                try:
+                    resolved = factory()
+                except base.ResolverError as exc:
+                    self.store_error(key, exc)
+                    raise
+                if not isinstance(resolved, base.Resolved):
+                    error = base.UpstreamError("resolver returned an invalid result")
+                    self.store_error(key, error)
+                    raise error
+                self.store(key, resolved)
+                return resolved
+        finally:
+            self._release_host_slot(host, slot)
+
+    def _acquire_host_slot(self, host):
         with self._lock:
-            lock = self._host_locks.get(host)
-            if lock is None:
-                lock = threading.RLock()
-                self._host_locks[host] = lock
-            return lock
+            slot = self._host_locks.get(host)
+            if slot is None:
+                slot = _HostSlot()
+                self._host_locks[host] = slot
+            slot.users += 1
+            self._host_locks.move_to_end(host)
+            return slot
+
+    def _release_host_slot(self, host, slot):
+        with self._lock:
+            slot.users = max(0, slot.users - 1)
+            if len(self._host_locks) <= self.max_host_locks:
+                return
+            # Evict only idle slots; a host with active users keeps its lock.
+            for candidate in list(self._host_locks):
+                if len(self._host_locks) <= self.max_host_locks:
+                    break
+                idle = self._host_locks.get(candidate)
+                if idle is not None and idle.users == 0:
+                    self._host_locks.pop(candidate, None)
 
     def _trim_locked(self):
         now = self.clock()

@@ -39,6 +39,10 @@ MAX_URL_LENGTH = 2048
 DEFAULT_TIMEOUT = 5.0
 MIN_TIMEOUT = 0.5
 MAX_TIMEOUT = 15.0
+# Returned URLs may only use the standard web ports.  A provider page is not
+# allowed to hand a player ``https://host:22/...`` (protocol/port confusion at
+# the client) and the resolver itself only ever fetches 80/443.
+ALLOWED_PORTS = (80, 443)
 AUDIO_SUFFIXES = (".mp3", ".m4a")
 USER_AGENT = "RavePlayer/3.0 (resolver; +https://github.com/tcz009/plugin.audio.raveplayer)"
 
@@ -215,9 +219,15 @@ class Resolver(Protocol):
     request before the cache and rate limiter.  It must never perform DNS or
     network I/O.  ``resolve`` performs the (bounded) work and returns a
     :class:`Resolved`.
+
+    Every adapter **must** expose an :class:`HostAllowlist` as ``allowlist``.
+    The service fails closed (502) when it is missing *or* when the returned
+    URL's host is not allowed, so a provider bug cannot turn the resolver into
+    a public-URL echo.
     """
 
     source = ""
+    allowlist = None
 
     def matches(self, url):
         """Return True when this adapter owns *url*."""
@@ -323,8 +333,11 @@ def split_url(raw):
         port = parts.port
     except ValueError:
         raise InvalidRequest("url has an invalid port")
-    if port is not None and not 1 <= port <= 65535:
-        raise InvalidRequest("url has an invalid port")
+    if port is not None and port not in ALLOWED_PORTS:
+        # Restrict to the standard web ports.  This also keeps the resolver's
+        # own fetches away from e.g. ``host:22`` even when an adapter would
+        # otherwise hand a URL straight back.
+        raise InvalidRequest("url uses an unsupported port")
     return parts
 
 
@@ -365,6 +378,44 @@ def url_host(url):
         return (urllib.parse.urlsplit(str(url)).hostname or "").lower().rstrip(".")
     except (ValueError, AttributeError):
         return ""
+
+
+# A deliberately small public-suffix subset: enough to bucket the providers
+# this service knows about (``mega.co.nz``) without pulling in a dependency.
+# Anything not listed falls back to the last two labels.
+_MULTI_LABEL_SUFFIXES = frozenset((
+    "ac.uk", "co.uk", "gov.uk", "ltd.uk", "me.uk", "net.uk", "nhs.uk",
+    "org.uk", "plc.uk", "police.uk", "sch.uk",
+    "ac.nz", "co.nz", "geek.nz", "govt.nz", "net.nz", "org.nz", "school.nz",
+    "com.au", "edu.au", "gov.au", "net.au", "org.au",
+    "com.br", "com.mx", "com.sg", "com.tr", "com.tw", "com.hk",
+    "co.il", "co.in", "co.jp", "co.kr", "co.za", "ne.jp", "or.jp",
+))
+
+
+def registrable_domain(host):
+    """Return the registrable domain used for per-provider rate limiting.
+
+    ``n12.mediafire.com``, ``download1.mediafire.com`` and ``mediafire.com``
+    share one bucket.  This closes the "new subdomain, new burst" hole without
+    depending on an optional public-suffix package.  IP literals and
+    single-label hosts are returned unchanged.
+    """
+    host = str(host or "").strip().lower().rstrip(".")
+    if not host:
+        return ""
+    try:
+        ipaddress.ip_address(host)
+        return host
+    except ValueError:
+        pass
+    labels = host.split(".")
+    if len(labels) <= 2:
+        return host
+    last_two = ".".join(labels[-2:])
+    if last_two in _MULTI_LABEL_SUFFIXES and len(labels) >= 3:
+        return ".".join(labels[-3:])
+    return last_two
 
 
 def _safe_url(url):
@@ -532,6 +583,12 @@ def _lookup_addresses(host, port, dns):
 
 def check_public_host(host, port=443, dns=None):
     """Resolve *host* and fail closed unless every address is public."""
+    try:
+        port = int(port or 443)
+    except (TypeError, ValueError):
+        raise BlockedURL("unsupported port")
+    if port not in ALLOWED_PORTS:
+        raise BlockedURL("unsupported port")
     host = str(host or "").strip().lower().rstrip(".")
     if is_private_hostname(host):
         raise BlockedURL("private or loopback hosts are not allowed")

@@ -37,6 +37,12 @@ Supported link forms:
 ```text
 https://mega.nz/file/<handle>#<key>
 https://mega.nz/#!<handle>!<key>              (legacy)
+
+Send these links to `/api/resolve` with **POST**, never GET.  A browser does
+not send a URL fragment on GET (so the key is lost), and a client that
+percent-encodes `#` as `%23` puts the key into query strings, reverse-proxy
+logs, browser history and `Referer`.  The resolver never logs the key or the
+submitted URL, but intermediaries may.
 http://…, https://www.mega.nz/…, mega.co.nz, mega.io
 ```
 
@@ -94,7 +100,9 @@ cookies or a referer.
 Also public:
 
 - `mega.parse_link(value) -> MegaLink` — `handle`, canonical `key`,
-  `key_bytes`, `canonical`, `cache_key()`.
+  `key_bytes`, `canonical`, `cache_key()`.  `repr()`/`str()` deliberately show
+  only the handle (never the fragment key).  `cache_key()` is
+  `mega:` + `sha256(handle:key)`, so a cache dump does not expose the key.
 - `mega.supports(value) -> bool`.
 - `mega.decrypt_attributes(at_b64, key) -> dict` — used by tests and any
   caller that needs the filename/thumbnail handle.
@@ -275,8 +283,10 @@ Rate limiting is bounded:
 | `RateLimited` | `retry_after` or 60 s, capped at 5 min |
 | `Unsupported`, `FormatChanged`, `UpstreamError` | not cached |
 
-The cache key is `handle:key`, so the same file through the new and legacy URL
-forms shares one entry, while a different key is a different entry.
+The cache key is a hash of `handle:key` (never the fragment itself), so the
+same file through the new and legacy URL forms shares one entry, while a
+different key is a different entry.  The cache is capped at 1024 entries and
+expired entries are swept on every write.
 
 Single-flight is per cache key: if six requests miss at once, one API request
 is made and all six callers receive the same result or the same typed error.
@@ -300,13 +310,13 @@ before `resolve()`.
 Every network boundary is deny-by-default:
 
 - **Link hosts:** only `mega.nz`, `www.mega.nz`, `mega.co.nz`,
-  `www.mega.co.nz`, `mega.io`, `www.mega.io`.
+  `www.mega.co.nz`, `mega.io`, `www.mega.io`; only ports 80/443.
 - **API host:** fixed constant `g.api.mega.co.nz`; the URL is never built from
   request data (the handle only goes into the JSON body).
 - **Download URL host:** exact `g.api.mega.*`/`userstorage.mega.*`, or a
   subdomain of `.userstorage.mega.co.nz`, `.userstorage.mega.nz`,
   `.userstorage.mega.io`. IP literals, credentials, fragments, non-HTTP
-  schemes, and lookalike domains are rejected.
+  schemes, non-80/443 ports, and lookalike domains are rejected.
 - **No open proxy:** the module never fetches the returned storage URL and
   never accepts an arbitrary URL to fetch. It is not an HTTP proxy.
 - **No redirects:** the API opener installs a redirect handler that refuses
@@ -348,9 +358,12 @@ logs. The caller's own SSRF/range checks still apply if it proxies the URL.
 - **Per-worker cache:** multi-worker deployments make one API call per worker.
   A shared cache (Redis) is a future change.
 - **Dependency:** `pycryptodome` is required for attribute decryption and
-  stream decryption; it is pinned in `requirements.txt`
-  (`pycryptodome>=3.20,<5`). Without it, parsing works and `resolve()` raises
-  a clear `MegaError` (code 500) at the decryption step.
+  stream decryption; it is exact-pinned in `requirements.txt`
+  (`pycryptodome==4.4.0`, the version in the built venv).  Without it, parsing
+  works and `resolve()` raises a clear `MegaError` (code 500) at the
+  decryption step.  A hash-locked constraints file (`pip-compile --generate-hashes` /
+  `pip install --require-hashes`) is an optional follow-up for reproducible
+  Docker builds; the runtime pin is the required minimum.
 - **MEGA terms:** use within MEGA's terms and do not hammer the API; this
   adapter makes one request per cache miss/resolve.
 
@@ -361,7 +374,7 @@ logs. The caller's own SSRF/range checks still apply if it proxies the URL.
 "../../Rave Player/.venv/bin/python" -m pytest -q test/test_mega_resolver.py
 ```
 
-Result: `105 passed` (offline; no network, no live MEGA calls).
+Result: `112 passed` (offline; no network, no live MEGA calls).
 
 Coverage:
 
