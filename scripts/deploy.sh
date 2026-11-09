@@ -40,6 +40,7 @@ echo "deploying $IMAGE (git $REVISION), also tagging $LATEST_IMAGE"
 # Write secrets to a mode-600 file outside the build context and copy it to the
 # host. Never put them on an ssh command line or in the build context.
 AUTH_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/raveplayer-web-auth.XXXXXX")"
+REMOTE_TMP="${REMOTE_TMP:-/tmp}"
 trap 'rm -f "$AUTH_ENV_FILE" /tmp/raveplayer-web.tgz' EXIT INT TERM
 (umask 077
  {
@@ -54,29 +55,29 @@ trap 'rm -f "$AUTH_ENV_FILE" /tmp/raveplayer-web.tgz' EXIT INT TERM
        printf 'RTP_EGRESS_PROXY=%s\n' "$RTP_EGRESS_PROXY"
    fi
  } > "$AUTH_ENV_FILE")
-scp -q -i "$KEY" -o BatchMode=yes "$AUTH_ENV_FILE" "$HOST:/tmp/raveplayer-web-auth.env"
+scp -q -i "$KEY" -o BatchMode=yes "$AUTH_ENV_FILE" "$HOST:$REMOTE_TMP/raveplayer-web-auth.env"
 
 tar czf /tmp/raveplayer-web.tgz \
     --exclude='.venv' --exclude='.git' --exclude='test' --exclude='test_e2e' \
     --exclude='docs' --exclude='.pytest_cache' --exclude='__pycache__' --exclude='*.pyc' \
     --exclude='data' --exclude='AGENTS.md' --exclude='rave-player-space' -C . .
-scp -q -i "$KEY" -o BatchMode=yes /tmp/raveplayer-web.tgz "$HOST:/tmp/raveplayer-web.tgz"
+scp -q -i "$KEY" -o BatchMode=yes /tmp/raveplayer-web.tgz "$HOST:$REMOTE_TMP/raveplayer-web.tgz"
 
-ssh -i "$KEY" -o BatchMode=yes "$HOST" "bash -s" <<REMOTE
+ssh -i "$KEY" -o BatchMode=yes "$HOST" "REMOTE_TMP='"$REMOTE_TMP"' bash -s" <<REMOTE
 set -eu
 DATA_BACKUP="$DEST.data-backup"
 # Secrets live in a root-only env file outside the build context; the EXIT trap
 # guarantees it is removed on every path (success, run failure, rollback).
-ENV_FILE=/tmp/raveplayer-web.env
-AUTH_ENV=/tmp/raveplayer-web-auth.env
+ENV_FILE="$REMOTE_TMP/raveplayer-web.env"
+AUTH_ENV="$REMOTE_TMP/raveplayer-web-auth.env"
 trap 'rm -f "\$ENV_FILE" "\$AUTH_ENV"' EXIT INT TERM
 # keep favourites/cache on the host (not only in /tmp) until the new box is good
 rm -rf "\$DATA_BACKUP"
 if [ -d $DEST/data ]; then cp -a $DEST/data "\$DATA_BACKUP"; fi
 rm -rf $DEST
 mkdir -p $DEST
-tar xzf /tmp/raveplayer-web.tgz -C $DEST 2>/dev/null
-rm -f /tmp/raveplayer-web.tgz
+tar xzf "$REMOTE_TMP/raveplayer-web.tgz" -C $DEST 2>/dev/null
+rm -f "$REMOTE_TMP/raveplayer-web.tgz"
 mkdir -p $DEST/data
 if [ -d "\$DATA_BACKUP" ]; then cp -a "\$DATA_BACKUP/." $DEST/data/; fi
 chown -R 10001:10001 $DEST/data
@@ -139,5 +140,5 @@ docker ps --filter name=raveplayer-web --format '{{.Names}} {{.Status}}'
 exit 0
 REMOTE
 
-rm -f /tmp/raveplayer-web.tgz
+rm -f "$REMOTE_TMP/raveplayer-web.tgz"
 echo "deployed on $HOST (port $PORT): $IMAGE, revision $REVISION"
