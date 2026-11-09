@@ -68,8 +68,7 @@ def test_deploy_script_keeps_secrets_off_the_docker_command_line():
     script = _script()
     assert "--env-file" in script
     assert "-e SOUNDCLOUD_CLIENT_ID" not in script
-    assert "raveplayer-web.env" in script
-    assert "REMOTE_TMP" in script
+    assert "/tmp/raveplayer-web.env" in script
     assert "rm -f" in script
     # The value must be expanded by the *deploying* shell (ssh does not forward
     # the local environment), and never written with a literal escaped dollar.
