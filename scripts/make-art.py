@@ -508,6 +508,10 @@ TEXT_TILES = {
     "search.png": dict(lines=("SEARCH",), field=ACID, code="RP·09"),
     "downloads.png": dict(lines=("DOWNLOADS",), field=CYAN, code="RP·39"),
     "about.png": dict(lines=("ABOUT", "& SOURCES"), field=PAPER, code="RP·08"),
+    "tapepacks.png": dict(lines=("TAPE", "PACKS"), field=PAPER, code="RP·03"),
+    "pirate-radio.png": dict(lines=("PIRATE", "RADIO"), field=MAGENTA, code="RP·40"),
+    "mixes.png": dict(lines=("MIXES", "& SHOWS"), field=CYAN, code="RP·41"),
+
 
 }
 
