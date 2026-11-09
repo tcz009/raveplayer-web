@@ -1,0 +1,53 @@
+{
+  "base": "http://127.0.0.1:28097",
+  "endpoints": {
+    "ukraves p1": {
+      "decoded_bytes_p50": 11164,
+      "encoding": "gzip",
+      "errors": 0,
+      "kind": "json",
+      "max_ms": 760.4,
+      "n": 1,
+      "p50_ms": 760.4,
+      "p95_ms": 760.4,
+      "path": "/api/ukraves?page=1",
+      "status": 200,
+      "ttfb_p50_ms": 760.2,
+      "ttfb_p95_ms": 760.2,
+      "wire_bytes_p50": 1391
+    },
+    "ukraves p2": {
+      "decoded_bytes_p50": 13308,
+      "encoding": "gzip",
+      "errors": 0,
+      "kind": "json",
+      "max_ms": 712.1,
+      "n": 1,
+      "p50_ms": 712.1,
+      "p95_ms": 712.1,
+      "path": "/api/ukraves?page=2",
+      "status": 200,
+      "ttfb_p50_ms": 711.8,
+      "ttfb_p95_ms": 711.8,
+      "wire_bytes_p50": 1473
+    },
+    "ukraves p3": {
+      "decoded_bytes_p50": 13630,
+      "encoding": "gzip",
+      "errors": 0,
+      "kind": "json",
+      "max_ms": 1076.0,
+      "n": 1,
+      "p50_ms": 1076.0,
+      "p95_ms": 1076.0,
+      "path": "/api/ukraves?page=3",
+      "status": 200,
+      "ttfb_p50_ms": 1075.6,
+      "ttfb_p95_ms": 1075.6,
+      "wire_bytes_p50": 1638
+    }
+  },
+  "generated": "2026-11-09T10:49:04",
+  "label": "cold-ukraves-after",
+  "samples": 1
+}

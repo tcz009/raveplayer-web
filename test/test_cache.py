@@ -45,3 +45,16 @@ def test_has_matches_get_for_fresh_and_stale_entries(tmp_path, monkeypatch):
     cache.put("bench:has", {"value": 1})
     assert cache.has("bench:has", 60) is True
     assert cache.has("bench:has", 1, now=cache.time.time() + 10) is False
+
+
+def test_shared_read_skips_the_deep_copy_for_read_only_callers(tmp_path, monkeypatch):
+    monkeypatch.setenv("RAVEPLAYER_CACHE_DIR", str(tmp_path / "cache"))
+    cache.clear_memory()
+    cache.put("bench:shared", {"items": [1, 2]})
+    shared = cache.get("bench:shared", 60, copy_value=False)
+    assert shared is cache.get("bench:shared", 60, copy_value=False)
+    # The default stays defensive: a caller mutation cannot leak into the cache.
+    copied = cache.get("bench:shared", 60)
+    copied["items"].append(3)
+    assert cache.get("bench:shared", 60)["items"] == [1, 2]
+    assert cache.get("bench:shared", 60) is not cache.get("bench:shared", 60)

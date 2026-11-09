@@ -1,0 +1,68 @@
+{
+  "base": "http://127.0.0.1:28097",
+  "endpoints": {
+    "ezgarage stream": {
+      "decoded_bytes_p50": 65536,
+      "encoding": "",
+      "errors": 0,
+      "kind": "stream",
+      "max_ms": 1730.5,
+      "n": 1,
+      "p50_ms": 1730.5,
+      "p95_ms": 1730.5,
+      "path": "/api/ezgarage/72aswcrx4hlw2sh/stream",
+      "status": 206,
+      "ttfb_p50_ms": 1004.1,
+      "ttfb_p95_ms": 1004.1,
+      "wire_bytes_p50": 65536
+    },
+    "mikus drive": {
+      "decoded_bytes_p50": 188,
+      "encoding": "",
+      "errors": 0,
+      "kind": "json",
+      "max_ms": 2329.7,
+      "n": 1,
+      "p50_ms": 2329.7,
+      "p95_ms": 2329.7,
+      "path": "/api/mikus/drive/1tHRuSSMfNAdT1zicgYSrXegN0_RbvhS7",
+      "status": 200,
+      "ttfb_p50_ms": 2329.3,
+      "ttfb_p95_ms": 2329.3,
+      "wire_bytes_p50": 188
+    },
+    "mikus drive stream": {
+      "decoded_bytes_p50": 65536,
+      "encoding": "",
+      "errors": 0,
+      "kind": "stream",
+      "max_ms": 1471.1,
+      "n": 1,
+      "p50_ms": 1471.1,
+      "p95_ms": 1471.1,
+      "path": "/api/mikus/drive/1tHRuSSMfNAdT1zicgYSrXegN0_RbvhS7/stream",
+      "status": 206,
+      "ttfb_p50_ms": 1288.5,
+      "ttfb_p95_ms": 1288.5,
+      "wire_bytes_p50": 65536
+    },
+    "ukraves stream": {
+      "decoded_bytes_p50": 65536,
+      "encoding": "",
+      "errors": 0,
+      "kind": "stream",
+      "max_ms": 1243.3,
+      "n": 1,
+      "p50_ms": 1243.3,
+      "p95_ms": 1243.3,
+      "path": "/api/ukraves/6948/stream",
+      "status": 206,
+      "ttfb_p50_ms": 1073.4,
+      "ttfb_p95_ms": 1073.4,
+      "wire_bytes_p50": 65536
+    }
+  },
+  "generated": "2026-11-09T10:43:43",
+  "label": "cold-streams-1",
+  "samples": 1
+}

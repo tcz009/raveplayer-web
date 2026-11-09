@@ -160,18 +160,24 @@ def _fresh(timestamp, ttl, now):
     return ttl > 0 and 0 <= age <= ttl
 
 
-def get(key, ttl, now=None):
+def get(key, ttl, now=None, copy_value=True):
     """Return a cached value, or :data:`MISSING` when absent/stale.
 
     ``ttl`` may be ``None`` for an entry that never expires.  Any disk or
     decode problem is logged at debug level and reported as a miss.
+
+    ``copy_value=False`` returns the shared in-process object instead of a deep
+    copy.  Only use it for callers that treat the value as read-only: a large
+    parsed feed (DejaVu FM's 4,000-episode list) otherwise costs a ~50 ms deep
+    copy on every /api/latest.  The disk path still returns a fresh object, so
+    a cold process can never alias another caller's mutation.
     """
     now = time.time() if now is None else now
     record = _memory_get(key)
     if record is not None:
         timestamp, value = record
         if _fresh(timestamp, ttl, now):
-            return copy.deepcopy(value)
+            return copy.deepcopy(value) if copy_value else value
         with _MEMORY_LOCK:
             _MEMORY.pop(key, None)
     result = _read(key)
@@ -181,7 +187,7 @@ def get(key, ttl, now=None):
     if not _fresh(timestamp, ttl, now):
         return MISSING
     _memory_put(key, timestamp, value)
-    return copy.deepcopy(value)
+    return copy.deepcopy(value) if copy_value else value
 
 
 def has(key, ttl, now=None):

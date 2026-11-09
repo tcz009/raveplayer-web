@@ -599,3 +599,19 @@ class _FakeConnection(object):
 
 def _fake_stream(url):
     return _FakeConnection(), _FakeResponse(), url
+
+
+def test_feed_episodes_load_once_and_share_the_read_only_list(monkeypatch):
+    calls = []
+
+    def load(entry):
+        calls.append(entry["id"])
+        return [{"title": "Show", "url": "https://cdn.example/1.mp3"}]
+
+    monkeypatch.setattr(feeds, "_load_episodes", load)
+    first = feeds.episodes("dejavu-fm")
+    second = feeds.episodes("dejavu-fm")
+    assert calls == ["dejavu-fm"], "a warm feed must not be re-read"
+    assert first == second == [{"title": "Show", "url": "https://cdn.example/1.mp3"}]
+    assert feeds.episodes("dejavu-fm", limit=1) == [{"title": "Show", "url": "https://cdn.example/1.mp3"}]
+    assert len(feeds.episodes("dejavu-fm")) == 1
