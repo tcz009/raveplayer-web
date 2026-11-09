@@ -471,8 +471,48 @@ TILES = {
     "about.png": dict(code="RP·08", glyph=glyph_heart, scale=1.26, field=MAGENTA),
     "search.png": dict(code="RP·09", glyph=glyph_search, scale=1.24, field=ACID),
     "garage.png": dict(code="RP·10", glyph=glyph_garage, scale=1.0, field=PAPER),
-    "djez.png": dict(code="RP·11", glyph=glyph_djez, scale=1.0, field=MAGENTA),
 }
+
+
+TEXT_TILES = {
+    "20bensons.png": dict(lines=("20", "BENSONS"), field=ACID, code="RP·12"),
+    "ukraves.png": dict(lines=("UK", "RAVES"), field=CYAN, code="RP·13"),
+    "mikus.png": dict(lines=("MIKUS",), field=MAGENTA, code="RP·14"),
+    "demodulated.png": dict(lines=("DEMOD", "MIXTAPES"), field=ORANGE, code="RP·15"),
+    "dejavu.png": dict(lines=("DEJAVU", "FM"), field=ACID, code="RP·16"),
+    "osa.png": dict(lines=("OSA", "RADIO"), field=MAGENTA, code="RP·17"),
+    "djez.png": dict(lines=("DJ", "EZ"), field=MAGENTA, code="RP·11"),
+}
+
+
+def build_text_tile(lines, field=ACID, code="RP"):
+    """Source tiles for the 2026 sources: big Impact words on the sticker stock."""
+    size = 512 * SS
+    img = tile_base_light(field, code)
+    draw = ImageDraw.Draw(img)
+    lines = tuple(str(line) for line in lines if str(line).strip())
+    # Fit the longest word to ~86% of the tile, then stack with tight leading.
+    face_size = int(size * (0.34 if len(lines) > 1 else 0.42))
+    face = font("display", face_size)
+    while face_size > 24:
+        widest = max(draw.textlength(line, font=face) for line in lines)
+        if widest <= size * 0.86:
+            break
+        face_size -= 8
+        face = font("display", face_size)
+    widest = max(draw.textlength(line, font=face) for line in lines)
+    lead = int(face_size * 0.88)
+    total_h = lead * len(lines)
+    y = (size - total_h) // 2 - int(face_size * 0.05)
+    for idx, line in enumerate(lines):
+        w = draw.textlength(line, font=face)
+        x = (size - w) // 2
+        # hard magenta offset shadow + ink face, matching the sticker language
+        draw.text((x + int(size * 0.018), y + int(size * 0.018)), line,
+                  font=face, fill=MAGENTA)
+        draw.text((x, y), line, font=face, fill=INK)
+        y += lead
+    return finish(img.resize((512, 512), Image.Resampling.LANCZOS))
 
 
 def build_tile(code, glyph, scale=1.0, field=ACID):
@@ -816,6 +856,10 @@ def main():
     if args.only != "hero":
         for name, spec in TILES.items():
             tile = build_tile(**spec)
+            path = ART / name
+            save_png(tile, path)
+        for name, spec in TEXT_TILES.items():
+            tile = build_text_tile(**spec)
             path = ART / name
             save_png(tile, path)
             print(f"{path.relative_to(ROOT)}  {path.stat().st_size / 1024:.0f} KB")
