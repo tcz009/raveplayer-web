@@ -2771,3 +2771,23 @@ html[data-theme="light"] :focus-visible { outline-color: var(--ink); }
   .theme-label { display: none; }
   .theme-glyph { font-size: 16px; }
 }
+
+
+/* Tablet widths: the header must never exceed the viewport. Tighten the
+   masthead, drop the version badge/status first, and let the search shrink. */
+@media (max-width: 860px) {
+  .topbar {
+    gap: 10px;
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+  }
+  .version, .status { display: none; }
+  .search { min-width: 0; }
+  .brand { min-width: 0; }
+}
+@media (max-width: 700px) {
+  .topbar { gap: 8px; }
+  .brand .name { font-size: 17px; }
+  .surprise-btn { padding: 0 10px; font-size: 13px; }
+  .help-btn { width: 38px; min-height: 38px; }
+}

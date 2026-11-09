@@ -1817,3 +1817,18 @@ def test_main_screen_theme_switch_sets_auto_light_dark(browser_page):
         assert page.locator("#theme-label").inner_text() == labels[expected]
         assert page.locator("#theme-btn").get_attribute("data-mode") == expected
     assert browser_page.page_errors == []
+
+
+def test_header_never_overflows_320_to_1440(browser_page):
+    page = browser_page.page
+    widths = (320, 360, 390, 414, 480, 540, 600, 621, 660, 700, 740,
+              747, 748, 768, 800, 820, 840, 861, 900, 1024, 1280, 1440)
+    for width in widths:
+        page.set_viewport_size({"width": width, "height": 844})
+        page.wait_for_timeout(120)
+        viewport = page.evaluate("() => window.innerWidth")
+        scroll = page.evaluate("() => document.documentElement.scrollWidth")
+        topbar = page.evaluate(
+            "() => document.querySelector('.topbar').getBoundingClientRect().width")
+        assert scroll <= viewport + 1, (width, viewport, scroll)
+        assert topbar <= viewport + 1, (width, viewport, topbar)
