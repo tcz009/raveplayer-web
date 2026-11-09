@@ -143,14 +143,14 @@ def test_toronto_is_a_direct_download_source():
     assert app_module.DOWNLOAD_SOURCE_ART["toronto"].endswith("toronto.png")
 
 
-def test_toronto_sticker_is_a_256px_png():
+def test_toronto_sticker_is_a_512px_png():
     path = os.path.join(os.path.dirname(HERE), "static", "art", "toronto.png")
     with open(path, "rb") as handle:
         assert handle.read(8) == b"\x89PNG\r\n\x1a\n"
         handle.read(4)
         assert handle.read(4) == b"IHDR"
         width, height = struct.unpack(">II", handle.read(8))
-    assert (width, height) == (256, 256)
+    assert (width, height) == (512, 512)
 
 
 def test_toronto_sticker_is_served(web):
