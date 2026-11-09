@@ -14,9 +14,9 @@
  *   - ignores cross-origin requests entirely (ads/third-party pages).
  */
 <<<<<<< HEAD
-const CACHE_NAME = "raveplayer-shell-v1.6.78";
+const CACHE_NAME = "raveplayer-shell-v1.6.79";
 =======
-const CACHE_NAME = "raveplayer-shell-v1.6.78";
+const CACHE_NAME = "raveplayer-shell-v1.6.79";
 >>>>>>> fix/web-reliability
 const SHELL = "/";
 
