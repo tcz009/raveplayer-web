@@ -1667,8 +1667,10 @@ kbd {
 /* Reserve the dock's measured height in the page and in the fixed rail, and
    lift the small overlays above it. The page itself stays scrollable. */
 body.has-embed .stage { padding-bottom: calc(var(--embed-dock-h, 300px) + 26px); }
-body.has-embed .rail {
-  padding-bottom: calc(var(--embed-dock-h, 300px) + 20px + env(safe-area-inset-bottom));
+@media (min-width: 861px) {
+  body.has-embed .rail {
+    padding-bottom: calc(var(--embed-dock-h, 300px) + 20px + env(safe-area-inset-bottom));
+  }
 }
 body.has-embed .toast { bottom: calc(var(--embed-dock-h, 300px) + 12px); }
 body.has-embed .download-panel { bottom: calc(var(--embed-dock-h, 300px) + 14px); }
@@ -2715,5 +2717,21 @@ html[data-theme="light"] :focus-visible { outline-color: var(--ink); }
       url("/static/art/hero-960.jpg");
     background-size: cover, cover, cover;
     background-position: center top, center top, 62% 20%;
+  }
+}
+
+
+/* Phone: give titles the full width and put 3-4 row actions on their own line.
+   The inline embed dock must not grow the sticky phone rail. */
+@media (max-width: 620px) {
+  .row {
+    grid-template-columns: var(--row-h) minmax(0, 1fr);
+  }
+  .row-actions {
+    grid-column: 2;
+    justify-content: flex-end;
+  }
+  body.has-embed .rail {
+    padding-bottom: 6px;
   }
 }

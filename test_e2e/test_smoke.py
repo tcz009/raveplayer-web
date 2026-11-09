@@ -192,9 +192,10 @@ def test_section_navigation_renders_rows(browser_page):
     # The Tape Packs hub now starts with the three literal tape archives.
     page.get_by_role("button", name="Tape Packs", exact=True).click()
     page.wait_for_function("() => document.querySelector('#title').textContent === 'Tape Packs'")
-    _wait_for_rows(page, 7)
+    _wait_for_rows(page, 10)
     assert _texts(page.locator("#list .row .row-label")) == [
         "Toronto Rave Mixtape Archive", "JungleTapes.com", "RaveTapePacks.com",
+        "EZ Garage Sets", "20bensons.com", "UK Raves Downloads",
         "Classic Pack Series", "By Rave, Venue & Promoter", "By Year",
         "Every Pack",
     ]
@@ -1404,10 +1405,11 @@ def test_taxonomy_rail_and_tape_packs_in_both_themes(browser_page):
         page.get_by_role("button", name="Tape Packs", exact=True).click()
         page.wait_for_function(
             "() => document.querySelector('#title').textContent === 'Tape Packs'")
-        _wait_for_rows(page, 7)
+        _wait_for_rows(page, 10)
         assert _texts(page.locator("#list .row .row-label")) == [
             "Toronto Rave Mixtape Archive", "JungleTapes.com",
-            "RaveTapePacks.com", "Classic Pack Series",
+            "RaveTapePacks.com", "EZ Garage Sets", "20bensons.com",
+            "UK Raves Downloads", "Classic Pack Series",
             "By Rave, Venue & Promoter", "By Year", "Every Pack",
         ]
         _shot(browser_page, "20-taxonomy-tape-packs-%s" % mode)
