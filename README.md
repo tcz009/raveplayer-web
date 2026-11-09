@@ -64,7 +64,11 @@ The sections behind the groups:
   including the Rat Pack and DejaVu FM Podomatic shows. Podomatic MP3/M4A
   enclosures play inline, are favouritable and download from the podomatic.com
   host; other RSS enclosures are favouritable but not downloadable. DejaVu's
-  large (~10 MB) feed is fetched with an explicit per-feed body allowance.
+  large (~10 MB) feed is fetched with an explicit per-feed body allowance, and
+  its parsed episode list is cached for 24 hours: once it reaches 70% of that
+  TTL one background thread refreshes it, the stale list is served if the
+  refresh fails, and the first request after a restart warms it off the request
+  path, so a room load never pays the 11–20 s cold download.
 - **DNB Radio** — recent jungle/DnB shows, stream resolved on demand.
 - **UK Garage** — DJ EZ and garage sets from Mixcloud plus Archive garage packs
   (garage stations are in Live Radio).
@@ -253,7 +257,7 @@ plus `org.opencontainers.image.revision` (the checked-out git short sha) as
 image labels, so a deployed box can be traced to a commit. It preserves
 `/data`, fixes its ownership and polls `/healthz` for 20 s.
 
-### Release note
+### Release note (current: 1.6.80)
 
 Web releases are git tags on `main`; there is no release automation.
 
@@ -496,10 +500,11 @@ build-time tool only; it is not in `requirements.txt`).
 
 ## Tests
 
-### Offline suite (544 cases)
+### Offline suite (1057 cases)
 
-The offline suite is 544 cases (all providers mocked) and uses the Flask test
-client. `pytest` is a test-only dependency:
+The offline suite is 1057 cases (1043 at 1.6.80; the 14 new warm-feed cases are
+from this branch), all providers mocked, and uses the Flask test client.
+`pytest` is a test-only dependency:
 
 ```sh
 ./.venv/bin/python -m pip install -r requirements-dev.txt
@@ -528,7 +533,7 @@ the cached app shell for any same-origin navigation, never caching
 bookmarks — remove and re-add once, as described in [`docs/PWA.md`](docs/PWA.md)
 (which also covers the plain-HTTP LAN limitation and what Cockney Player needs).
 
-### Browser smoke tests (38 cases)
+### Browser smoke tests (43 cases)
 
 `test_e2e/` drives the real app in headless Chromium through Playwright. It
 covers what the offline suite cannot: boot with the grouped 9-button rail and

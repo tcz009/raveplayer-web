@@ -9,6 +9,15 @@
 offline; browser suite `test_e2e` **36 passed** (system Chrome, Playwright 1.60);
 `node --check static/app.js static/embed.js` and `sh -n scripts/deploy.sh` clean.
 
+> **Later auth work (current main, 1.6.80):** the counts above are the 1.6.50
+> snapshot; the current offline suite is 1057 cases on this branch (1043 at
+> 1.6.80) and the browser suite is 43 cases. Two read-only
+> bearer paths were added after this pass and are documented separately:
+> `RAVEWEB_RESOLVER_TOKEN` (plus the owner-only `RAVEWEB_WIDGET_TOKEN`) in
+> [`AUTH.md`](AUTH.md), and the one-hour HMAC-signed Mediafire playback URLs in
+> [`WEBPLAY.md`](WEBPLAY.md). Release summary:
+> [`RELEASE-1.6.80.md`](RELEASE-1.6.80.md).
+
 Inputs folded in: the internal task-22 brief and the adversarial pre-review
 (`docs/ADVERSARIAL-REVIEW.md`, web findings W1–W8). The review's "what is solid" list
 (stream SSRF guard, SPA escaping, CSP, content-type gate, atomic writes) was kept intact.

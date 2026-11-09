@@ -5290,5 +5290,24 @@ def _request_bensons_warm():
     return None
 
 
+@app.before_request
+def _request_feed_warm():
+    """Warm the large podcast feeds off the request path, once per worker.
+
+    DejaVu FM's 10 MB Podomatic feed takes 11-20 s cold; without this the first
+    room load after a restart pays for the whole download and parse.  Like the
+    20bensons hook this only inspects a timestamp and starts one daemon thread,
+    never blocks the request, and is disabled under the test environment.
+    """
+    if (app.config.get("TESTING")
+            or os.environ.get("RAVEWEB_ENV", "").lower() == "test"):
+        return None
+    try:
+        feeds.warm()
+    except Exception:  # warming is best effort and must never break a request
+        pass
+    return None
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8097")), threaded=True)
