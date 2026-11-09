@@ -211,6 +211,11 @@ MAX_REDIRECTS = 5
 CONNECT_TIMEOUT = 10
 READ_TIMEOUT = 30
 MAX_CHUNK = 64 * 1024
+# A 20bensons MP3 can stall mid-body (the upstream stops sending after the
+# 30 s read timeout).  Reopening with a Range request continues the same
+# response instead of ending the browser's audio element.  Bounded so a dead
+# source cannot pin a worker on reconnect attempts.
+MAX_STREAM_RESUMES = 3
 STREAM_DEADLINE = 4 * 3600
 MAX_STREAM_BYTES = 8 * 1024 * 1024 * 1024
 
@@ -300,6 +305,7 @@ _EXTRA_BLOCKED_NETWORKS = tuple(ipaddress.ip_network(net) for net in (
 ))
 _CTRL_RE = re.compile(r"[\x00-\x1f\x7f]")
 _RANGE_RE = re.compile(r"^bytes=\d{0,18}-\d{0,18}$")
+_CONTENT_RANGE_RE = re.compile(r"^bytes\s+(\d+)-(\d+)/(\d+|\*)$")
 _MEDIA_EXACT = frozenset((
     "application/ogg", "application/x-ogg", "application/octet-stream",
     "binary/octet-stream", "application/mp4", "application/x-m4a",
@@ -1043,6 +1049,37 @@ def _auth_guard():
     return redirect(url_for("login_page", next=_safe_next(target) or "/"))
 
 
+# Fixed identities are owner/friends.  ``admin`` is a legacy browser-autofill
+# alias for the owner (older docs and saved password-manager entries used it):
+# it maps to the same owner hash and admin role, never to a separate account.
+LOGIN_IDENTITY_ALIASES = {"admin": "owner"}
+
+_LOGIN_SESSION_KEYS = ("auth", "identity", "user", "role", "sid",
+                       "login_at", "remember")
+
+
+def _login_identity(value):
+    """Return (typed, canonical) login identity, bounded and lowercased."""
+    typed = (value or "").strip().lower()[:64]
+    return typed, LOGIN_IDENTITY_ALIASES.get(typed, typed)
+
+
+def _audit_login_event(event, **fields):
+    """Best-effort login audit: a busy/locked store must not fail a sign-in."""
+    fields.setdefault("endpoint", "/login")
+    try:
+        audit.record_event(event, **fields)
+    except Exception:  # pragma: no cover - depends on a broken data dir
+        app.logger.exception("auth: could not record %s", event)
+
+
+def _login_redirect(target):
+    """No-store redirect: Safari must not replay a cached login POST/302."""
+    response = redirect(target or "/")
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 def _render_login(next_url="", error="", status=200, retry_after=None):
     headers = {"Cache-Control": "no-store"}
     if retry_after:
@@ -1059,7 +1096,13 @@ def _render_login(next_url="", error="", status=200, retry_after=None):
 @app.get("/login")
 def login_page():
     if _session_valid():
-        return redirect(_safe_next(request.args.get("next")) or "/")
+        return _login_redirect(_safe_next(request.args.get("next")) or "/")
+    # A half-expired/partial or pre-1.6.21 cookie must not leak auth keys into
+    # the new form.  Clearing here also guarantees the response's Set-Cookie is
+    # a fresh, CSRF-only session; a plain anonymous cookie keeps its token so
+    # two tabs share one form token.
+    if any(key in session for key in _LOGIN_SESSION_KEYS):
+        session.clear()
     return _render_login(request.args.get("next", ""))
 
 
@@ -1067,36 +1110,55 @@ def login_page():
 def login_submit():
     next_url = _safe_next(request.form.get("next"))
     ip = _client_ip()
+    user_agent = request.headers.get("User-Agent", "")
+    # A double-click, a second Enter, or a restored tab can POST /login again
+    # after the first POST already authenticated and rotated the session CSRF.
+    # That duplicate is harmless: send it into the app instead of painting a
+    # "session expired" 400 over the successful login.
+    if _session_valid():
+        return _login_redirect(next_url or "/")
     submitted = request.form.get("csrf", "")
     expected = session.get("csrf", "")
     if not submitted or not expected or not auth.same_text(submitted, expected):
-        app.logger.warning("auth: login csrf rejected ip=%s", ip)
-        audit.record_event("login_csrf_rejected", ip=ip,
-                           user_agent=request.headers.get("User-Agent", ""),
-                           endpoint="/login", status=400)
+        typed, canonical = _login_identity(request.form.get("username"))
+        reason = ("missing_session" if not expected
+                  else "missing" if not submitted else "mismatch")
+        detail = "reason=%s" % reason
+        if typed and typed != canonical:
+            detail += ";alias=%s" % typed
+        app.logger.warning(
+            "auth: login csrf rejected ip=%s identity=%s reason=%s",
+            ip, typed or "-", reason)
+        _audit_login_event("login_csrf_rejected", identity=typed, ip=ip,
+                           user_agent=user_agent, status=400, detail=detail)
+        # Re-render with the session's current token so the very next submit
+        # (a reload or a retry) succeeds without consuming an attempt.
         return _render_login(next_url, "Your sign-in session expired — try again.", 400)
-    identity_attempt = (request.form.get("username") or "").strip().lower()[:64]
+    typed, identity = _login_identity(request.form.get("username"))
+    alias = typed if typed and typed != identity else ""
     try:
-        if audit.is_blocked(identity_attempt, ip):
-            audit.record_event("login_blocked", identity=identity_attempt, ip=ip,
-                               user_agent=request.headers.get("User-Agent", ""),
-                               endpoint="/login", status=403)
+        if (audit.is_blocked(identity, ip)
+                or (alias and audit.is_blocked(alias, ip))):
+            _audit_login_event("login_blocked", identity=identity, ip=ip,
+                               user_agent=user_agent, status=403,
+                               detail=("alias=%s" % alias) if alias else "")
             return _render_login(next_url, "Access temporarily blocked.", 403)
     except Exception:
         app.logger.exception("auth: block check failed")
         return _render_login(next_url, "Sign-in is temporarily unavailable.", 503)
-    lock_key = "%s\x00%s" % (ip, identity_attempt or "-")
+    # Canonical identity, so the legacy alias shares one failure counter and
+    # cannot be used to double the lockout budget.
+    lock_key = "%s\x00%s" % (ip, identity or "-")
     retry = LOGIN_LIMITER.retry_after(lock_key)
     if retry:
         app.logger.warning("auth: login locked ip=%s identity=%s retry=%ss",
-                           ip, lock_key.split("\x00", 1)[-1], retry)
-        audit.record_event("login_locked", identity=lock_key.split("\x00", 1)[-1],
-                           ip=ip, user_agent=request.headers.get("User-Agent", ""),
-                           endpoint="/login", status=429)
+                           ip, identity or "-", retry)
+        _audit_login_event("login_locked", identity=identity, ip=ip,
+                           user_agent=user_agent, status=429,
+                           detail=("alias=%s" % alias) if alias else "")
         return _render_login(
             next_url, "Too many attempts. Try again in %d seconds." % retry,
             429, retry_after=retry)
-    identity = identity_attempt
     password = request.form.get("password") or ""
     # Fixed single-operator identities: owner=admin, friends=viewer.  Missing
     # friends hash disables that identity without revealing it on the page.
@@ -1113,14 +1175,20 @@ def login_submit():
     # does not reveal which identities exist.
     reference_hash = entry[1] if entry else AUTH.password_hash
     password_ok = auth.verify_password(reference_hash, password)
-    lock_key = "%s\x00%s" % (ip, identity or "-")
     if entry and password_ok:
-        LOGIN_LIMITER.reset(lock_key)
+        try:
+            LOGIN_LIMITER.reset(lock_key)
+        except Exception:  # an audit-store hiccup must not discard a good login
+            app.logger.exception("auth: could not reset the login limiter")
         remember = bool(request.form.get("remember"))
         ttl = ((AUTH.remember_days if remember else AUTH.session_hours) * 3600.0)
-        sid = audit.create_session(identity, role, ip,
-                                   request.headers.get("User-Agent", ""),
-                                   ttl_seconds=ttl, remember=remember)
+        try:
+            sid = audit.create_session(identity, role, ip, user_agent,
+                                       ttl_seconds=ttl, remember=remember)
+        except Exception:  # a transient store failure is a retry, not a 500
+            app.logger.exception("auth: could not create session")
+            return _render_login(
+                next_url, "Sign-in is temporarily unavailable.", 503)
         session.clear()
         session["auth"] = True
         session["identity"] = identity
@@ -1131,18 +1199,26 @@ def login_submit():
         session["remember"] = remember
         session.permanent = remember
         session["csrf"] = secrets.token_urlsafe(32)
-        audit.record_event("login_success", identity=identity, role=role, ip=ip,
-                           user_agent=request.headers.get("User-Agent", ""),
-                           endpoint="/login", status=302)
-        app.logger.info("auth: login success ip=%s identity=%s role=%s",
-                        ip, identity, role)
-        return redirect(next_url or "/")
-    LOGIN_LIMITER.fail(lock_key)
-    audit.record_event("login_failure", identity=identity, role=role, ip=ip,
-                       user_agent=request.headers.get("User-Agent", ""),
-                       endpoint="/login", status=401)
-    app.logger.warning("auth: login failure ip=%s identity=%s role=%s",
-                       ip, identity[:64] or "-", role or "-")
+        detail = "remember=%d" % (1 if remember else 0)
+        if alias:
+            detail += ";alias=%s" % alias
+        _audit_login_event("login_success", identity=identity, role=role, ip=ip,
+                           user_agent=user_agent, status=302, detail=detail)
+        app.logger.info("auth: login success ip=%s identity=%s role=%s alias=%s",
+                        ip, identity, role, alias or "-")
+        return _login_redirect(next_url or "/")
+    try:
+        LOGIN_LIMITER.fail(lock_key)
+    except Exception:  # still show the generic denial, never a 500
+        app.logger.exception("auth: could not record the login failure")
+    reason = "unknown_identity" if not entry else "bad_password"
+    detail = "reason=%s" % reason
+    if alias:
+        detail += ";alias=%s" % alias
+    _audit_login_event("login_failure", identity=identity, role=role, ip=ip,
+                       user_agent=user_agent, status=401, detail=detail)
+    app.logger.warning("auth: login failure ip=%s identity=%s role=%s reason=%s alias=%s",
+                       ip, identity[:64] or "-", role or "-", reason, alias or "-")
     return _render_login(next_url, "Invalid username or password.", 401)
 
 
@@ -3594,6 +3670,90 @@ def _open_stream(url, headers, deadline):
     raise UpstreamError()
 
 
+def _stream_range_state(resp):
+    """Return (resumable, start, end, total) for an upstream media response.
+
+    Calling again with ``Range: bytes=<start+sent>-`` is only safe when the
+    source has told us it honours byte ranges: ``Accept-Ranges: bytes`` or a
+    parsed 206 ``Content-Range``.  ``end`` is the last byte of the *original*
+    body (None for an open-ended 200), so a resumed read never marches past the
+    range the client originally asked for.
+    """
+    content_range = (resp.getheader("Content-Range") or "").strip()
+    match = _CONTENT_RANGE_RE.match(content_range)
+    if resp.status == 206 and match:
+        return True, int(match.group(1)), int(match.group(2)), match.group(3)
+    if resp.status == 200 and (resp.getheader("Accept-Ranges") or "").strip().lower() == "bytes":
+        return True, 0, None, None
+    return False, 0, None, None
+
+
+def _close_conn(conn, resp):
+    """Close one upstream connection without touching the stream slot."""
+    try:
+        resp.close()
+    except Exception:
+        pass
+    try:
+        conn.close()
+    except Exception:
+        pass
+
+
+def _resume_stream(final_url, headers, deadline, sent, start, end,
+                   etag="", last_modified=""):
+    """Reopen ``final_url`` at ``start + sent``; return (conn, resp) or None.
+
+    A resume is only accepted when the upstream answers 206 and its
+    ``Content-Range`` begins at exactly the byte we asked for.  Anything else
+    (200, 416, a shifted range, a redirect to a non-media body) is refused and
+    the caller ends the response; that guarantees no duplicate bytes and no
+    gap.  Setup failures are expected while a source is flapping and are logged
+    at info, never raised into the browser response.
+    """
+    if time.monotonic() >= deadline:
+        return None
+    offset = start + sent
+    if end is not None and offset > end:
+        return None
+    resume_headers = dict(headers)
+    resume_headers["Range"] = "bytes=%d-%s" % (offset, "" if end is None else end)
+    # If-Range makes a changed file answer 200 (which we reject) instead of a
+    # 206 for different bytes at the same offset.
+    if etag:
+        resume_headers["If-Range"] = etag
+    elif last_modified:
+        resume_headers["If-Range"] = last_modified
+    # The original request may have carried a client Range header; replacing
+    # it here keeps the continuation anchored to the byte we actually sent.
+    try:
+        conn, resp, _ = _open_stream(final_url, resume_headers, deadline)
+    except (UpstreamTimeout, UpstreamError, BlockedURL, OSError, ValueError):
+        app.logger.info("stream resume failed id=%s offset=%s for %s",
+                        _current_request_id(), offset, _safe_log_url(final_url))
+        return None
+    except Exception as exc:  # defensive: a resume must not break the response
+        app.logger.info("stream resume error id=%s offset=%s for %s: %s",
+                        _current_request_id(), offset,
+                        _safe_log_url(final_url), exc)
+        return None
+    try:
+        match = _CONTENT_RANGE_RE.match((resp.getheader("Content-Range") or "").strip())
+        encoding = (resp.getheader("Content-Encoding") or "").strip().lower()
+        if resp.status != 206 or not match or int(match.group(1)) != offset \
+                or encoding not in ("", "identity"):
+            _close_conn(conn, resp)
+            return None
+        content_type = (resp.getheader("Content-Type") or "").split(";")[0].strip().lower()
+        if not _is_media_type(content_type):
+            _close_conn(conn, resp)
+            return None
+    except Exception:
+        _close_conn(conn, resp)
+        return None
+    return conn, resp
+
+
 def _safe_log_url(url):
     """Keep credentials/query strings out of logs."""
     try:
@@ -3757,7 +3917,15 @@ def _serve_stream(target, options, requested_range=None, ref_override=None,
         headers_out["Content-Disposition"] = disposition
 
     def generate():
+        nonlocal conn, resp
         sent = 0
+        resumes = 0
+        # A source that honours Range can be continued after a mid-body stall;
+        # one that does not keeps the old behaviour (end the response).
+        resumable, base, range_end, _total = _stream_range_state(resp)
+        limit = range_end - base + 1 if resumable and range_end is not None else None
+        resume_etag = (resp.getheader("ETag") or "").strip()
+        resume_last_modified = (resp.getheader("Last-Modified") or "").strip()
         try:
             while True:
                 if time.monotonic() >= deadline:
@@ -3768,18 +3936,59 @@ def _serve_stream(target, options, requested_range=None, ref_override=None,
                     app.logger.warning("stream byte cap reached for %s",
                                        _safe_log_url(final_url))
                     break
+                if limit is not None and sent >= limit:
+                    break
                 try:
                     chunk = resp.read1(MAX_CHUNK)
-                except (socket.timeout, TimeoutError):
-                    app.logger.info("upstream read timed out for %s",
-                                    _safe_log_url(final_url))
-                    break
-                except (http.client.HTTPException, OSError, ValueError):
+                except (socket.timeout, TimeoutError,
+                        http.client.HTTPException, OSError, ValueError) as exc:
+                    resumed = None
+                    if resumable and sent > 0 and resumes < MAX_STREAM_RESUMES:
+                        resumed = _resume_stream(
+                            final_url, headers, deadline, sent, base, range_end,
+                            etag=resume_etag, last_modified=resume_last_modified)
+                    if resumed is not None:
+                        old_conn, old_resp = conn, resp
+                        conn, resp = resumed
+                        _close_conn(old_conn, old_resp)
+                        resumes += 1
+                        app.logger.info(
+                            "stream resumed id=%s offset=%d attempt=%d for %s",
+                            _current_request_id(), base + sent, resumes,
+                            _safe_log_url(final_url))
+                        continue
+                    if isinstance(exc, (socket.timeout, TimeoutError)):
+                        app.logger.info("upstream read timed out for %s",
+                                        _safe_log_url(final_url))
+                    else:
+                        app.logger.info("upstream read failed for %s: %s",
+                                        _safe_log_url(final_url),
+                                        type(exc).__name__)
                     break
                 if not chunk:
                     break
+                if limit is not None:
+                    remaining = limit - sent
+                    if remaining <= 0:
+                        break
+                    if len(chunk) > remaining:
+                        chunk = chunk[:remaining]
+                remaining_cap = MAX_STREAM_BYTES - sent
+                if remaining_cap <= 0:
+                    break
+                if len(chunk) > remaining_cap:
+                    chunk = chunk[:remaining_cap]
+                    sent += len(chunk)
+                    yield chunk
+                    app.logger.warning("stream byte cap reached for %s",
+                                       _safe_log_url(final_url))
+                    break
                 sent += len(chunk)
                 yield chunk
+                if sent >= MAX_STREAM_BYTES:
+                    app.logger.warning("stream byte cap reached for %s",
+                                       _safe_log_url(final_url))
+                    break
         finally:
             _close_quietly(conn, resp, release)
 
@@ -3804,14 +4013,7 @@ def _passthrough_headers(resp):
 
 
 def _close_quietly(conn, resp, release):
-    try:
-        resp.close()
-    except Exception:
-        pass
-    try:
-        conn.close()
-    except Exception:
-        pass
+    _close_conn(conn, resp)
     release()
 
 

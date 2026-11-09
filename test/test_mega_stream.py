@@ -663,7 +663,14 @@ def test_route_rejects_tampered_and_expired_tokens(anon, monkeypatch):
     _patch_stream(monkeypatch, resolver, storage)
 
     path = mega_stream.signed_path(LINK, secret=SECRET)
-    tampered = path[:-1] + ("A" if path[-1] != "A" else "B")
+    # Flip a character in the middle of the base64 signature.  Changing the
+    # final character can only alter unused padding bits, so the decoded
+    # signature stayed valid and this assertion flaked.
+    head, sep, token = path.partition("&t=")
+    assert sep and len(token) > 4
+    middle = len(token) // 2
+    tampered = head + sep + token[:middle] \
+        + ("A" if token[middle] != "A" else "B") + token[middle + 1:]
     assert anon.get(tampered).status_code == 401
 
     expired = mega_stream.signed_path(

@@ -8,12 +8,13 @@ flow, CSRF, throttling, cookies and the guard on every route class.
 
 import logging
 import re
+import sqlite3
 import time
 
 import pytest
 
 import app as app_module
-from core import auth
+from core import audit, auth
 
 
 def csrf_from(client, path="/login"):
@@ -263,3 +264,131 @@ def test_session_config_is_cookie_safe():
     assert app_module.app.config["SESSION_COOKIE_SAMESITE"] == "Lax"
     assert app_module.app.config["SESSION_COOKIE_NAME"] == "raveplayer_session"
     assert app_module.AUTH.password_hash
+
+
+# --------------------------------------------------------------------------- login reliability (BUG 1)
+
+
+def _login_events(name):
+    path = audit.db_path()
+    with sqlite3.connect(path) as conn:
+        return conn.execute(
+            "SELECT identity, detail FROM events WHERE event=? ORDER BY id", (name,)
+        ).fetchall()
+
+
+def _login_data(token, username="owner", password="test-password", next_url="/"):
+    return {"csrf": token, "username": username, "password": password,
+            "next": next_url}
+
+
+def test_duplicate_login_post_after_success_redirects_instead_of_csrf_error(anon):
+    """Double-click / second Enter: the duplicate must not paint a 400 page.
+
+    The first POST authenticates and rotates the session CSRF.  A duplicate
+    carrying the pre-rotation token and the new session cookie used to fail
+    CSRF (login_csrf_rejected) even though the user was signed in.
+    """
+    token = csrf_from(anon)
+    data = _login_data(token)
+    first = anon.post("/login", data=data)
+    assert first.status_code == 302
+    second = anon.post("/login", data=data)  # same stale form token
+    assert second.status_code == 302
+    assert second.headers["Location"] == "/"
+    assert second.headers["Cache-Control"] == "no-store"
+    assert anon.get("/api/admin/whoami").get_json() == {
+        "ok": True, "identity": "owner", "role": "admin"}
+    assert _login_events("login_csrf_rejected") == []
+    assert app_module.LOGIN_LIMITER.retry_after("127.0.0.1\x00owner") == 0
+
+
+def test_stale_session_cookie_is_cleared_and_does_not_consume_an_attempt(anon):
+    """A signed cookie whose server-side session is gone is replaced, not fatal."""
+    assert login(anon).status_code == 302
+    with anon.session_transaction() as sess:
+        sid = sess["sid"]
+    audit.revoke_session(sid)
+
+    page = anon.get("/login")
+    assert page.status_code == 200
+    with anon.session_transaction() as sess:
+        assert sess.get("auth") is None
+        assert sess.get("sid") is None
+        assert sess.get("identity") is None
+        assert sess.get("csrf")
+        fresh = sess["csrf"]
+
+    response = anon.post("/login", data=_login_data(fresh))
+    assert response.status_code == 302
+    assert anon.get("/api/menu").status_code == 200
+    assert _login_events("login_failure") == []
+    assert app_module.LOGIN_LIMITER.retry_after("127.0.0.1\x00owner") == 0
+
+
+def test_stale_csrf_is_audited_with_reason_and_never_counts_as_a_failure(anon):
+    csrf_from(anon)
+    with anon.session_transaction() as sess:
+        sess["csrf"] = "rotated-token"  # the page the user has is now stale
+
+    response = anon.post("/login", data=_login_data("old-token"))
+    assert response.status_code == 400
+    rows = _login_events("login_csrf_rejected")
+    assert rows and rows[-1] == ("owner", "reason=mismatch")
+    assert _login_events("login_failure") == []
+    assert app_module.LOGIN_LIMITER.retry_after("127.0.0.1\x00owner") == 0
+
+    # The 400 page carries the current token, so one retry succeeds.
+    fresh = re.search(rb'name="csrf" value="([^"]+)"', response.data).group(1).decode()
+    assert anon.post("/login", data=_login_data(fresh)).status_code == 302
+
+
+def test_owner_alias_admin_is_accepted_and_normalised(anon):
+    """The legacy owner autofill username maps to the same owner account."""
+    response = login(anon, username="admin")
+    assert response.status_code == 302
+    with anon.session_transaction() as sess:
+        assert sess["identity"] == "owner"
+        assert sess["role"] == "admin"
+    assert anon.get("/api/admin/whoami").get_json()["identity"] == "owner"
+    assert _login_events("login_success")[-1] == ("owner", "remember=0;alias=admin")
+
+    anon.post("/logout")
+    bad = login(anon, username="admin", password="wrong-password")
+    assert bad.status_code == 401
+    assert b"Invalid username or password." in bad.data
+    # The canonical owner identity owns the failure counter (no alias bypass).
+    assert _login_events("login_failure")[-1][0] == "owner"
+    with sqlite3.connect(audit.db_path()) as conn:
+        keys = [row[0] for row in conn.execute("SELECT key FROM login_failures")]
+    assert keys == ["127.0.0.1\x00owner"]
+
+
+def test_login_survives_a_broken_audit_store(anon, monkeypatch, caplog):
+    """Recording the login event is best-effort; auth itself must still succeed."""
+    def boom(*args, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(audit, "record_event", boom)
+    with caplog.at_level(logging.ERROR, logger="app"):
+        response = login(anon)
+    assert response.status_code == 302
+    assert anon.get("/api/menu").status_code == 200
+    assert "could not record login_success" in caplog.text
+
+
+def test_login_get_preserves_anonymous_csrf_but_rotates_a_stale_auth_cookie(anon):
+    first = csrf_from(anon)
+    assert csrf_from(anon) == first  # two tabs keep one form token
+
+    with anon.session_transaction() as sess:
+        sess["auth"] = True
+        sess["identity"] = "owner"
+        sess["role"] = "admin"
+        sess["sid"] = "not-a-real-session"
+        sess["login_at"] = time.time()
+    rotated = csrf_from(anon)
+    assert rotated != first
+    with anon.session_transaction() as sess:
+        assert sess.get("auth") is None
+        assert sess.get("csrf") == rotated
