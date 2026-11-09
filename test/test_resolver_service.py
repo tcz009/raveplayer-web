@@ -874,8 +874,9 @@ def test_resolver_service_token_is_scoped_to_resolver_routes(web, monkeypatch):
     # Bearer token is accepted by the resolver surface (400 unknown host is fine).
     assert anon.get(url, headers={
         "Authorization": "Bearer kodi-service-token"}).status_code != 401
-    # The token is not a general /api/* bypass.
-    assert anon.get("/api/latest", headers={
+    # The token is not a general /api/* bypass (the read-only source API
+    # allowlist is covered in test_token_scope.py).
+    assert anon.get("/api/menu", headers={
         "Authorization": "Bearer kodi-service-token"}).status_code == 401
     # Wrong token is rejected.
     assert anon.get(url, headers={

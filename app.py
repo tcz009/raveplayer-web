@@ -940,9 +940,45 @@ def _current_request_id():
 
 RESOLVER_SERVICE_TOKEN = (os.environ.get("RAVEWEB_RESOLVER_TOKEN") or "").strip()
 
+# ``RAVEWEB_RESOLVER_TOKEN`` is for media players (Kodi, VLC, a TV), which
+# cannot hold the browser session cookie.  It is deliberately not a general
+# /api/* credential: these are the exact endpoints and subtrees it may open.
+# Subtree entries end in "/" so neighbouring routes (e.g. /api/podcasts) never
+# match, and the download/stream children of /api/ezgarage and /api/ukraves,
+# favourites, downloads and admin stay session-only.  /api/mega/stream is never
+# in this list: it remains HMAC-token-only.
+RESOLVER_TOKEN_METHOD_PATHS = frozenset((
+    "/api/resolve",    # resolver surface; the route defines GET/POST
+    "/api/mega/sign",  # mint a short-lived stream token (not the stream itself)
+))
+RESOLVER_TOKEN_GET_PATHS = frozenset((
+    "/api/20bensons",
+    "/api/ukraves",
+    "/api/ezgarage",
+    "/api/live",
+    "/api/latest",
+))
+RESOLVER_TOKEN_GET_PREFIXES = (
+    "/api/live/",     # genre pages, including their ?page= pagination
+    "/api/podcast/",  # one feed's episodes, paginated with ?page=
+)
+
+
+def _resolver_token_path_allowed(path, method):
+    """True when the service token may authorise this exact path and method."""
+    if path in RESOLVER_TOKEN_METHOD_PATHS:
+        return True
+    if method not in ("GET", "HEAD"):
+        return False
+    if path in RESOLVER_TOKEN_GET_PATHS:
+        return True
+    return any(path.startswith(prefix) for prefix in RESOLVER_TOKEN_GET_PREFIXES)
+
 
 def _resolver_token_ok():
-    """Bearer/X-Resolve-Token auth for media players (Kodi), scoped to resolver routes."""
+    """Bearer/X-Resolve-Token auth for media players (Kodi), narrowly scoped."""
+    if not _resolver_token_path_allowed(request.path, request.method):
+        return False
     token = RESOLVER_SERVICE_TOKEN
     if not token:
         return False
@@ -987,9 +1023,10 @@ def _auth_guard():
         # /api/mega/sign; the route validates it again and fails closed.
         if path == "/api/mega/stream" and mega_stream_has_valid_token(request.args):
             return None
-        # Media players (Kodi) may use a configured service token for the
-        # resolver surface only; this is not a general /api/* bypass.
-        if path in ("/api/resolve", "/api/mega/sign") and _resolver_token_ok():
+        # Media players (Kodi) may use a configured service token only for the
+        # exact resolver endpoints and read-only source lists in
+        # _resolver_token_path_allowed(); this is not a general /api/* bypass.
+        if _resolver_token_ok():
             return None
         if not _session_valid():
             return _json_error("authentication required", 401)
