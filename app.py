@@ -45,7 +45,8 @@ from werkzeug.exceptions import HTTPException
 from flask.sessions import SecureCookieSessionInterface
 
 from core import (archive, audit, auth, bensons, cache, demodulated, dnbradio,
-                  download_jobs, downloads, drive, ezgarage, favourites, feeds,
+                  download_cancels, download_jobs, downloads, drive, ezgarage,
+                  favourites, feeds,
                   fetch as fetch_core, getdarker, hardscore, latest, legacy,
                   mikus, mixcloud, moxser, pirate, playback, radio, raves,
                   ravearchive, soundcloud, toronto, ukraves)
@@ -231,6 +232,12 @@ DOWNLOAD_MAX_TOTAL = _env_bytes("RAVEWEB_DOWNLOAD_TOTAL", 2 * 1024 * 1024 * 1024
                                 1024 * 1024, 16 * 1024 * 1024 * 1024)
 DOWNLOAD_MAX_ITEMS = 200
 DOWNLOAD_DEADLINE = 1800  # seconds for one proxy download
+# RaveTapePacks' origin has repeatedly cut full-file responses mid-stream
+# (QA 1.6.62).  Playback stays available; downloads are hidden until the
+# integrity check has been verified against the live host.  Set
+# RAVEWEB_RTP_DOWNLOADS=1 to re-enable the affordance after that check.
+RTP_DOWNLOADS_ENABLED = (os.environ.get("RAVEWEB_RTP_DOWNLOADS", "0")
+                         or "0").strip().lower() in ("1", "true", "yes", "on")
 DOWNLOAD_SOURCES = ("archive", "moxser", "hardscore", "pirate", "toronto",
                     "ravetapepacks", "jungletapes", "ezgarage", "mediafire",
                     "20bensons", "ukraves", "mikus", "demodulated", "podomatic")
@@ -620,6 +627,58 @@ def _slice_page(items, page, per_page=ROWS):
     page = min(max(1, page), pages)
     start = (page - 1) * per_page
     return items[start:start + per_page], page, pages, total
+
+
+class ArchivePageError(Exception):
+    """Archive returned an empty page even though it reported a non-zero total."""
+
+
+def _archive_search_page(query, page, rows=ROWS):
+    """Fetch one Archive page and clamp it against the real page count.
+
+    Archive's advancedsearch endpoint returns ``numFound: 0`` and no docs for a
+    far-out-of-range page, which used to render Every Pack as a genuinely empty
+    room (``page=99999`` -> total 0).  When that happens we learn the total from
+    page 1, clamp to the last page and fetch it.  An empty final page with a
+    known non-zero total is an upstream flake: retry once, then fail visibly
+    instead of pretending the room is empty.
+    """
+    try:
+        page = max(1, int(page or 1))
+    except (TypeError, ValueError, OverflowError):
+        page = 1
+    docs, total = archive.search(query, page=page, rows=rows)
+    if total > 0:
+        known = total
+        last = max(1, (known + rows - 1) // rows)
+        if page > last:
+            page = last
+            docs, total = archive.search(query, page=page, rows=rows)
+            total = total or known
+    elif page > 1 and not docs:
+        # Archive gave no total for the requested page; page 1 is authoritative.
+        docs, first_total = archive.search(query, page=1, rows=rows)
+        if first_total <= 0:
+            return docs, 0, 1
+        known = first_total
+        last = max(1, (known + rows - 1) // rows)
+        page = min(page, last)
+        docs, total = archive.search(query, page=page, rows=rows)
+        total = total or known
+    if total > 0 and not docs:
+        # One bounded retry for a transient empty final page.
+        docs, retried_total = archive.search(query, page=page, rows=rows)
+        total = retried_total or total
+        if not docs:
+            raise ArchivePageError(query)
+    return docs, total, page
+
+
+@app.errorhandler(ArchivePageError)
+def _archive_page_error(exc):
+    app.logger.warning("archive returned an empty page with a non-zero total: %s", exc)
+    return _json_error("the archive search is temporarily unavailable", 502,
+                       error_code="source_unavailable")
 
 
 def _paged_payload(title, items, page, total, base, **extra):
@@ -1571,7 +1630,7 @@ def api_filter(key):
                       ART + ("kool.png" if entry["id"] == "kool" else "rinse.png"))
         item["play_via"] = "/api/filter/%s/live" % urllib.parse.quote(key)
         items.append(item)
-    docs, total = archive.search(entry["query"], page=page, rows=ROWS)
+    docs, total, page = _archive_search_page(entry["query"], page, ROWS)
     items.extend(_pack_items(docs))
     return jsonify(_paged_payload(entry["name"], items, page, total,
                                   "/api/filter/%s" % key))
@@ -2061,7 +2120,7 @@ def api_every_pack():
     page = _page_arg()
     query = next((entry[2] for entry in ARCHIVE_SECTIONS if entry[0] == "tapepacks"),
                  "collection:ravetapes AND mediatype:audio")
-    docs, total = archive.search(query, page=page, rows=ROWS)
+    docs, total, page = _archive_search_page(query, page, ROWS)
     return jsonify(_paged_payload("Every Pack", _pack_items(docs), page, total,
                                   "/api/every-pack"))
 
@@ -2086,7 +2145,7 @@ def api_pack_list(key):
     if not section:
         return _json_error("unknown section", 404)
     page = _page_arg()
-    docs, total = archive.search(section[2], page=page, rows=ROWS)
+    docs, total, page = _archive_search_page(section[2], page, ROWS)
     return jsonify(_paged_payload(section[1], _pack_items(docs), page, total,
                                   "/api/packs/%s" % key))
 
@@ -2604,7 +2663,7 @@ def api_year(year):
     if year < MIN_YEAR or year > this_year + 1:
         return _json_error("unknown year", 404)
     page = _page_arg()
-    docs, total = archive.search(latest.year_query(year), page=page, rows=ROWS)
+    docs, total, page = _archive_search_page(latest.year_query(year), page, ROWS)
     return jsonify(_paged_payload(str(year), _pack_items(docs), page, total,
                                   "/api/year/%d" % year))
 
@@ -2894,8 +2953,8 @@ def api_search():
     if not query:
         return jsonify({"title": "Search", "items": []})
     page = _page_arg()
-    docs, total = archive.search("%s AND %s" % (query, latest.RAVE_COLLECTION),
-                                 page=page, rows=ROWS)
+    docs, total, page = _archive_search_page(
+        "%s AND %s" % (query, latest.RAVE_COLLECTION), page, ROWS)
     page_one = page == 1
     # Full-text Archive search is noisy; widen to all audio only on the first
     # page when the curated collection has almost nothing.  The widen query,
@@ -3918,16 +3977,14 @@ class DownloadCancelled(Exception):
     """The user pressed Cancel; the partial file is discarded."""
 
 
-_DOWNLOAD_CANCELS = set()
-_DOWNLOAD_CANCEL_LOCK = threading.Lock()
 _DOWNLOAD_CLIENT_RE = re.compile(r"^[A-Za-z0-9_-]{6,64}$")
 
 
 def _download_cancelled(client_id):
+    """Read the shared, cross-worker cancel flag (SQLite; see core/download_cancels)."""
     if not client_id:
         return False
-    with _DOWNLOAD_CANCEL_LOCK:
-        return client_id in _DOWNLOAD_CANCELS
+    return download_cancels.is_cancelled(client_id)
 
 
 def _human_size(size):
@@ -3951,6 +4008,8 @@ def _download_allowed(source, url):
     """
     if source not in DOWNLOAD_SOURCES:
         return False, "that source cannot be downloaded"
+    if source == "ravetapepacks" and not RTP_DOWNLOADS_ENABLED:
+        return False, "RaveTapePacks downloads are temporarily disabled"
     if not isinstance(url, str) or len(url) > MAX_URL:
         return False, "blocked or missing url"
     target, _options = _split_kodi_target(url)
@@ -4128,6 +4187,7 @@ def _download_chunks(url, destination, max_bytes, seconds, should_cancel=None):
     headers = _upstream_headers(target, options, None, None)
     deadline = time.monotonic() + seconds
     conn = resp = handle = None
+    failed = True
     try:
         conn, resp, final_url = _open_stream(target, headers, deadline)
         status = resp.status
@@ -4156,19 +4216,31 @@ def _download_chunks(url, destination, max_bytes, seconds, should_cancel=None):
         yield {"started": True, "total": expected}
         total = 0
         last_emit = 0.0
+        last_cancel = 0.0
         handle = open(destination, "wb")
         while True:
-            if should_cancel is not None and should_cancel():
-                raise DownloadCancelled()
-            if time.monotonic() >= deadline:
+            now = time.monotonic()
+            # The shared cancel store is SQLite; polling it on every 64 KiB
+            # chunk would open a connection thousands of times per file.
+            # A 0.2 s cadence is still effectively immediate to the user.
+            if should_cancel is not None and now - last_cancel >= 0.2:
+                last_cancel = now
+                if should_cancel():
+                    raise DownloadCancelled()
+            if now >= deadline:
                 raise DownloadError("the download timed out", 504)
             try:
                 chunk = resp.read(64 * 1024)
             except (socket.timeout, TimeoutError):
                 raise DownloadError("the download timed out", 504)
+            except http.client.IncompleteRead:
+                raise DownloadError("upstream closed early — download incomplete", 502)
             if not chunk:
                 break
             total += len(chunk)
+            if expected is not None and total > expected:
+                raise DownloadError("upstream sent more data than expected — "
+                                    "download incomplete", 502)
             if total > max_bytes:
                 raise DownloadError("that file is larger than the download limit", 413)
             handle.write(chunk)
@@ -4180,6 +4252,11 @@ def _download_chunks(url, destination, max_bytes, seconds, should_cancel=None):
         os.fsync(handle.fileno())
         if total <= 0:
             raise DownloadError("upstream returned an empty file", 502)
+        # QA 1.6.62: a truncated body can end with a clean EOF.  Never
+        # publish/store a file whose byte count disagrees with Content-Length.
+        if expected is not None and total != expected:
+            raise DownloadError("upstream closed early — download incomplete", 502)
+        failed = False
         yield {"done": True, "size": total}
     except (DownloadError, DownloadCancelled):
         raise
@@ -4195,6 +4272,14 @@ def _download_chunks(url, destination, max_bytes, seconds, should_cancel=None):
         if handle is not None:
             try:
                 handle.close()
+            except OSError:
+                pass
+        # The caller owns the destination, but removing our own incomplete
+        # temp file here means a failed/cancelled transfer can never leave a
+        # partial file behind even if a caller forgets to discard it.
+        if failed:
+            try:
+                os.remove(destination)
             except OSError:
                 pass
         for closable in (resp, conn):
@@ -4492,6 +4577,11 @@ def _download_stream(url, entry, client_id, identity="owner"):
                                           DOWNLOAD_DEADLINE,
                                           lambda: _download_cancelled(client_id)):
                 if event.get("done"):
+                    # Atomically claim completion before publishing the file:
+                    # a cancel that won the race must discard, not save.
+                    outcome = download_cancels.finish(client_id)
+                    if outcome is False:
+                        raise DownloadCancelled()
                     entry["size"] = int(event.get("size") or 0)
                     downloads.register(DATA_DIR, entry, temp_name,
                                        DOWNLOAD_MAX_TOTAL, DOWNLOAD_MAX_ITEMS,
@@ -4527,8 +4617,7 @@ def _download_stream(url, entry, client_id, identity="owner"):
                               "error": "could not save that download"}) + "\n"
         finally:
             if client_id:
-                with _DOWNLOAD_CANCEL_LOCK:
-                    _DOWNLOAD_CANCELS.discard(client_id)
+                download_cancels.finish(client_id)
             if not saved[0]:
                 downloads.discard(DATA_DIR, entry, identity)
 
@@ -4537,13 +4626,16 @@ def _download_stream(url, entry, client_id, identity="owner"):
 
 @app.post("/api/downloads/cancel/<client_id>")
 def api_download_cancel(client_id):
-    """Best-effort cancel for the panel: the streaming loop checks this set."""
+    """Cancel a streaming save from any worker (shared SQLite flag)."""
     client_id = _clean_text(client_id, 64)
     if not _DOWNLOAD_CLIENT_RE.match(client_id or ""):
         return _json_error("invalid download id", 400)
-    with _DOWNLOAD_CANCEL_LOCK:
-        _DOWNLOAD_CANCELS.add(client_id)
-    return jsonify({"cancelled": True})
+    outcome = download_cancels.request_cancel(client_id)
+    if outcome == "unknown":
+        return _json_error("unknown download", 404)
+    if outcome == "finished":
+        return _json_error("download is already finished", 409)
+    return jsonify({"cancelled": True, "state": "cancelled"})
 
 
 @app.get("/api/downloads")
@@ -4652,6 +4744,7 @@ def api_download_create():
         client_id = _clean_text(payload.get("client_id"), 64)
         if not _DOWNLOAD_CLIENT_RE.match(client_id or ""):
             return _json_error("invalid download id", 400)
+        download_cancels.begin(client_id)
         return Response(
             _download_stream(download_url, entry, client_id, identity),
             mimetype="application/x-ndjson",
@@ -4716,6 +4809,18 @@ def _saved_download(download_id):
     path = downloads.file_path(DATA_DIR, entry, identity)
     if not os.path.isfile(path):
         return None, None
+    # Pre-1.6.65 saves could be registered after an upstream early EOF.  The
+    # index records the bytes accepted at save time, so a size mismatch means
+    # the local copy is incomplete: never serve it as a complete download.
+    expected = int(entry.get("size") or 0)
+    try:
+        actual = os.path.getsize(path)
+    except OSError:
+        return None, None
+    if expected > 0 and actual != expected:
+        app.logger.warning("saved download %s is incomplete (%d of %d bytes)",
+                           _safe_log_url(path), actual, expected)
+        return entry, None
     return entry, path
 
 
@@ -4739,6 +4844,8 @@ def api_download_stream(download_id):
     entry, path = _saved_download(download_id)
     if not entry:
         return _json_error("unknown download", 404)
+    if path is None:
+        return _incomplete_download_error()
     return _send_download(entry, path, as_attachment=False)
 
 
@@ -4748,7 +4855,15 @@ def api_download_file(download_id):
     entry, path = _saved_download(download_id)
     if not entry:
         return _json_error("unknown download", 404)
+    if path is None:
+        return _incomplete_download_error()
     return _send_download(entry, path, as_attachment=True)
+
+
+def _incomplete_download_error():
+    return _json_error(
+        "that saved copy is incomplete — delete it and download it again", 409,
+        error_code="download_incomplete")
 
 
 PRUNE_INTERVAL = 3600

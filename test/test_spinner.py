@@ -170,11 +170,11 @@ def test_ndjson_download_stream_reports_progress_and_saves(web, tmp_path, monkey
 
 
 def test_download_can_be_cancelled_mid_stream(web, tmp_path, monkeypatch):
-    import app as app_module
+    from core import download_cancels
 
     _patch_stream(monkeypatch, _FakeResponse([b"x" * 2048] * 3, delay=0.11))
-    with app_module._DOWNLOAD_CANCEL_LOCK:
-        app_module._DOWNLOAD_CANCELS.add("cancelme1")
+    assert download_cancels.begin("cancelme1") == "active"
+    assert download_cancels.request_cancel("cancelme1") == "cancelled"
     try:
         response = web.post(
             "/api/downloads",
@@ -191,15 +191,24 @@ def test_download_can_be_cancelled_mid_stream(web, tmp_path, monkeypatch):
                           if name.endswith(".mp3")] if (tmp_path / "downloads").exists() else []
         assert download_files == []
     finally:
-        with app_module._DOWNLOAD_CANCEL_LOCK:
-            app_module._DOWNLOAD_CANCELS.discard("cancelme1")
+        download_cancels.clear("cancelme1")
 
 
-def test_cancel_endpoint_validates_and_marks(web):
-    import app as app_module
+def test_cancel_endpoint_rejects_unknown_finished_and_invalid(web):
+    from core import download_cancels
 
-    assert web.post("/api/downloads/cancel/abc12345").get_json() == {"cancelled": True}
-    with app_module._DOWNLOAD_CANCEL_LOCK:
-        assert "abc12345" in app_module._DOWNLOAD_CANCELS
-        app_module._DOWNLOAD_CANCELS.discard("abc12345")
+    assert web.post("/api/downloads/cancel/abc12345").status_code == 404
+    assert download_cancels.begin("abc12345") == "active"
+    accepted = web.post("/api/downloads/cancel/abc12345")
+    assert accepted.status_code == 200
+    assert accepted.get_json() == {"cancelled": True, "state": "cancelled"}
+    assert download_cancels.is_cancelled("abc12345") is True
+    assert download_cancels.finish("abc12345") is False
+    download_cancels.clear("abc12345")
+
+    assert download_cancels.begin("done1234") == "active"
+    assert download_cancels.finish("done1234") is True
+    assert web.post("/api/downloads/cancel/done1234").status_code == 409
+    download_cancels.clear("done1234")
+
     assert web.post("/api/downloads/cancel/!!").status_code == 400

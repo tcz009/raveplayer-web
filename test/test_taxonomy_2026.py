@@ -318,22 +318,31 @@ def test_jungletapes_show_dedupes_stream_and_download_fields(monkeypatch):
     assert all("jungle_tapes_uploaded_audio_files" in track["url"] for track in tracks)
 
 
-def test_ravetapepacks_track_exposes_a_download(web, monkeypatch):
+def test_ravetapepacks_track_exposes_a_download_when_enabled(web, monkeypatch):
+    import app as app_module
     track_url = ("https://www.ravetapepacks.com/music/"
                  "Dreamscape7/Charlie_Hall.mp3")
     monkeypatch.setattr(legacy, "post", lambda post_id: {
         "key": post_id, "name": "Dreamscape 7",
         "tracks": [{"name": "Charlie Hall", "url": track_url}],
     } if post_id == "899" else None)
+    # QA 1.6.62 §8: hidden by default until a live save is verified.
+    hidden = web.get("/api/legacy/ravetapepacks/post/899").get_json()
+    assert "download" not in hidden["items"][0]
+    assert hidden["items"][0]["play"].startswith(track_url)
+
+    monkeypatch.setattr(app_module, "RTP_DOWNLOADS_ENABLED", True)
     payload = web.get("/api/legacy/ravetapepacks/post/899").get_json()
     item = payload["items"][0]
     assert item["download"] == {"source": "ravetapepacks"}
     assert item["play"].startswith(track_url)
 
 
-def test_rtp_download_accepts_the_referer_suffix(web):
+def test_rtp_download_accepts_the_referer_suffix_when_enabled(web, monkeypatch):
     import app as app_module
     plain = "https://www.ravetapepacks.com/music/Dreamscape7/Charlie_Hall.mp3"
+    assert not app_module._download_allowed("ravetapepacks", plain)[0]
+    monkeypatch.setattr(app_module, "RTP_DOWNLOADS_ENABLED", True)
     assert app_module._download_allowed("ravetapepacks", plain)[0]
     assert app_module._download_allowed("ravetapepacks", legacy.playable(plain))[0]
     assert not app_module._download_allowed(

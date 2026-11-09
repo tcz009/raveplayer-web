@@ -17,7 +17,7 @@ and the posted URL passes `app._download_allowed`:
 | `hardscore` | `hardscore.com` / `*.hardscore.com` | `.mp3`, `.m4a` |
 | `pirate` | exact `stream_url`s in `resources/pirate-radio.json` | `.mp3`, `.m4a` |
 | `toronto` | `torontoravemixtapearchive.com` `/files/mixtape/*`, `/files/xstatic/*` | `.mp3` |
-| `ravetapepacks` | `ravetapepacks.com` / `*.ravetapepacks.com` `/music/*` | `.mp3`, `.m4a` |
+| `ravetapepacks` | `ravetapepacks.com` / `*.ravetapepacks.com` `/music/*` — **hidden while `RAVEWEB_RTP_DOWNLOADS=0` (default)** | `.mp3`, `.m4a` |
 | `jungletapes` | `jungletapes.com` / `*.jungletapes.com` | `.mp3`, `.m4a` |
 | `ezgarage` / `mediafire` | signed `*.mediafire.com` file hosts (not the file page) | `.mp3`, `.m4a` |
 | `20bensons` | exact `20bensons.com` `/mp3/*` | `.mp3`, `.m4a` |
@@ -46,7 +46,7 @@ no favourite because there is no stable audio target to replay.
 |---|---|
 | `GET /api/downloads` | library list (`items`, `storage.used/limit/items`) |
 | `POST /api/downloads` `{url,title,source}` | proxy-save one direct audio file; duplicate URLs are idempotent. With `Accept: application/x-ndjson` it streams `started`/`progress`/`saved`/`cancelled`/`error` lines for the progress panel (1.6.17) |
-| `POST /api/downloads/cancel/<client_id>` | best-effort cancel of a streaming save; the partial file is discarded |
+| `POST /api/downloads/cancel/<client_id>` | cancel a streaming save from any worker; 200 `{cancelled:true,state:"cancelled"}`, 404 for an unknown id, 409 when the transfer already finished. The partial file is discarded. |
 | `GET /api/downloads/<id>/stream` | offline playback from the local copy (Range, CORP `same-origin`, `nosniff`) |
 | `GET /api/downloads/<id>/file` | save the local copy to a device (`Content-Disposition: attachment`, safe filename, Range) |
 | `DELETE /api/downloads/<id>` | delete file + index entry |
@@ -58,6 +58,39 @@ no favourite because there is no stable audio target to replay.
 Rows shown in the player get a Download icon only when the server attached
 `download` metadata. The Downloads view rows expose Save-to-device, play
 (offline copy) and delete.
+
+## Integrity and cross-worker cancellation (1.6.65)
+
+`_download_chunks` compares the bytes written with the upstream
+`Content-Length` when that header is present.  A short body (clean EOF, a
+socket timeout or `IncompleteRead`) or an overlong body fails the transfer with
+`DownloadError(..., 502)`; the temp file is removed and neither the foreground
+panel nor the background job may report `saved`/`completed`.  Transfers with no
+`Content-Length` (chunked upstreams) keep working unchanged.  `/api/downloads/
+<id>/stream` and `/file` also refuse to serve a saved copy whose on-disk size
+no longer matches the size recorded at save time (409, `download_incomplete`).
+
+Foreground cancellation is stored in the shared WAL SQLite table
+`download_cancels` (`core/download_cancels.py`), not in a per-process set.  The
+streaming worker polls the row every 0.2 s, so a cancel POST that lands on the
+other gunicorn worker still stops the transfer.  A cancel that wins the race
+with the final chunk is checked atomically before the file is registered, so a
+cancelled save cannot publish.  Rows expire after the transfer (or 6 h for an
+abandoned active row), keeping the table bounded.
+
+### RaveTapePacks downloads are off by default
+
+The 1.6.62 QA sweep found that RaveTapePacks' origin can cut a full-file
+response mid-stream.  Playback and Range requests stay enabled, but the
+Download affordance and the API predicate are disabled while
+`RAVEWEB_RTP_DOWNLOADS=0` (the default).  Re-enable only after verifying a full
+live save against the host:
+
+```sh
+RAVEWEB_RTP_DOWNLOADS=1 docker compose up -d --build
+```
+
+No other source is affected.
 
 ## Background jobs
 
@@ -118,6 +151,8 @@ completion toast when you are elsewhere.
   `Content-Length` is checked before writing; the byte counter is checked while
   writing; temp file + atomic rename; index writes are locked (thread +
   `fcntl`) and atomic.
+- A known `Content-Length` is an exact contract: short/overlong bodies fail
+  with 502 and are never registered.  See "Integrity" above.
 - Filenames: sanitised title stem + short URL hash + extension —
   `<safe-title>-<8hex>.mp3` / `.m4a`. No provider URL ever reaches a filename.
 - No auto-download and no preloading. Background saving starts only from an explicit `POST /api/downloads/jobs`.

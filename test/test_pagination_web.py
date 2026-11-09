@@ -193,3 +193,89 @@ def test_dnb_shows_page(web, monkeypatch):
     items, _pages = _walk(web, "/api/dnb")
     assert len(items) == 90
     assert len({item["label"] for item in items}) == 90
+
+
+# --------------------------------------------------------------------------- Archive clamping
+
+
+def _archive_pages(state):
+    """A page-aware Archive fake: out-of-range pages return total 0/empty."""
+    calls = []
+
+    def fake(query, page=1, rows=50, sort="downloads desc"):
+        calls.append(page)
+        if page > state["last"]:
+            return [], 0
+        if page == state["last"]:
+            return list(state["last_docs"]), state["total"]
+        return [{"identifier": "pack-%d" % page, "title": "Pack %d" % page,
+                 "year": "1993"}], state["total"]
+
+    return fake, calls
+
+
+def test_every_pack_far_out_of_range_page_clamps_to_last(web, monkeypatch):
+    fake, calls = _archive_pages({
+        "total": 81, "last": 3,
+        "last_docs": [{"identifier": "last-pack", "title": "Last", "year": "1993"}],
+    })
+    monkeypatch.setattr(app_module.archive, "search", fake)
+    payload = web.get("/api/every-pack?page=99999").get_json()
+    assert payload["total"] == 81
+    assert payload["pager"]["page"] == 3 and payload["pager"]["pages"] == 3
+    assert [item["open"] for item in payload["items"]] == ["/api/item/last-pack"]
+    assert 500 in calls  # _page_arg caps the raw 99999 at MAX_PAGE
+
+
+def test_archive_section_far_out_of_range_page_clamps_to_last(web, monkeypatch):
+    fake, _calls = _archive_pages({
+        "total": 81, "last": 3,
+        "last_docs": [{"identifier": "last-pack", "title": "Last", "year": "1993"}],
+    })
+    monkeypatch.setattr(app_module.archive, "search", fake)
+    payload = web.get("/api/packs/jungle?page=99999").get_json()
+    assert payload["total"] == 81
+    assert payload["pager"]["page"] == 3
+    assert [item["open"] for item in payload["items"]] == ["/api/item/last-pack"]
+
+
+def test_year_far_out_of_range_page_clamps_to_last(web, monkeypatch):
+    fake, _calls = _archive_pages({
+        "total": 81, "last": 3,
+        "last_docs": [{"identifier": "last-pack", "title": "Last", "year": "1993"}],
+    })
+    monkeypatch.setattr(app_module.archive, "search", fake)
+    payload = web.get("/api/year/1993?page=99999").get_json()
+    assert payload["total"] == 81
+    assert payload["pager"]["page"] == 3
+
+
+def test_known_total_empty_last_page_is_retried_once(web, monkeypatch):
+    calls = []
+
+    def fake(query, page=1, rows=50, sort="downloads desc"):
+        calls.append(page)
+        if page != 19:
+            return [], 724
+        # First attempt is the Archive flake; the retry has the real 4 rows.
+        if calls.count(19) == 1:
+            return [], 724
+        return ([{"identifier": "pack-%d" % index, "title": "Pack", "year": "1993"}
+                 for index in range(4)], 724)
+
+    monkeypatch.setattr(app_module.archive, "search", fake)
+    payload = web.get("/api/every-pack?page=19").get_json()
+    assert payload["pager"]["page"] == 19
+    assert payload["total"] == 724
+    assert len(payload["items"]) == 4
+    assert calls.count(19) == 2
+
+
+def test_persistent_empty_page_is_a_visible_502_not_an_empty_room(web, monkeypatch):
+    def fake(query, page=1, rows=50, sort="downloads desc"):
+        return [], 724
+
+    monkeypatch.setattr(app_module.archive, "search", fake)
+    response = web.get("/api/every-pack?page=19")
+    assert response.status_code == 502
+    assert response.get_json()["code"] == "source_unavailable"

@@ -231,7 +231,12 @@ def test_filter_bad_page_falls_back_to_one(web, archive_search, page):
 
 def test_filter_page_is_clamped(web, archive_search):
     payload = web.get("/api/filter/kool?page=99999999").get_json()
-    assert archive_search["calls"][-1]["page"] == 500
+    # MAX_PAGE caps the raw query arg, then the archive helper clamps to the
+    # real last page (80 rows -> page 2), never an empty room.
+    assert archive_search["calls"][-1]["page"] == 2
+    assert payload["pager"]["page"] == 2
+    assert payload["pager"]["pages"] == 2
+    assert len(payload["items"]) == 1
     assert "next" not in payload
 
 
