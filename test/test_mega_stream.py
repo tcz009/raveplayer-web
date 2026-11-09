@@ -8,7 +8,9 @@ with pycryptodome; it pins the key derivation, IV and counter layout.
 """
 
 import base64
+import ipaddress
 import logging
+import socket
 import time
 import urllib.parse
 
@@ -18,8 +20,10 @@ from Crypto.Cipher import AES
 import app as app_module
 from core.resolver import mega
 from core.resolver import mega_stream
+from core.resolver import stream_budget
 from core.resolver.base import Resolved
 from core.resolver import service as resolver_service
+from core.resolver.service import TokenBucket
 
 
 # --------------------------------------------------------------------------- fixture
@@ -49,9 +53,11 @@ SECRET = "test-mega-token-secret"
 @pytest.fixture(autouse=True)
 def fresh_slots():
     mega_stream.reset_slots()
+    mega_stream.reset_limiters()
     mega.clear_memory()
     yield
     mega_stream.reset_slots()
+    mega_stream.reset_limiters()
     mega.clear_memory()
 
 
@@ -247,6 +253,53 @@ def test_upstream_partial_range_starting_mid_block_is_aligned_by_the_cipher():
     assert plan.headers["Content-Range"] == "bytes 5-20/4096"
 
 
+class RangeHeaderStorage(object):
+    """A 206 node whose body starts at the requested block boundary."""
+
+    def __init__(self, ciphertext, content_range):
+        self.ciphertext = ciphertext
+        self.content_range = content_range
+        self.calls = []
+        self.read_bytes = 0
+
+    def __call__(self, url, headers, timeout):
+        self.calls.append(dict(headers))
+        start, end = _parse_upstream_range(headers["Range"],
+                                           len(self.ciphertext))
+        body = self.ciphertext[start:end + 1]
+        self.read_bytes = len(body)
+        response_headers = {
+            "Content-Length": str(len(body)),
+            "Content-Type": "application/octet-stream",
+        }
+        if self.content_range is not None:
+            response_headers["Content-Range"] = self.content_range % {
+                "start": start, "end": end, "total": len(self.ciphertext)}
+        return FakeResponse(206, body, response_headers)
+
+
+@pytest.mark.parametrize("content_range", [None, "bytes %(start)d-%(end)d"])
+def test_206_without_parsable_content_range_uses_the_requested_block_start(
+        content_range):
+    # The proxy asked for bytes=16-33, so the body starts at 16 even when the
+    # storage node omits the header.  Guessing the client's start (17) would
+    # shift the plaintext by one byte.
+    resolver = FakeResolver(["http://gfs1.userstorage.mega.co.nz/dl/headerless"])
+    storage = RangeHeaderStorage(CIPHERTEXT, content_range)
+    plan = _engine(resolver, storage).plan(LINK, "bytes=17-33")
+    assert plan.status == 206
+    assert _collect(plan) == PLAINTEXT[17:34]
+    assert storage.calls[0]["Range"] == "bytes=16-33"
+
+
+def test_206_with_a_parsable_content_range_still_uses_the_server_start():
+    resolver = FakeResolver(["http://gfs1.userstorage.mega.co.nz/dl/headers"])
+    storage = RangeHeaderStorage(
+        CIPHERTEXT, "bytes %(start)d-%(end)d/%(total)d")
+    plan = _engine(resolver, storage).plan(LINK, "bytes=17-33")
+    assert _collect(plan) == PLAINTEXT[17:34]
+
+
 def test_unsatisfiable_ranges_are_rejected():
     resolver = FakeResolver(["http://gfs1.userstorage.mega.co.nz/dl/x"])
     storage = FakeStorage(CIPHERTEXT)
@@ -265,12 +318,32 @@ def test_unsatisfiable_ranges_are_rejected():
 def test_range_parsing_helpers():
     assert mega_stream.parse_range_header(None) is None
     assert mega_stream.parse_range_header("") is None
+    # RFC 7233: an unknown range unit is ignored, not a 416.
+    assert mega_stream.parse_range_header("items=0-1") is None
     spec = mega_stream.parse_range_header("bytes=-500")
     assert spec.suffix == 500
     assert mega_stream.bounded_range(spec, 4096) == (3596, 4095)
     assert mega_stream.bounded_range(spec, 100) == (0, 99)
     assert mega_stream.bounded_range(
         mega_stream.parse_range_header("bytes=10-"), 4096) == (10, 4095)
+
+
+def test_malformed_range_416_includes_content_range_when_size_is_known():
+    resolver = FakeResolver(["http://gfs1.userstorage.mega.co.nz/dl/bad-range"])
+    storage = FakeStorage(CIPHERTEXT)
+    with pytest.raises(mega_stream.RangeNotSatisfiable) as caught:
+        _engine(resolver, storage).plan(LINK, "bytes=abc")
+    assert caught.value.headers["Content-Range"] == "bytes */4096"
+    assert storage.calls == []
+
+
+def test_unknown_range_unit_is_ignored_and_serves_the_full_body():
+    resolver = FakeResolver(["http://gfs1.userstorage.mega.co.nz/dl/unit"])
+    storage = FakeStorage(CIPHERTEXT)
+    plan = _engine(resolver, storage).plan(LINK, "items=0-1")
+    assert plan.status == 200
+    assert _collect(plan) == PLAINTEXT
+    assert "Range" not in storage.calls[0]["headers"]
 
 
 # --------------------------------------------------------------------------- 403 / two-use
@@ -342,6 +415,111 @@ def test_head_does_not_consume_the_storage_capability():
     assert plan.headers["Accept-Ranges"] == "bytes"
 
 
+def test_head_takes_a_stream_slot():
+    resolver = FakeResolver(["http://gfs1.userstorage.mega.co.nz/dl/head"])
+    storage = FakeStorage(CIPHERTEXT)
+    stream_budget.reset_slots(1)
+    assert stream_budget.acquire(timeout=0)
+    try:
+        with pytest.raises(mega_stream.MegaStreamError) as caught:
+            _engine(resolver, storage).plan(LINK, head=True)
+    finally:
+        stream_budget.release()
+    assert caught.value.code == 503
+    assert caught.value.kind == "busy"
+    assert resolver.calls == []
+
+
+def test_shared_stream_budget_composes_mega_and_generic_proxy():
+    resolver = FakeResolver(["http://gfs1.userstorage.mega.co.nz/dl/shared"])
+    storage = FakeStorage(CIPHERTEXT)
+    stream_budget.reset_slots(1)
+    plan = _engine(resolver, storage).plan(LINK)
+    assert stream_budget.available() == 0
+    with pytest.raises(mega_stream.MegaStreamError) as caught:
+        _engine(resolver, storage).plan(LINK)
+    assert caught.value.code == 503
+    assert _collect(plan) == PLAINTEXT
+    assert stream_budget.available() == 1
+
+
+def test_byte_cap_covers_discard_when_upstream_ignores_range(monkeypatch):
+    monkeypatch.setattr(mega_stream, "MAX_STREAM_BYTES", 100)
+    resolver = FakeResolver(["http://gfs1.userstorage.mega.co.nz/dl/cap"])
+    storage = FakeStorage(CIPHERTEXT, ignore_range=True)
+    plan = _engine(resolver, storage).plan(LINK, "bytes=50-200")
+    # 50 bytes discarded to reach the offset, 50 more sent: the cap counts both.
+    assert _collect(plan) == PLAINTEXT[50:100]
+
+
+def test_discard_larger_than_byte_budget_is_a_416(monkeypatch):
+    monkeypatch.setattr(mega_stream, "MAX_STREAM_BYTES", 100)
+    resolver = FakeResolver(["http://gfs1.userstorage.mega.co.nz/dl/cap"])
+    storage = FakeStorage(CIPHERTEXT, ignore_range=True)
+    with pytest.raises(mega_stream.MegaStreamError) as caught:
+        _engine(resolver, storage).plan(LINK, "bytes=200-250")
+    assert caught.value.code == 416
+    assert caught.value.headers["Content-Range"] == "bytes */4096"
+
+
+def test_403_reresolve_is_budgeted_per_link():
+    expired = "http://gfs1.userstorage.mega.co.nz/dl/expired"
+    fresh = "http://gfs2.userstorage.mega.co.nz/dl/fresh"
+    resolver = FakeResolver([expired, fresh, expired, fresh])
+    storage = FakeStorage(CIPHERTEXT, statuses={expired: 403})
+    limiter = TokenBucket(rate_per_minute=0.001, burst=1)
+    streamer = mega_stream.MegaStreamer(
+        resolve=resolver, opener=storage, reresolve_limiter=limiter)
+    assert _collect(streamer.plan(LINK)) == PLAINTEXT
+    with pytest.raises(mega_stream.MegaStreamError) as caught:
+        streamer.plan(LINK)
+    assert caught.value.code == 429
+    assert caught.value.retry_after
+    # The second playback did not get a second resolve after exhausting the cap.
+    assert len(resolver.calls) == 3
+
+
+def _fake_dns(monkeypatch, *addresses):
+    infos = []
+    for raw in addresses:
+        if ":" in raw:
+            infos.append((socket.AF_INET6, socket.SOCK_STREAM, 6, "",
+                          (raw, 443, 0, 0)))
+        else:
+            infos.append((socket.AF_INET, socket.SOCK_STREAM, 6, "",
+                          (raw, 443)))
+    monkeypatch.setattr(
+        mega_stream.socket, "getaddrinfo",
+        lambda *args, **kwargs: list(infos))
+
+
+@pytest.mark.parametrize("address", [
+    "100.64.0.1",       # CGNAT
+    "100.127.255.254",  # CGNAT upper end
+    "fec0::1",          # IPv6 site-local (is_global is true on Python 3.9)
+    "2001:db8::1",      # documentation/reserved
+    "::ffff:10.0.0.1",  # IPv4-mapped private
+    "10.0.0.1",
+    "127.0.0.1",
+])
+def test_public_address_rejects_non_global_answers(monkeypatch, address):
+    _fake_dns(monkeypatch, address)
+    with pytest.raises(mega_stream.MegaStreamError):
+        mega_stream._public_address("gfs1.userstorage.mega.co.nz", 443)
+
+
+def test_public_address_rejects_mixed_answers(monkeypatch):
+    _fake_dns(monkeypatch, "8.8.8.8", "10.0.0.1")
+    with pytest.raises(mega_stream.MegaStreamError):
+        mega_stream._public_address("gfs1.userstorage.mega.co.nz", 443)
+
+
+def test_public_address_accepts_a_global_answer(monkeypatch):
+    _fake_dns(monkeypatch, "8.8.8.8")
+    assert mega_stream._public_address(
+        "gfs1.userstorage.mega.co.nz", 443) == "8.8.8.8"
+
+
 def test_head_with_range_reports_partial_metadata():
     resolver = FakeResolver(["http://gfs1.userstorage.mega.co.nz/dl/head"])
     storage = FakeStorage(CIPHERTEXT)
@@ -380,6 +558,14 @@ def test_signed_token_round_trip_and_binding():
         LINK, expiry, token, secret="different", now=1000)
 
 
+def test_signed_token_rejects_a_mismatched_legacy_u_parameter():
+    path = mega_stream.signed_path(LINK, ttl=60, now=1000, secret=SECRET)
+    query = urllib.parse.parse_qs(urllib.parse.urlsplit(path).query)
+    args = {key: value[0] for key, value in query.items()}
+    args["u"] = OTHER_LINK
+    assert mega_stream.has_valid_token(args) is False
+
+
 def test_signed_token_expiry_and_far_future_are_rejected():
     now = 1_700_000_000
     expired = mega_stream.make_token(LINK, now - 1, secret=SECRET)
@@ -390,13 +576,20 @@ def test_signed_token_expiry_and_far_future_are_rejected():
     assert not mega_stream.verify_token(LINK, far, token, secret=SECRET, now=now)
 
 
-def test_signed_path_encodes_the_fragment_key():
+def test_signed_path_is_opaque_and_hides_the_link_key():
     path = mega_stream.signed_path(LINK, ttl=60, now=1000, secret=SECRET)
     assert path.startswith("/api/mega/stream?")
     query = urllib.parse.parse_qs(urllib.parse.urlsplit(path).query)
-    assert query["u"] == [mega.parse_link(LINK).canonical]
+    # The canonical MEGA link (and therefore the permanent file key) must not
+    # appear in the signed query string.
+    assert "u" not in query
+    assert KEY_B64 not in path
+    assert HANDLE not in path
     assert mega_stream.verify_token(
-        query["u"][0], query["e"][0], query["t"][0], secret=SECRET, now=1000)
+        LINK, query["e"][0], query["t"][0], secret=SECRET, now=1000)
+    assert mega_stream.token_link(
+        {key: value[0] for key, value in query.items()},
+        secret=SECRET, now=1000) == mega.parse_link(LINK).canonical
 
 
 # --------------------------------------------------------------------------- Flask API
@@ -496,6 +689,43 @@ def test_route_rejects_missing_link(web):
     assert response.get_json()["code"] == "invalid"
 
 
+def test_stream_request_rate_limit_returns_429(web, monkeypatch):
+    resolver = FakeResolver(["http://gfs1.userstorage.mega.co.nz/dl/web"])
+    storage = FakeStorage(CIPHERTEXT)
+    _patch_stream(monkeypatch, resolver, storage)
+    monkeypatch.setattr(
+        mega_stream, "_STREAM_LIMITER",
+        TokenBucket(rate_per_minute=1, burst=1))
+    assert web.get("/api/mega/stream", query_string={"u": LINK}).status_code == 200
+    response = web.get("/api/mega/stream", query_string={"u": LINK})
+    assert response.status_code == 429
+    assert response.get_json()["code"] == "rate_limited"
+    assert int(response.headers["Retry-After"]) >= 1
+
+
+def test_sign_request_rate_limit_returns_429(web, monkeypatch):
+    monkeypatch.setenv("RAVEWEB_MEGA_TOKEN_SECRET", SECRET)
+    monkeypatch.setattr(
+        mega_stream, "_SIGN_LIMITER",
+        TokenBucket(rate_per_minute=1, burst=1))
+    assert web.get("/api/mega/sign", query_string={"u": LINK}).status_code == 200
+    response = web.get("/api/mega/sign", query_string={"u": LINK})
+    assert response.status_code == 429
+    assert response.get_json()["code"] == "rate_limited"
+    assert int(response.headers["Retry-After"]) >= 1
+
+
+def test_sign_post_is_preferred_and_get_is_deprecated(web, monkeypatch):
+    monkeypatch.setenv("RAVEWEB_MEGA_TOKEN_SECRET", SECRET)
+    post = web.post("/api/mega/sign", json={"url": LINK})
+    assert post.status_code == 200
+    assert "Warning" not in post.headers
+    get = web.get("/api/mega/sign", query_string={"u": LINK})
+    assert get.status_code == 200
+    assert "deprecated" in get.headers["Warning"].lower()
+    assert get.headers["Deprecation"] == "true"
+
+
 def test_sign_endpoint_returns_a_token_path(web, monkeypatch):
     monkeypatch.setenv("RAVEWEB_MEGA_TOKEN_SECRET", SECRET)
     response = web.get("/api/mega/sign", query_string={"u": LINK})
@@ -512,6 +742,18 @@ def test_sign_endpoint_requires_auth_and_a_mega_link(anon, web):
     assert anon.get("/api/mega/sign", query_string={"u": LINK}).status_code == 401
     assert web.get("/api/mega/sign",
                    query_string={"u": "https://example.com/a.mp3"}).status_code == 400
+
+
+def test_stream_token_cannot_be_replayed_to_mint_a_new_token(anon, monkeypatch):
+    monkeypatch.setenv("RAVEWEB_MEGA_TOKEN_SECRET", SECRET)
+    path = mega_stream.signed_path(LINK, secret=SECRET)
+    query = urllib.parse.parse_qs(urllib.parse.urlsplit(path).query)
+    response = anon.get("/api/mega/sign", query_string={
+        "u": LINK,
+        "e": query["e"][0],
+        "t": query["t"][0],
+    })
+    assert response.status_code == 401
 
 
 def test_resolve_response_carries_a_stream_path_for_mega(monkeypatch):

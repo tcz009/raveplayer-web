@@ -331,12 +331,31 @@ def test_mega_nz_storage_host_is_allowed():
     "javascript:alert(1)",
     "http://gfs1.userstorage.mega.co.nz/dl/x#frag",
     "http://gfs1.userstorage.mega.co.nz:99999/dl/x",
+    "http://gfs1.userstorage.mega.co.nz:22/dl/x",   # non-HTTP port
+    "http://gfs1.userstorage.mega.co.nz:8080/dl/x",  # non-HTTP port
 ])
 def test_download_url_allowlist_and_private_host_rejection(download_url):
     with pytest.raises(mega.FormatChanged):
         mega.resolve(
             NEW_URL, transport=_fake(body=_body(g=download_url)),
             sleep=lambda _: None)
+
+
+def test_download_url_accepts_http_and_https_ports():
+    for url in ("http://gfs1.userstorage.mega.co.nz:80/dl/x",
+                "https://gfs1.userstorage.mega.co.nz:443/dl/x"):
+        assert mega.validate_download_url(url) == url
+
+
+def test_download_url_trailing_dot_is_normalised_not_a_bypass():
+    # The trailing dot is stripped before the suffix check, so the URL is still
+    # a MEGA storage URL; a lookalike domain with a trailing dot is rejected.
+    assert mega.validate_download_url(
+        "http://gfs1.userstorage.mega.co.nz./dl/x") == (
+        "http://gfs1.userstorage.mega.co.nz./dl/x")
+    with pytest.raises(mega.FormatChanged):
+        mega.validate_download_url(
+            "http://gfs1.userstorage.mega.co.nz.evil.com./dl/x")
 
 
 def test_bad_link_key_fails_attribute_decryption():

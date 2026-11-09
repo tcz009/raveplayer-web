@@ -1,9 +1,15 @@
 FROM python:3.12-slim
 
+# Baked-in revision makes GET /healthz traceable to the commit that built the
+# image.  scripts/deploy.sh passes this build arg; a plain `docker build` leaves
+# it empty and /healthz reports "unknown".
+ARG RAVEWEB_REVISION=""
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     RAVEWEB_DATA=/data \
-    RAVEWEB_MAX_STREAMS=6
+    RAVEWEB_MAX_STREAMS=6 \
+    RAVEWEB_REVISION=${RAVEWEB_REVISION}
 
 WORKDIR /app
 
