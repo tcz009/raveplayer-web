@@ -73,18 +73,18 @@ def test_section_and_rail_icons_are_distinct(web):
     _check_unique(sections, "/api/menu sections")
     _check_unique(rail, "/api/menu rail")
     _check_unique(sections + rail, "/api/menu sections+rail")
-    assert len(sections) == 25
+    assert len(sections) == 26
     assert len(rail) == 7
 
 
 def test_pack_genre_rows_are_distinct(web):
     rows = [(item["label"], item["art"]) for item in _items(web, "/api/packs")]
-    assert len(rows) == 7
+    assert len(rows) == 8
     _check_unique(rows, "/api/packs")
     assert [label for label, _icon in rows] == [
         "Toronto Rave Mixtape Archive", "JungleTapes.com", "RaveTapePacks.com",
-        "Classic Pack Series", "By Rave, Venue & Promoter", "By Year",
-        "Every Pack",
+        "EZ Garage Sets", "Classic Pack Series", "By Rave, Venue & Promoter",
+        "By Year", "Every Pack",
     ]
 
 

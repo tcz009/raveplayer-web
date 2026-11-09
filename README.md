@@ -25,6 +25,11 @@ The sections behind the groups:
   Garage Nation, One In The Jungle and more (data in `filters.json`).
 - **Live Radio** — seven genre groups from radio-browser.
 - **Tape Packs** — the Internet Archive `ravetapes` collection, 1987 to today.
+- **EZ Garage Sets** — 23 DJ EZ / old-skool garage Mediafire sets curated from
+  the [DNBForum thread](https://dnbforum.com/threads/ez-old-skool-garage-sets.43637/)
+  (taken from the Wayback snapshot). Signed Mediafire URLs are resolved
+  server-side on play/download, cached for two hours, and one request at a time
+  with HTTP 429 backoff.
 - **By Year** — the same collection browsed by year.
 - **Podcasts & Mixes** — present-day shows from RSS feeds (`feeds.json`).
 - **DNB Radio** — recent jungle/DnB shows, stream resolved on demand.
@@ -227,8 +232,8 @@ check without guesswork.
 ## Scene taxonomy
 
 The 1.6.44 rail and source order follow the [scene taxonomy](docs/TAXONOMY-WEB-2026.md):
-Tape Packs starts with Toronto/JungleTapes/RaveTapePacks and ends with Every
-Pack; Pirate Radio is a root door; Mixes & Shows is Podcasts/DNBRADIO/GetDarker/
+Tape Packs starts with Toronto/JungleTapes/RaveTapePacks/EZ Garage Sets and
+ends with Every Pack; Pirate Radio is a root door; Mixes & Shows is Podcasts/DNBRADIO/GetDarker/
 Moxser; Live Radio names Kool FM, Rinse FM and Centreforce 883 before the
 genres. Jungle/Drum & Bass and Hardcore/Happy Hardcore are separate doors.
 

@@ -289,7 +289,8 @@ def test_packs_sections(web):
     payload = web.get("/api/packs").get_json()
     assert [item["label"] for item in payload["items"]] == [
         "Toronto Rave Mixtape Archive", "JungleTapes.com", "RaveTapePacks.com",
-        "Classic Pack Series", "By Rave, Venue & Promoter", "By Year", "Every Pack"]
+        "EZ Garage Sets", "Classic Pack Series", "By Rave, Venue & Promoter",
+        "By Year", "Every Pack"]
 
 
 def test_packs_list_skips_docs_without_identifier(web, archive_search):

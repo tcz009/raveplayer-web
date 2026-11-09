@@ -48,15 +48,17 @@ def test_web_rail_is_the_exact_taxonomy_order(web):
     assert len(menu["rail"]) == 7
 
 
-def test_tape_packs_rows_one_to_seven_are_exact(web):
+def test_tape_packs_rows_are_exact(web):
     payload = web.get("/api/packs").get_json()
     assert payload["title"] == "Tape Packs"
     assert _labels(payload) == [
         "Toronto Rave Mixtape Archive", "JungleTapes.com", "RaveTapePacks.com",
-        "Classic Pack Series", "By Rave, Venue & Promoter", "By Year", "Every Pack"]
+        "EZ Garage Sets", "Classic Pack Series", "By Rave, Venue & Promoter",
+        "By Year", "Every Pack"]
     assert _opens(payload) == [
         "/api/toronto", "/api/legacy/jungletapes", "/api/legacy/ravetapepacks",
-        "/api/filters", "/api/raves", "/api/years", "/api/every-pack"]
+        "/api/ezgarage", "/api/filters", "/api/raves", "/api/years",
+        "/api/every-pack"]
     rail = web.get("/api/rail/packs").get_json()
     assert ([item["label"] for item in rail["items"]] ==
             [item["label"] for item in payload["items"]])

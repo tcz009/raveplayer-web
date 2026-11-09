@@ -45,9 +45,9 @@ from werkzeug.exceptions import HTTPException
 from flask.sessions import SecureCookieSessionInterface
 
 from core import (archive, audit, auth, cache, dnbradio, download_jobs, downloads,
-                  favourites, feeds, fetch as fetch_core, getdarker, hardscore,
-                  latest, legacy, mixcloud, moxser, pirate, playback, radio, raves,
-                  ravearchive, soundcloud, toronto)
+                  ezgarage, favourites, feeds, fetch as fetch_core, getdarker,
+                  hardscore, latest, legacy, mixcloud, moxser, pirate, playback,
+                  radio, raves, ravearchive, soundcloud, toronto)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.config["JSON_SORT_KEYS"] = False
@@ -223,7 +223,7 @@ DOWNLOAD_MAX_TOTAL = _env_bytes("RAVEWEB_DOWNLOAD_TOTAL", 2 * 1024 * 1024 * 1024
 DOWNLOAD_MAX_ITEMS = 200
 DOWNLOAD_DEADLINE = 1800  # seconds for one proxy download
 DOWNLOAD_SOURCES = ("archive", "moxser", "hardscore", "pirate", "toronto",
-                    "ravetapepacks", "jungletapes")
+                    "ravetapepacks", "jungletapes", "ezgarage", "mediafire")
 DOWNLOAD_EXTENSIONS = (".mp3", ".m4a")
 DOWNLOAD_JOB_CONCURRENCY = max(1, min(2, int(os.environ.get("RAVEWEB_DOWNLOAD_JOBS", "2") or 2)))
 DOWNLOAD_JOB_MAX = 20
@@ -238,6 +238,9 @@ DOWNLOAD_SOURCE_LABELS = {
     "pirate": "Pirate Radio Archives",
     "toronto": "Toronto Rave Mixtape Archive",
     "ravetapepacks": "RaveTapePacks.com",
+    "jungletapes": "JungleTapes.com",
+    "ezgarage": "DNBForum / Mediafire",
+    "mediafire": "DNBForum / Mediafire",
 }
 DOWNLOAD_SOURCE_ART = {
     "archive": ART + "tapepacks-all.png",
@@ -246,6 +249,9 @@ DOWNLOAD_SOURCE_ART = {
     "pirate": ART + "pirate-archive.png",
     "toronto": ART + "toronto.png",
     "ravetapepacks": ART + "ravetapepacks.png",
+    "jungletapes": ART + "jungletapes.png",
+    "ezgarage": ART + "djez.png",
+    "mediafire": ART + "djez.png",
 }
 
 _REDIRECT_CODES = frozenset((301, 302, 303, 307, 308))
@@ -297,6 +303,7 @@ SECTIONS = [
     ("toronto", "Toronto Rave Mixtape Archive", "toronto.png", "Toronto rave tapes, 1990–2014"),
     ("jungletapes", "JungleTapes.com", "jungletapes.png", "Toronto jungle radio from cassette, 1996–2000"),
     ("ravetapepacks", "RaveTapePacks.com", "ravetapepacks.png", "UK tape packs, 1992–2004"),
+    ("ezgarage", "EZ Garage Sets", "djez.png", "DJ EZ and old-skool garage sets from DNBForum"),
     ("classic-packs", "Classic Pack Series", "series.png", "The UK pack canon"),
     ("by-rave", "By Rave, Venue & Promoter", "rave-nights.png", "Raves, venues and promoters"),
     ("by-year", "By Year", "years.png", "Tape packs by year"),
@@ -364,6 +371,7 @@ SECTION_PATHS = {
     "toronto": "/api/toronto",
     "jungletapes": "/api/legacy/jungletapes",
     "ravetapepacks": "/api/legacy/ravetapepacks",
+    "ezgarage": "/api/ezgarage",
     "classic-packs": "/api/filters",
     "by-rave": "/api/raves",
     "by-year": "/api/years",
@@ -392,8 +400,8 @@ RAIL = [
     {"id": "latest", "label": "Latest", "icon": "rave.png", "path": "/api/latest",
      "children": ["latest"], "sub": "Newest packs, shows and radio rips."},
     {"id": "packs", "label": "Tape Packs", "icon": "tapepacks.png",
-     "children": ["toronto", "jungletapes", "ravetapepacks", "classic-packs",
-                  "by-rave", "by-year", "every-pack"],
+     "children": ["toronto", "jungletapes", "ravetapepacks", "ezgarage",
+                  "classic-packs", "by-rave", "by-year", "every-pack"],
      "sub": "Cassette packs and rave tapes, by event, DJ, MC and year."},
     {"id": "pirate", "label": "Pirate Radio", "icon": "pirate-radio.png",
      "children": ["hardscore", "pirates", "kool-sets"],
@@ -2018,8 +2026,8 @@ def api_every_pack():
 def api_packs():
     """Tape Packs taxonomy hub (1.6.44 exact order)."""
     items = []
-    for sid in ("toronto", "jungletapes", "ravetapepacks", "classic-packs",
-                "by-rave", "by-year", "every-pack"):
+    for sid in ("toronto", "jungletapes", "ravetapepacks", "ezgarage",
+                "classic-packs", "by-rave", "by-year", "every-pack"):
         section = next((entry for entry in SECTIONS if entry[0] == sid), None)
         if section:
             items.append(_folder(section[1], section[3], SECTION_PATHS[sid],
@@ -2036,6 +2044,75 @@ def api_pack_list(key):
     docs, total = archive.search(section[2], page=page, rows=ROWS)
     return jsonify(_paged_payload(section[1], _pack_items(docs), page, total,
                                   "/api/packs/%s" % key))
+
+
+# --------------------------------------------------------------------------- ez garage
+
+def _ezgarage_row(set_id):
+    return next((row for row in ezgarage.SETS if row["id"] == set_id), None)
+
+
+def _ezgarage_error(exc):
+    """Map a typed resolver failure to the app's JSON error shape."""
+    return _stream_error(getattr(exc, "code", 502), exc.message,
+                         retry=getattr(exc, "retry_after", None),
+                         error_code="ezgarage")
+
+
+@app.get("/api/ezgarage")
+def api_ezgarage():
+    """DNBForum's DJ EZ / old-skool garage thread: 23 Mediafire sets."""
+    items = []
+    for row in ezgarage.SETS:
+        set_id = row["id"]
+        play = "/api/ezgarage/%s/stream" % urllib.parse.quote(set_id, safe="")
+        item = _track(row["title"], _source_sub("DJ EZ", ezgarage.SOURCE_LABEL),
+                      play, ART + "djez.png")
+        # Resolve the page server-side at download time; the client only ever
+        # sends the curated set id, never a Mediafire URL.
+        item["download"] = {"source": "mediafire", "id": set_id}
+        item["file"] = "/api/ezgarage/%s/file" % urllib.parse.quote(set_id, safe="")
+        items.append(item)
+    return jsonify({
+        "title": "EZ Garage Sets",
+        "sub": "23 DJ EZ and old-skool garage sets from DNBForum",
+        "source": ezgarage.SOURCE_URL,
+        "credit": "Curated from the DNBForum thread (Wayback snapshot)",
+        "items": items,
+    })
+
+
+@app.get("/api/ezgarage/<set_id>/stream")
+def api_ezgarage_stream(set_id):
+    """Resolve the Mediafire page, then proxy the signed MP3 same-origin."""
+    row = _ezgarage_row(set_id)
+    if row is None:
+        return _ezgarage_error(ezgarage.UnknownSet("unknown DJ EZ set"))
+    try:
+        target = ezgarage.resolve(set_id)
+    except ezgarage.EzGarageError as exc:
+        return _ezgarage_error(exc)
+    options = {"user-agent": ezgarage.BROWSER_UA,
+               "referer": "https://www.mediafire.com/"}
+    return _serve_stream(target, options, request.headers.get("Range"), None)
+
+
+@app.get("/api/ezgarage/<set_id>/file")
+def api_ezgarage_file(set_id):
+    """Download one set as an attachment through the same signed-URL proxy."""
+    row = _ezgarage_row(set_id)
+    if row is None:
+        return _ezgarage_error(ezgarage.UnknownSet("unknown DJ EZ set"))
+    try:
+        target = ezgarage.resolve(set_id)
+    except ezgarage.EzGarageError as exc:
+        return _ezgarage_error(exc)
+    filename = downloads.safe_stem(row["title"]) + ".mp3"
+    disposition = 'attachment; filename="%s"' % filename
+    options = {"user-agent": ezgarage.BROWSER_UA,
+               "referer": "https://www.mediafire.com/"}
+    return _serve_stream(target, options, request.headers.get("Range"), None,
+                         disposition=disposition)
 
 
 @app.get("/api/item/<path:identifier>")
@@ -3054,7 +3131,17 @@ def api_stream():
         _parse_target(target)
     except UpstreamError:
         return _stream_error(400, "blocked or missing url")
+    return _serve_stream(target, options, request.headers.get("Range"),
+                         request.args.get("ref"))
 
+
+def _serve_stream(target, options, requested_range=None, ref_override=None,
+                  disposition=None):
+    """Proxy one already-validated media URL.
+
+    Shared by ``/api/stream`` and the curated EZ Garage routes so the same
+    SSRF/redirect rules, Referer handling and stream caps apply to Mediafire.
+    """
     if not _STREAM_SLOTS.acquire(timeout=2.0):
         return _stream_error(503, "too many streams in progress, retry shortly", retry=2)
 
@@ -3069,8 +3156,8 @@ def api_stream():
                 pass
 
     try:
-        headers = _upstream_headers(target, options, request.headers.get("Range"),
-                                    request.args.get("ref"))
+        headers = _upstream_headers(target, options, requested_range,
+                                    ref_override)
         deadline = time.monotonic() + STREAM_DEADLINE
         conn, resp, final_url = _open_stream(target, headers, deadline)
         if resp.status in (401, 403):
@@ -3141,6 +3228,8 @@ def api_stream():
     # let other web pages read the proxy's responses; CORP closes that too.
     headers_out["Cross-Origin-Resource-Policy"] = "same-origin"
     headers_out["X-Content-Type-Options"] = "nosniff"
+    if disposition:
+        headers_out["Content-Disposition"] = disposition
 
     def generate():
         sent = 0
@@ -3503,6 +3592,14 @@ def _download_allowed(source, url):
     elif source == "jungletapes":
         if not (host == "jungletapes.com" or host.endswith(".jungletapes.com")):
             return False, "not a JungleTapes file"
+    elif source in ("ezgarage", "mediafire"):
+        # Mediafire's signed direct host only.  The file page itself
+        # (www.mediafire.com/file/...) is never a download target; the job
+        # resolves the curated set id server-side instead.
+        if not (host == "mediafire.com" or host.endswith(".mediafire.com")):
+            return False, "not a Mediafire file"
+        if host in ("mediafire.com", "www.mediafire.com"):
+            return False, "not a Mediafire direct file"
     return True, ""
 
 
@@ -3722,9 +3819,21 @@ def _job_worker(job):
         max_bytes = min(DOWNLOAD_MAX_BYTES, max(0, DOWNLOAD_MAX_TOTAL - used))
         if max_bytes <= 0:
             raise DownloadError("the Downloads library is full", 413)
+        source_url = entry["url"]
+        if entry.get("source") in ("ezgarage", "mediafire"):
+            # Resolve at job time: the signed Mediafire URL expires, and the
+            # queue may have waited behind other jobs.  The client only ever
+            # provided the curated set id.
+            set_id = ezgarage.set_id_for_url(source_url)
+            if not set_id:
+                raise DownloadError("unknown DJ EZ set", 400)
+            try:
+                source_url = ezgarage.resolve(set_id)
+            except ezgarage.EzGarageError as exc:
+                raise DownloadError(exc.message, exc.code)
         last_save = time.monotonic()
         for event in _download_chunks(
-                entry["url"], temp_name, max_bytes, DOWNLOAD_DEADLINE,
+                source_url, temp_name, max_bytes, DOWNLOAD_DEADLINE,
                 lambda: _job_cancel_requested(job_id)):
             if _job_cancel_requested(job_id):
                 raise DownloadCancelled()
@@ -3776,9 +3885,23 @@ def api_download_job_create():
     source = _clean_text(payload.get("source"), 32).lower()
     url = _clean_text(payload.get("url"), MAX_URL)
     title = _clean_text(payload.get("title"), MAX_TITLE)
-    allowed, error = _download_allowed(source, url)
-    if not allowed:
-        return _json_error(error, 400)
+    if source in ("ezgarage", "mediafire"):
+        # Store the curated page URL as the stable identity; the worker
+        # resolves a fresh signed URL when the job actually starts.
+        set_id = _clean_text(payload.get("source_id") or payload.get("id"), 32).lower()
+        if not set_id:
+            return _json_error("a curated set id is required", 400)
+        try:
+            row = ezgarage.entry(set_id)
+        except ezgarage.UnknownSet:
+            return _json_error("unknown DJ EZ set", 400)
+        url = ezgarage.page_url(set_id)
+        if not title:
+            title = row["title"]
+    else:
+        allowed, error = _download_allowed(source, url)
+        if not allowed:
+            return _json_error(error, 400)
     identity = session.get("identity") or ""
     role = session.get("role") or ""
     identity = _download_identity()
@@ -3958,10 +4081,38 @@ def api_download_create():
     source = _clean_text(payload.get("source"), 32).lower()
     url = _clean_text(payload.get("url"), MAX_URL)
     title = _clean_text(payload.get("title"), MAX_TITLE)
-    allowed, error = _download_allowed(source, url)
-    if not allowed:
-        return _json_error(error, 400)
+    download_url = url
     identity = _download_identity()
+    if source in ("ezgarage", "mediafire"):
+        # Curated set id only: resolve the Mediafire page here (foreground),
+        # never trust a caller-supplied download*.mediafire.com URL.
+        set_id = _clean_text(payload.get("source_id") or payload.get("id"), 32).lower()
+        if not set_id:
+            return _json_error("a curated set id is required", 400)
+        try:
+            row = ezgarage.entry(set_id)
+        except ezgarage.UnknownSet:
+            return _json_error("unknown DJ EZ set", 400)
+        # Stable, non-expiring identity for the library/dedupe path.  Check it
+        # before resolving so an already-saved set costs no Mediafire request.
+        url = ezgarage.page_url(set_id)
+        existing = downloads.find_url(DATA_DIR, url, identity)
+        if existing:
+            return jsonify({"saved": True, "already": True,
+                            "item": _download_item(existing)})
+        try:
+            download_url = ezgarage.resolve(set_id)
+        except ezgarage.EzGarageError as exc:
+            return _ezgarage_error(exc)
+        allowed, error = _download_allowed(source, download_url)
+        if not allowed:
+            return _json_error(error, 400)
+        if not title:
+            title = row["title"]
+    else:
+        allowed, error = _download_allowed(source, url)
+        if not allowed:
+            return _json_error(error, 400)
     existing = downloads.find_url(DATA_DIR, url, identity)
     if existing:
         return jsonify({"saved": True, "already": True,
@@ -3978,7 +4129,7 @@ def api_download_create():
         if not _DOWNLOAD_CLIENT_RE.match(client_id or ""):
             return _json_error("invalid download id", 400)
         return Response(
-            _download_stream(url, entry, client_id, identity),
+            _download_stream(download_url, entry, client_id, identity),
             mimetype="application/x-ndjson",
             headers={
                 "Cache-Control": "no-store",
@@ -3992,7 +4143,7 @@ def api_download_create():
         max_bytes = min(DOWNLOAD_MAX_BYTES, max(0, DOWNLOAD_MAX_TOTAL - used))
         if max_bytes <= 0:
             raise DownloadError("the Downloads library is full", 413)
-        size = _download_to_file(url, temp_name, max_bytes, DOWNLOAD_DEADLINE)
+        size = _download_to_file(download_url, temp_name, max_bytes, DOWNLOAD_DEADLINE)
         entry["size"] = size
         downloads.register(DATA_DIR, entry, temp_name,
                            DOWNLOAD_MAX_TOTAL, DOWNLOAD_MAX_ITEMS, identity)

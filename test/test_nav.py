@@ -58,8 +58,8 @@ def test_rail_hub_returns_a_folder_per_section(web):
     packs = web.get("/api/rail/packs").get_json()
     assert [item["label"] for item in packs["items"]] == [
         "Toronto Rave Mixtape Archive", "JungleTapes.com", "RaveTapePacks.com",
-        "Classic Pack Series", "By Rave, Venue & Promoter", "By Year",
-        "Every Pack",
+        "EZ Garage Sets", "Classic Pack Series", "By Rave, Venue & Promoter",
+        "By Year", "Every Pack",
     ]
     pirate = web.get("/api/rail/pirate").get_json()
     assert [item["label"] for item in pirate["items"]] == [

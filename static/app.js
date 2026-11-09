@@ -973,6 +973,7 @@
       toronto: "/api/toronto",
       jungletapes: "/api/legacy/jungletapes",
       ravetapepacks: "/api/legacy/ravetapepacks",
+      ezgarage: "/api/ezgarage",
       "classic-packs": "/api/filters",
       "by-rave": "/api/raves",
       "by-year": "/api/years",
@@ -1302,6 +1303,9 @@
   // /api/downloads/<id>/stream — do not wrap those in the remote stream proxy.
   function audioSource(url) {
     if (typeof url === "string" && url.startsWith("/api/downloads/")) return url;
+    // EZ Garage resolves the Mediafire page and proxies the signed MP3 from
+    // the same-origin route, so it must not be wrapped a second time.
+    if (typeof url === "string" && url.startsWith("/api/ezgarage/")) return url;
     return `/api/stream?u=${encodeURIComponent(url)}`;
   }
 
@@ -2212,11 +2216,15 @@
       DOWNLOAD.id = downloadClientId();
       DOWNLOAD.startedAt = performance.now();
       DOWNLOAD.controller = new AbortController();
-      DOWNLOAD.payload = {
+      const downloadPayload = {
         url,
         title: item.label || "Download",
         source: item.download.source,
       };
+      // Curated Mediafire rows send the set id; the server resolves the
+      // signed URL itself and never trusts a caller-supplied Mediafire URL.
+      if (item.download.id) downloadPayload.source_id = item.download.id;
+      DOWNLOAD.payload = downloadPayload;
       showDownloadPanel(item);
       let response;
       try {
@@ -2226,12 +2234,9 @@
             Accept: "application/x-ndjson",
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            url,
-            title: item.label || "Download",
-            source: item.download.source,
+          body: JSON.stringify(Object.assign({}, downloadPayload, {
             client_id: DOWNLOAD.id,
-          }),
+          })),
           signal: DOWNLOAD.controller.signal,
         });
       } catch (error) {
