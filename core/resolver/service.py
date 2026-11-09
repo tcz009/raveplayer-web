@@ -147,11 +147,13 @@ class ResolverService(object):
         if base.is_private_hostname(host):
             raise base.BlockedURL("private or loopback hosts are not allowed")
 
-        adapter = self._adapter_for(normalized)
+        # Mega keeps its decryption key in the fragment; adapters must see the
+        # original URL, while host validation/cache still use the normalised form.
+        adapter = self._adapter_for(raw_url)
         if adapter is None:
             raise base.UnknownURL("no resolver is configured for this URL")
 
-        key = "%s:%s" % (getattr(adapter, "source", "resolver"), normalized)
+        key = "%s:%s" % (getattr(adapter, "source", "resolver"), raw_url)
         cached = self.cache.lookup(key)
         if cached is not None:
             if cached.error is not None:
@@ -165,7 +167,7 @@ class ResolverService(object):
                 raise base.RateLimited(
                     "too many resolutions for this host; retry shortly",
                     retry_after=retry)
-            resolved = adapter.resolve(normalized)
+            resolved = adapter.resolve(raw_url)
             checked = base.validate_resolved(resolved, now=self.clock())
             # If an adapter publishes its direct-file allowlist, enforce it
             # on the result too.  This catches a provider bug that would
