@@ -13,11 +13,7 @@
  *     the first post-login navigation show the login page again),
  *   - ignores cross-origin requests entirely (ads/third-party pages).
  */
-<<<<<<< HEAD
-const CACHE_NAME = "raveplayer-shell-v1.6.79";
-=======
-const CACHE_NAME = "raveplayer-shell-v1.6.79";
->>>>>>> fix/web-reliability
+const CACHE_NAME = "raveplayer-shell-v1.6.80";
 const SHELL = "/";
 
 function shellResponse(response) {
