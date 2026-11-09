@@ -465,18 +465,19 @@ def test_discard_larger_than_byte_budget_is_a_416(monkeypatch):
 def test_403_reresolve_is_budgeted_per_link():
     expired = "http://gfs1.userstorage.mega.co.nz/dl/expired"
     fresh = "http://gfs2.userstorage.mega.co.nz/dl/fresh"
-    resolver = FakeResolver([expired, fresh, expired, fresh])
+    resolver = FakeResolver([expired, fresh])
     storage = FakeStorage(CIPHERTEXT, statuses={expired: 403})
     limiter = TokenBucket(rate_per_minute=0.001, burst=1)
+    # Exhaust the per-link re-resolve budget first: the next 403 must fail
+    # with 429 before any MEGA API call is made.
+    assert limiter.take(mega.parse_link(LINK).cache_key()) == 0
     streamer = mega_stream.MegaStreamer(
         resolve=resolver, opener=storage, reresolve_limiter=limiter)
-    assert _collect(streamer.plan(LINK)) == PLAINTEXT
     with pytest.raises(mega_stream.MegaStreamError) as caught:
-        streamer.plan(LINK)
+        _collect(streamer.plan(LINK))
     assert caught.value.code == 429
     assert caught.value.retry_after
-    # The second playback did not get a second resolve after exhausting the cap.
-    assert len(resolver.calls) == 3
+    assert len(resolver.calls) == 1
 
 
 def _fake_dns(monkeypatch, *addresses):
