@@ -35,8 +35,11 @@ The sections behind the groups:
   [20bensons.com](https://20bensons.com/) homepage, in page order. Titles come
   from the filenames (spaces/`%20`, apostrophes and the `-SOUR` tag are
   handled); a year or event fact is derived where the filename carries one.
-  Streams go through `/api/stream`, MP3s download from 20bensons.com only, and
-  every row can be favourited.
+  The parsed list is cached for 24 hours and served stale while one background
+  refresh runs (and the first request after a restart warms it off the request
+  path), so opening the room never waits for the homepage scrape. Streams go
+  through `/api/stream`, MP3s download from 20bensons.com only, and every row
+  can be favourited.
 - **UK Raves Downloads** — event downloads from
   [ukraves.co.uk](https://www.ukraves.co.uk/mixes/downloads). The room follows
   the site's pagination (20 cards per category), resolves each `/go/mix/<id>`

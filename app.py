@@ -5271,5 +5271,24 @@ def _request_cache_prune():
         pass
 
 
+@app.before_request
+def _request_bensons_warm():
+    """Warm the 20bensons cache off the request path, once per worker.
+
+    The first request after a deploy only checks a timestamp and starts one
+    daemon thread, so the NAS keeps the parsed homepage hot without making a
+    visitor (or the Kodi room load) wait for the scrape.  Tests run their own
+    isolated caches and fake upstreams, so they never trigger the real fetch.
+    """
+    if (app.config.get("TESTING")
+            or os.environ.get("RAVEWEB_ENV", "").lower() == "test"):
+        return None
+    try:
+        bensons.warm()
+    except Exception:  # warming is best effort and must never break a request
+        pass
+    return None
+
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8097")), threaded=True)
