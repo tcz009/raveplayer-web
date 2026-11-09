@@ -974,6 +974,8 @@
       jungletapes: "/api/legacy/jungletapes",
       ravetapepacks: "/api/legacy/ravetapepacks",
       ezgarage: "/api/ezgarage",
+      "20bensons": "/api/20bensons",
+      ukraves: "/api/ukraves",
       "classic-packs": "/api/filters",
       "by-rave": "/api/raves",
       "by-year": "/api/years",
@@ -982,6 +984,8 @@
       dnb: "/api/dnb",
       getdarker: "/api/getdarker",
       moxser: "/api/moxser",
+      mikus: "/api/mikus",
+      demodulated: "/api/demodulated",
       hardscore: "/api/hardscore",
       pirates: "/api/pirate",
       "kool-sets": "/api/filter/kool",
@@ -1303,9 +1307,10 @@
   // /api/downloads/<id>/stream — do not wrap those in the remote stream proxy.
   function audioSource(url) {
     if (typeof url === "string" && url.startsWith("/api/downloads/")) return url;
-    // EZ Garage resolves the Mediafire page and proxies the signed MP3 from
-    // the same-origin route, so it must not be wrapped a second time.
+    // EZ Garage and UK Raves resolve a Mediafire page and proxy the signed
+    // MP3 from the same-origin route, so those must not be wrapped again.
     if (typeof url === "string" && url.startsWith("/api/ezgarage/")) return url;
+    if (typeof url === "string" && url.startsWith("/api/ukraves/")) return url;
     return `/api/stream?u=${encodeURIComponent(url)}`;
   }
 

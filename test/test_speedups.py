@@ -146,15 +146,16 @@ def test_feed_count_reuses_the_body_cache_and_caches_the_count(tmp_path, monkeyp
     _feed(monkeypatch)
     body = _rss([("One", "https://cdn/1.mp3"), ("Two", "https://cdn/2.mp3")])
     requests = []
-    monkeypatch.setattr(feeds.http, "_request", lambda url, timeout=20, headers=None: requests.append(url) or body)
+    monkeypatch.setattr(feeds.http, "_request", lambda url, timeout=20, headers=None, max_bytes=None: requests.append(url) or body)
 
     ttls, parses = [], []
     real_fetch = feeds.http.fetch
     real_parse = feeds.parse
 
-    def spy_fetch(url, timeout=25, headers=None, ttl=0):
+    def spy_fetch(url, timeout=25, headers=None, ttl=0, max_bytes=None):
         ttls.append(ttl)
-        return real_fetch(url, timeout=timeout, headers=headers, ttl=ttl)
+        return real_fetch(url, timeout=timeout, headers=headers, ttl=ttl,
+                          max_bytes=max_bytes)
 
     def spy_parse(text):
         parses.append(text)
@@ -176,7 +177,7 @@ def test_feed_count_failures_are_not_cached(tmp_path, monkeypatch):
     _feed(monkeypatch)
     requests = []
 
-    def dead_fetch(url, timeout=20, headers=None):
+    def dead_fetch(url, timeout=20, headers=None, max_bytes=None):
         requests.append(url)
         return None
 

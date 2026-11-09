@@ -50,15 +50,18 @@ def test_rail_hub_returns_a_folder_per_section(web):
     payload = web.get("/api/rail/shows").get_json()
     assert payload["title"] == "Mixes & Shows"
     labels = [item["label"] for item in payload["items"]]
-    assert labels == ["Podcasts & Mixes", "DNBRADIO", "GetDarker", "Moxser"]
+    assert labels == ["Podcasts & Mixes", "DNBRADIO", "GetDarker", "Moxser",
+                      "Mikus Musik", "Demodulated Mixtapes"]
     assert [item["open"] for item in payload["items"]] == [
         "/api/podcasts", "/api/dnb", "/api/getdarker", "/api/moxser",
+        "/api/mikus", "/api/demodulated",
     ]
 
     packs = web.get("/api/rail/packs").get_json()
     assert [item["label"] for item in packs["items"]] == [
         "Toronto Rave Mixtape Archive", "JungleTapes.com", "RaveTapePacks.com",
-        "EZ Garage Sets", "Classic Pack Series", "By Rave, Venue & Promoter",
+        "EZ Garage Sets", "20bensons.com", "UK Raves Downloads",
+        "Classic Pack Series", "By Rave, Venue & Promoter",
         "By Year", "Every Pack",
     ]
     pirate = web.get("/api/rail/pirate").get_json()
@@ -73,7 +76,7 @@ def test_section_paths_agree_between_server_and_client():
     source = _read("static/app.js")
     block = re.search(r"const map = \{(.*?)\};", source, re.S)
     assert block, "section map not found in app.js"
-    client = dict(re.findall(r'["\']?([a-z-]+)["\']?:\s*"(/api/[^"]+)"',
+    client = dict(re.findall(r'["\']?([a-z0-9-]+)["\']?:\s*"(/api/[^"]+)"',
                              block.group(1)))
     assert client == app_module.SECTION_PATHS
 

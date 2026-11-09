@@ -405,3 +405,36 @@ def test_background_job_resolves_the_curated_set_at_job_time(web, monkeypatch):
         "source": "mediafire", "source_id": SET_ID, "title": "DJ EZ test"})
     assert again.status_code == 200
     assert again.get_json()["already"] is True
+
+
+def test_generic_mediafire_page_is_single_flight_and_cached(monkeypatch):
+    """UK Raves uses the same lock/cache as the curated EZ list."""
+    page = "https://www.mediafire.com/file/abc123def456/mix.MP3/file"
+    calls = []
+    release = threading.Event()
+
+    def fake(url):
+        calls.append(url)
+        release.wait(2)
+        return 200, {}, _fixture("mediafire-ez.html")
+
+    monkeypatch.setattr(ezgarage, "_fetch_page", fake)
+    results = []
+    start = threading.Barrier(3)
+
+    def worker():
+        start.wait()
+        results.append(ezgarage.resolve_page(page))
+
+    threads = [threading.Thread(target=worker) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    start.wait()
+    time.sleep(0.1)
+    release.set()
+    for thread in threads:
+        thread.join(5)
+    assert results == [SIGNED, SIGNED]
+    assert calls == [page]
+    assert ezgarage.resolve_page(page) == SIGNED
+    assert calls == [page]

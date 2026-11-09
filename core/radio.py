@@ -95,6 +95,24 @@ CURATED = [
         "bitrate": 96,
         "favicon": "",
     },
+    {
+        "name": "DejaVu FM",
+        "token": "dejavu",
+        "url_resolved": "https://dejavufm.radioca.st/stream",
+        "countrycode": "GB",
+        "codec": "MP3",
+        "bitrate": 0,
+        "favicon": "",
+    },
+    {
+        "name": "OSA Radio",
+        "token": "osa",
+        "url_resolved": "https://osa.radioca.st/stream",
+        "countrycode": "GB",
+        "codec": "MP3",
+        "bitrate": 0,
+        "favicon": "",
+    },
 ]
 
 

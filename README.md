@@ -23,15 +23,38 @@ The sections behind the groups:
 - **Quick Filters** — 15 classic series and stations: Dreamscape, Helter
   Skelter, Fantazia, One Nation, Centreforce, Don FM, Slammin' Vinyl, DJ EZ,
   Garage Nation, One In The Jungle and more (data in `filters.json`).
-- **Live Radio** — seven genre groups from radio-browser.
+- **Live Radio** — DejaVu FM and OSA Radio in the curated station list, plus
+  seven genre groups from radio-browser.
 - **Tape Packs** — the Internet Archive `ravetapes` collection, 1987 to today.
 - **EZ Garage Sets** — 23 DJ EZ / old-skool garage Mediafire sets curated from
   the [DNBForum thread](https://dnbforum.com/threads/ez-old-skool-garage-sets.43637/)
   (taken from the Wayback snapshot). Signed Mediafire URLs are resolved
   server-side on play/download, cached for two hours, and one request at a time
   with HTTP 429 backoff.
+- **20bensons.com** — all 234 direct old-skool rave MP3s from the
+  [20bensons.com](https://20bensons.com/) homepage, in page order. Titles come
+  from the filenames (spaces/`%20`, apostrophes and the `-SOUR` tag are
+  handled); a year or event fact is derived where the filename carries one.
+  Streams go through `/api/stream` and MP3s download from 20bensons.com only.
+- **UK Raves Downloads** — event downloads from
+  [ukraves.co.uk](https://www.ukraves.co.uk/mixes/downloads). The room follows
+  the site's pagination (20 cards per category), resolves each `/go/mix/<id>`
+  redirect once, plays/downloads Mediafire rows through the shared Mediafire
+  resolver, and marks YouTube rows as an external hand-off. Credit: UK Raves.
+- **Mikus Musik** — posts from the
+  [Mikus Musik blog](http://mikusmusik.blogspot.com/) via Blogger's JSON feed.
+  Detail rows open Mixcloud/SoundCloud inline, hand YouTube off, and resolve
+  Google Drive file ids to a direct MP3 when Drive serves audio. Credit: Mikus
+  Musik.
+- **Demodulated Mixtapes** — the
+  [Demodulated Mixtapes](http://mixtapes.demodulated.com/) WordPress feed.
+  Full sides play/download, samples are labelled, and the ZIP is deliberately
+  excluded from the player. Credit: Demodulated Mixtapes.
 - **By Year** — the same collection browsed by year.
-- **Podcasts & Mixes** — present-day shows from RSS feeds (`feeds.json`).
+- **Podcasts & Mixes** — present-day shows from RSS feeds (`feeds.json`),
+  including the Rat Pack and DejaVu FM Podomatic shows. Podomatic MP3/M4A
+  enclosures play inline and download from the podomatic.com host; DejaVu's
+  large (~10 MB) feed is fetched with an explicit per-feed body allowance.
 - **DNB Radio** — recent jungle/DnB shows, stream resolved on demand.
 - **UK Garage** — DJ EZ and garage sets from Mixcloud plus Archive garage packs
   (garage stations are in Live Radio).
@@ -67,8 +90,11 @@ The sections behind the groups:
   and scoped per owner/friends identity (legacy global library becomes the
   owner's; see [`docs/PER-USER.md`](docs/PER-USER.md))
   (Archive tracks, Moxser MP3s, Hardscore MP3/M4A, Pirate Radio Archives direct
-  files, Toronto Rave Mixtape Archive MP3s). Each row shows size/date, plays from the local copy offline, can be
-  saved to another device (Content-Disposition + Range) and deleted.
+  files, Toronto Rave Mixtape Archive MP3s, 20bensons.com MP3s, UK Raves
+  Mediafire files, Mikus Google Drive MP3s, Demodulated mixset MP3s and
+  Podomatic podcast enclosures). Each row shows size/date, plays from the local
+  copy offline, can be saved to another device (Content-Disposition + Range)
+  and deleted.
   **Background jobs** (1.6.23) keep saving after the progress panel is dismissed
   or the tab closes: a spinner/percent chip links to the Downloads view, where
   queued/downloading rows can be cancelled; owners see all users' jobs, friends

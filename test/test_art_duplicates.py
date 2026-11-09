@@ -73,27 +73,28 @@ def test_section_and_rail_icons_are_distinct(web):
     _check_unique(sections, "/api/menu sections")
     _check_unique(rail, "/api/menu rail")
     _check_unique(sections + rail, "/api/menu sections+rail")
-    assert len(sections) == 26
+    assert len(sections) == 30
     assert len(rail) == 7
 
 
 def test_pack_genre_rows_are_distinct(web):
     rows = [(item["label"], item["art"]) for item in _items(web, "/api/packs")]
-    assert len(rows) == 8
+    assert len(rows) == 10
     _check_unique(rows, "/api/packs")
     assert [label for label, _icon in rows] == [
         "Toronto Rave Mixtape Archive", "JungleTapes.com", "RaveTapePacks.com",
-        "EZ Garage Sets", "Classic Pack Series", "By Rave, Venue & Promoter",
-        "By Year", "Every Pack",
+        "EZ Garage Sets", "20bensons.com", "UK Raves Downloads",
+        "Classic Pack Series", "By Rave, Venue & Promoter", "By Year",
+        "Every Pack",
     ]
 
 
 def test_live_genre_rows_are_distinct(web):
     rows = [(item["label"], item["art"]) for item in _items(web, "/api/live")]
-    assert len(rows) == 9
+    assert len(rows) == 11
     _check_unique(rows, "/api/live")
-    assert [label for label, _icon in rows[:3]] == [
-        "Kool FM", "Rinse FM", "Centreforce 883"]
+    assert [label for label, _icon in rows[:5]] == [
+        "Kool FM", "Rinse FM", "Centreforce 883", "DejaVu FM", "OSA Radio"]
     assert set(app_module.LIVE_ART.values()) <= {_icon_name(icon) for _label, icon in rows}
 
 

@@ -225,7 +225,7 @@ def test_every_server_section_has_a_client_route():
     source = open(os.path.join(os.path.dirname(HERE), "static", "app.js"), encoding="utf-8").read()
     block = re.search(r"const map = \{(.*?)\};", source, re.S)
     assert block, "section map not found"
-    mapped = set(re.findall(r"[\"\']?([a-z-]+)[\"\']?:\s*\"/api/", block.group(1)))
+    mapped = set(re.findall(r"[\"\']?([a-z0-9-]+)[\"\']?:\s*\"/api/", block.group(1)))
     for section_id, *_ in app.SECTIONS:
         assert section_id in mapped, "no client route for section %r" % section_id
 

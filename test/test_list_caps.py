@@ -7,7 +7,7 @@ from core import feeds, getdarker, hardscore, moxser, ravearchive, toronto
 
 def _route(monkeypatch, module, mapping):
     monkeypatch.setattr(module.fetch, "fetch",
-                        lambda url, timeout=None, headers=None, ttl=0: mapping.get(url))
+                        lambda url, timeout=None, headers=None, ttl=0, max_bytes=None: mapping.get(url))
     if hasattr(module, "_throttle"):
         monkeypatch.setattr(module, "_throttle", lambda: None)
 
@@ -83,7 +83,7 @@ def test_podcast_episodes_are_not_capped_at_60(web, monkeypatch):
     monkeypatch.setattr(feeds, "feed", lambda feed_id: {
         "id": "f", "name": "Feed", "url": "https://example.com/feed", "plot": ""})
     monkeypatch.setattr(feeds.http, "fetch",
-                        lambda url, timeout=None, headers=None, ttl=0: document)
+                        lambda url, timeout=None, headers=None, ttl=0, max_bytes=None: document)
     assert len(feeds.episodes("f")) == 70
     payload = web.get("/api/podcast/f").get_json()
     assert len(payload["items"]) == 40

@@ -94,7 +94,7 @@ def mixcloud_page(*values):
         if not isinstance(value, str) or not value:
             continue
         text = html.unescape(value)
-        for match in re.finditer(r"https?://(?:www\.)?mixcloud\.com/widget/iframe/[^\s\"'<>]*", text, re.I):
+        for match in re.finditer(r"https?://(?:[a-z0-9-]+\.)?mixcloud\.com/widget/iframe/[^\s\"'<>]*", text, re.I):
             url = html.unescape(match.group(0))
             query = urllib.parse.urlsplit(url).query
             feed = urllib.parse.parse_qs(query).get("feed")
@@ -102,6 +102,8 @@ def mixcloud_page(*values):
                 page = urllib.parse.unquote(feed[0])
                 if "mixcloud.com/" in page:
                     return page
+                if page.startswith("/") and len(page) > 1:
+                    return "https://www.mixcloud.com" + page
         for match in MIXCLOUD_RE.finditer(text):
             page = html.unescape(match.group(0)).rstrip(").,;'\"")
             path = urllib.parse.urlsplit(page).path

@@ -51,11 +51,17 @@ def registry():
         url = entry.get("url")
         if not feed_id or not isinstance(url, str) or not url:
             continue
+        try:
+            max_bytes = int(entry.get("max_bytes") or 0)
+        except (TypeError, ValueError):
+            max_bytes = 0
         feeds.append({
             "id": str(feed_id),
             "name": str(entry.get("name") or feed_id),
             "url": url,
             "plot": str(entry.get("plot") or ""),
+            "max_bytes": max_bytes if max_bytes > 0 else 0,
+            "cache_body": entry.get("cache_body", True) is not False,
         })
     return feeds
 
@@ -207,14 +213,35 @@ def parse(xml_text):
     return episodes
 
 
+def _feed_body(entry, timeout):
+    """Fetch one feed with its optional large-body allowance.
+
+    DejaVu FM's Podomatic feed is ~10 MB (4,000+ episodes); the default 8 MiB
+    fetch cap would reject it.  ``max_bytes`` is an explicit per-feed opt-in,
+    and ``cache_body: false`` keeps an oversized body out of the 8 MiB disk
+    cache (the parsed episode list is cached instead).
+    """
+    return http.fetch(
+        entry["url"], timeout=timeout,
+        ttl=FEED_TTL if entry.get("cache_body", True) else 0,
+        max_bytes=entry.get("max_bytes") or None)
+
+
+def _load_episodes(entry):
+    body = _feed_body(entry, 25)
+    return parse(body) if body else None
+
+
 def episodes(feed_id, limit=None):
     entry = feed(feed_id)
     if not entry:
         return []
-    body = http.fetch(entry["url"], timeout=25, ttl=FEED_TTL)
-    if not body:
+    rows = cache.remember(
+        "feeds:episodes:v1:%s" % entry["url"], FEED_TTL,
+        lambda: _load_episodes(entry), sync=False,
+    )
+    if not isinstance(rows, list):
         return []
-    rows = parse(body)
     try:
         cap = None if limit is None else max(1, int(limit))
     except (TypeError, ValueError):
@@ -224,7 +251,7 @@ def episodes(feed_id, limit=None):
 
 def _count_from_body(entry):
     """Parse one feed and return its episode count, or None on a fetch miss."""
-    body = http.fetch(entry["url"], timeout=COUNT_TIMEOUT, ttl=FEED_TTL)
+    body = _feed_body(entry, COUNT_TIMEOUT)
     if not body:
         return None
     return len(parse(body))

@@ -319,20 +319,12 @@ def signed_url_from_page(body):
     return ""
 
 
-def resolve(set_id):
-    """Return a direct signed Mediafire URL for one curated set.
-
-    Raises :class:`UnknownSet`, :class:`MediafireRateLimited`,
-    :class:`MediafireUnavailable` or :class:`MediafireFormatChanged`.  The
-    signed URL is cached for :data:`TTL`; failures are cached briefly, and an
-    HTTP 429 parks every resolve until the server's ``Retry-After``.
-    """
+def _resolve_page_url(page, cache_key):
+    """Fetch one Mediafire page and return its signed URL (shared path)."""
     global _LAST_FETCH, _BACKOFF_UNTIL
-    row = entry(set_id)  # unknown ids never touch the network
-    wanted = row["id"]
 
     with _LOCK:
-        cached = _cache_entry(wanted)
+        cached = _cache_entry(cache_key)
         if cached is not None:
             if cached.get("url"):
                 return cached["url"]
@@ -341,14 +333,14 @@ def resolve(set_id):
         _wait_for_slot()
         _LAST_FETCH = _CLOCK()
         try:
-            status, headers, body = _fetch_page(page_url(wanted))
+            status, headers, body = _fetch_page(page)
         except EzGarageError as exc:
-            _remember_error(wanted, exc)
+            _remember_error(cache_key, exc)
             raise
         except Exception as exc:  # noqa: BLE001 - a page fetch must stay typed
             error = MediafireUnavailable(
                 "Mediafire resolve failed (%s)" % type(exc).__name__)
-            _remember_error(wanted, error)
+            _remember_error(cache_key, error)
             raise error
 
         if status == 429:
@@ -357,25 +349,77 @@ def resolve(set_id):
             error = MediafireRateLimited(
                 "Mediafire is rate-limiting requests; try again in %d seconds"
                 % retry, retry_after=retry)
-            _remember_error(wanted, error)
+            _remember_error(cache_key, error)
             raise error
         if status in (404, 410):
             error = MediafireUnavailable(
                 "that Mediafire set is no longer available", code=404)
-            _remember_error(wanted, error)
+            _remember_error(cache_key, error)
             raise error
         if status < 200 or status >= 300:
             error = MediafireUnavailable(
                 "Mediafire returned HTTP %s" % status)
-            _remember_error(wanted, error)
+            _remember_error(cache_key, error)
             raise error
 
         url = signed_url_from_page(body)
         if not url:
             error = MediafireFormatChanged(
                 "Mediafire's page no longer contains a direct download link")
-            _remember_error(wanted, error)
+            _remember_error(cache_key, error)
             raise error
 
-        _remember_url(wanted, url)
+        _remember_url(cache_key, url)
         return url
+
+
+def resolve(set_id):
+    """Return a direct signed Mediafire URL for one curated set.
+
+    Raises :class:`UnknownSet`, :class:`MediafireRateLimited`,
+    :class:`MediafireUnavailable` or :class:`MediafireFormatChanged`.  The
+    signed URL is cached for :data:`TTL`; failures are cached briefly, and an
+    HTTP 429 parks every resolve until the server's ``Retry-After``.
+    """
+    row = entry(set_id)  # unknown ids never touch the network
+    wanted = row["id"]
+    return _resolve_page_url(page_url(wanted), wanted)
+
+
+def _clean_page_url(page):
+    """Validate/normalise a Mediafire file or download page URL."""
+    if not isinstance(page, str) or not page:
+        raise MediafireUnavailable("Mediafire link is missing")
+    try:
+        parts = urllib.parse.urlsplit(page.strip())
+    except ValueError:
+        raise MediafireUnavailable("Mediafire link is malformed")
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise MediafireUnavailable("Mediafire link is malformed")
+    if parts.username or parts.password:
+        raise MediafireUnavailable("Mediafire link is malformed")
+    host = parts.hostname.lower().rstrip(".")
+    if not (host == "mediafire.com" or host.endswith(".mediafire.com")):
+        raise MediafireUnavailable("not a Mediafire link")
+    if host.startswith("download") and host.endswith(".mediafire.com"):
+        # Already a signed direct URL: no page fetch needed.
+        return ""
+    if not (parts.path.startswith("/file/") or parts.path.startswith("/download/")):
+        raise MediafireUnavailable("not a Mediafire file page")
+    return urllib.parse.urlunsplit(("https", parts.netloc, parts.path,
+                                    parts.query, ""))
+
+
+def resolve_page(page):
+    """Return a signed direct URL for any Mediafire file page.
+
+    This is the shared resolver used by UK Raves as well as the curated EZ
+    Garage list: one lock, one request at a time, the same two-hour signed-URL
+    cache and the same HTTP 429 backoff.  Unsupported/non-Mediafire links raise
+    :class:`MediafireUnavailable` without touching the network.
+    """
+    clean = _clean_page_url(page)
+    if not clean:
+        raise MediafireUnavailable("that is already a direct Mediafire file")
+    key = "page:" + clean
+    return _resolve_page_url(clean, key)

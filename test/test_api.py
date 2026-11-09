@@ -261,8 +261,9 @@ def test_filter_live_unknown(web):
 def test_live_groups(web):
     payload = web.get("/api/live").get_json()
     labels = [item["label"] for item in payload["items"]]
-    assert labels[:3] == ["Kool FM", "Rinse FM", "Centreforce 883"]
-    assert labels[3:] == ["Hardcore", "Jungle", "Drum & Bass", "House",
+    assert labels[:5] == ["Kool FM", "Rinse FM", "Centreforce 883",
+                          "DejaVu FM", "OSA Radio"]
+    assert labels[5:] == ["Hardcore", "Jungle", "Drum & Bass", "House",
                           "UK Garage", "Dubstep & Grime"]
 
 
@@ -289,8 +290,9 @@ def test_packs_sections(web):
     payload = web.get("/api/packs").get_json()
     assert [item["label"] for item in payload["items"]] == [
         "Toronto Rave Mixtape Archive", "JungleTapes.com", "RaveTapePacks.com",
-        "EZ Garage Sets", "Classic Pack Series", "By Rave, Venue & Promoter",
-        "By Year", "Every Pack"]
+        "EZ Garage Sets", "20bensons.com", "UK Raves Downloads",
+        "Classic Pack Series", "By Rave, Venue & Promoter", "By Year",
+        "Every Pack"]
 
 
 def test_packs_list_skips_docs_without_identifier(web, archive_search):

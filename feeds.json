@@ -28,5 +28,19 @@
     "name": "Bad ChemCast",
     "url": "https://media.rss.com/bad-chemcast-mix-series/feed.xml",
     "plot": "Bad ChemCast mix series."
+  },
+  {
+    "id": "rat-pack",
+    "name": "Rat Pack",
+    "url": "https://ratpack.podomatic.com/rss2.xml",
+    "plot": "Rat Pack and DJ Lipmaster Mark — old-skool, house and drum & bass mixes."
+  },
+  {
+    "id": "dejavu-fm",
+    "name": "DejaVu FM Podcast",
+    "url": "https://dejavufmpodcast.podomatic.com/rss2.xml",
+    "plot": "DejaVu FM shows — house, garage, soul and drum & bass.",
+    "max_bytes": 16777216,
+    "cache_body": false
   }
 ]

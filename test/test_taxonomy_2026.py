@@ -53,12 +53,13 @@ def test_tape_packs_rows_are_exact(web):
     assert payload["title"] == "Tape Packs"
     assert _labels(payload) == [
         "Toronto Rave Mixtape Archive", "JungleTapes.com", "RaveTapePacks.com",
-        "EZ Garage Sets", "Classic Pack Series", "By Rave, Venue & Promoter",
+        "EZ Garage Sets", "20bensons.com", "UK Raves Downloads",
+        "Classic Pack Series", "By Rave, Venue & Promoter",
         "By Year", "Every Pack"]
     assert _opens(payload) == [
         "/api/toronto", "/api/legacy/jungletapes", "/api/legacy/ravetapepacks",
-        "/api/ezgarage", "/api/filters", "/api/raves", "/api/years",
-        "/api/every-pack"]
+        "/api/ezgarage", "/api/20bensons", "/api/ukraves", "/api/filters",
+        "/api/raves", "/api/years", "/api/every-pack"]
     rail = web.get("/api/rail/packs").get_json()
     assert ([item["label"] for item in rail["items"]] ==
             [item["label"] for item in payload["items"]])
@@ -69,7 +70,8 @@ def test_pirate_and_shows_hubs_are_exact(web):
     assert _labels(pirate) == ["Hardscore", "Pirate Radio Archives", "Kool FM Sets"]
     assert _opens(pirate) == ["/api/hardscore", "/api/pirate", "/api/filter/kool"]
     shows = web.get("/api/rail/shows").get_json()
-    assert _labels(shows) == ["Podcasts & Mixes", "DNBRADIO", "GetDarker", "Moxser"]
+    assert _labels(shows) == ["Podcasts & Mixes", "DNBRADIO", "GetDarker", "Moxser",
+                              "Mikus Musik", "Demodulated Mixtapes"]
 
 
 def test_genre_doors_are_split_and_old_labels_are_gone(web):
@@ -87,12 +89,13 @@ def test_genre_doors_are_split_and_old_labels_are_gone(web):
 def test_live_radio_stations_then_genres(web):
     payload = web.get("/api/live").get_json()
     labels = _labels(payload)
-    assert labels[:3] == ["Kool FM", "Rinse FM", "Centreforce 883"]
-    assert labels[3:] == ["Hardcore", "Jungle", "Drum & Bass", "House",
+    assert labels[:5] == ["Kool FM", "Rinse FM", "Centreforce 883",
+                          "DejaVu FM", "OSA Radio"]
+    assert labels[5:] == ["Hardcore", "Jungle", "Drum & Bass", "House",
                           "UK Garage", "Dubstep & Grime"]
     # Stations are playable rows, genres are doors.
-    assert all(item.get("play") for item in payload["items"][:3])
-    assert all(item.get("open") for item in payload["items"][3:])
+    assert all(item.get("play") for item in payload["items"][:5])
+    assert all(item.get("open") for item in payload["items"][5:])
 
 
 def test_section_ids_are_kebab_case_and_paths_are_consistent():

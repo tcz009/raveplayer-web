@@ -241,7 +241,7 @@ def _read_limited(response, deadline, limit=MAX_BODY_BYTES):
         total += len(chunk)
 
 
-def _gunzip_limited(raw, deadline):
+def _gunzip_limited(raw, deadline, limit=MAX_BODY_BYTES):
     data, total = [], 0
     with gzip.GzipFile(fileobj=io.BytesIO(raw)) as stream:
         while True:
@@ -253,13 +253,13 @@ def _gunzip_limited(raw, deadline):
                 return b"".join(data)
             data.append(chunk)
             total += len(chunk)
-            if total > MAX_BODY_BYTES:
+            if total > limit:
                 kodi.log("refusing response over %d bytes after decompression"
-                         % MAX_BODY_BYTES, level=30)
+                         % limit, level=30)
                 return None
 
 
-def _inflate_limited(raw, deadline):
+def _inflate_limited(raw, deadline, limit=MAX_BODY_BYTES):
     data, total = [], 0
     decompressor = zlib.decompressobj()
     pending = raw
@@ -272,33 +272,35 @@ def _inflate_limited(raw, deadline):
         if chunk:
             data.append(chunk)
             total += len(chunk)
-            if total > MAX_BODY_BYTES:
+            if total > limit:
                 kodi.log("refusing response over %d bytes after decompression"
-                         % MAX_BODY_BYTES, level=30)
+                         % limit, level=30)
                 return None
         if decompressor.eof or not chunk:
             return b"".join(data)
 
 
-def _decode(response, deadline=None):
-    """Read at most MAX_BODY_BYTES within ``deadline`` and decode it.
+def _decode(response, deadline=None, limit=MAX_BODY_BYTES):
+    """Read at most ``limit`` bytes within ``deadline`` and decode it.
 
     Without the cap a broken/hostile upstream could stream gigabytes into the
     worker's memory; without the deadline a slow-drip upstream could hold the
-    worker for hours.
+    worker for hours.  The default cap is unchanged; a known-large podcast feed
+    opts in explicitly via :func:`fetch`'s ``max_bytes``.
     """
-    raw = _read_limited(response, deadline)
+    limit = max(1, int(limit or MAX_BODY_BYTES))
+    raw = _read_limited(response, deadline, limit)
     if raw is None:
         return None
     encoding = (response.headers.get("Content-Encoding") or "").strip().lower()
     if "gzip" in encoding:
-        raw = _gunzip_limited(raw, deadline)
+        raw = _gunzip_limited(raw, deadline, limit)
     elif encoding == "deflate":
-        raw = _inflate_limited(raw, deadline)
+        raw = _inflate_limited(raw, deadline, limit)
     if raw is None:
         return None
-    if len(raw) > MAX_BODY_BYTES:
-        kodi.log("refusing response over %d bytes after decompression" % MAX_BODY_BYTES,
+    if len(raw) > limit:
+        kodi.log("refusing response over %d bytes after decompression" % limit,
                  level=30)
         return None
     return raw.decode(_charset(response.headers, raw), "replace")
@@ -490,7 +492,7 @@ def _failure_kind(exc):
     return "transport"
 
 
-def _request(url, timeout, headers):
+def _request(url, timeout, headers, max_bytes=None):
     """Perform one request and return the decoded body, or None on failure.
 
     ``timeout`` is a budget for the whole fetch (connect + headers + body +
@@ -509,7 +511,8 @@ def _request(url, timeout, headers):
     if proxy:
         request = _build_request(url, headers, deadline)
         try:
-            body = _open_request(request, _egress_opener(proxy), budget, deadline)
+            body = _open_request(request, _egress_opener(proxy), budget,
+                                 deadline, max_bytes or MAX_BODY_BYTES)
             _set_failure(None)
             return body
         except urllib.error.HTTPError as exc:
@@ -529,7 +532,8 @@ def _request(url, timeout, headers):
             deadline = time.monotonic() + budget
     request = _build_request(url, headers, deadline)
     try:
-        body = _open_request(request, _OPENER, budget, deadline)
+        body = _open_request(request, _OPENER, budget, deadline,
+                             max_bytes or MAX_BODY_BYTES)
         _set_failure(None)
         return body
     except urllib.error.HTTPError as exc:
@@ -550,10 +554,10 @@ def _build_request(url, headers, deadline):
     return request
 
 
-def _open_request(request, opener, budget, deadline):
+def _open_request(request, opener, budget, deadline, limit=MAX_BODY_BYTES):
     with _host_slot(request.full_url):
         with opener.open(request, timeout=budget) as response:
-            return _decode(response, deadline)
+            return _decode(response, deadline, limit)
 
 
 def _log_http_error(url, exc):
@@ -564,19 +568,27 @@ def _log_http_error(url, exc):
     kodi.log("fetch failed: %s (%s)" % (_safe_url(url), exc), level=30)
 
 
-def fetch(url, timeout=DEFAULT_TIMEOUT, headers=None, ttl=0):
+def fetch(url, timeout=DEFAULT_TIMEOUT, headers=None, ttl=0, max_bytes=None):
     """Return the response body as text, or None on any failure.
 
     When ``ttl`` is greater than zero the body is cached on disk for that
-    many seconds.  Cache failures are ignored.
+    many seconds.  Cache failures are ignored.  ``max_bytes`` opts a caller
+    with a known-large feed into a bigger read cap; the default stays
+    :data:`MAX_BODY_BYTES` so an ordinary page cannot become a memory bomb.
     """
+    limit = max(1, min(int(max_bytes or MAX_BODY_BYTES), 64 * 1024 * 1024))
+    if max_bytes:
+        request = lambda: _request(url, timeout, headers, limit)  # noqa: E731
+    else:
+        # Keep the historical three-argument call shape for callers/tests that
+        # replace _request; only the explicit large-feed opt-in needs the cap.
+        request = lambda: _request(url, timeout, headers)  # noqa: E731
     if not ttl:
-        return _request(url, timeout, headers)
+        return request()
     key = _cache_key("text", url, headers)
     # sync=False: a fetched body is recomputable (a lost write re-fetches), and
     # an fsync per cold page is a visible disk stall on the NAS host.
-    return cache.remember(key, ttl, lambda: _request(url, timeout, headers),
-                          sync=False)
+    return cache.remember(key, ttl, request, sync=False)
 
 
 def is_cached(url, ttl, headers=None):

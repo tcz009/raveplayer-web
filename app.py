@@ -44,10 +44,11 @@ from flask import (Flask, Response, g, jsonify, redirect, render_template, reque
 from werkzeug.exceptions import HTTPException
 from flask.sessions import SecureCookieSessionInterface
 
-from core import (archive, audit, auth, cache, dnbradio, download_jobs, downloads,
-                  ezgarage, favourites, feeds, fetch as fetch_core, getdarker,
-                  hardscore, latest, legacy, mixcloud, moxser, pirate, playback,
-                  radio, raves, ravearchive, soundcloud, toronto)
+from core import (archive, audit, auth, bensons, cache, demodulated, dnbradio,
+                  download_jobs, downloads, drive, ezgarage, favourites, feeds,
+                  fetch as fetch_core, getdarker, hardscore, latest, legacy,
+                  mikus, mixcloud, moxser, pirate, playback, radio, raves,
+                  ravearchive, soundcloud, toronto, ukraves)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 app.config["JSON_SORT_KEYS"] = False
@@ -223,7 +224,8 @@ DOWNLOAD_MAX_TOTAL = _env_bytes("RAVEWEB_DOWNLOAD_TOTAL", 2 * 1024 * 1024 * 1024
 DOWNLOAD_MAX_ITEMS = 200
 DOWNLOAD_DEADLINE = 1800  # seconds for one proxy download
 DOWNLOAD_SOURCES = ("archive", "moxser", "hardscore", "pirate", "toronto",
-                    "ravetapepacks", "jungletapes", "ezgarage", "mediafire")
+                    "ravetapepacks", "jungletapes", "ezgarage", "mediafire",
+                    "20bensons", "ukraves", "mikus", "demodulated", "podomatic")
 DOWNLOAD_EXTENSIONS = (".mp3", ".m4a")
 DOWNLOAD_JOB_CONCURRENCY = max(1, min(2, int(os.environ.get("RAVEWEB_DOWNLOAD_JOBS", "2") or 2)))
 DOWNLOAD_JOB_MAX = 20
@@ -241,6 +243,11 @@ DOWNLOAD_SOURCE_LABELS = {
     "jungletapes": "JungleTapes.com",
     "ezgarage": "DNBForum / Mediafire",
     "mediafire": "DNBForum / Mediafire",
+    "20bensons": "20bensons.com",
+    "ukraves": "UK Raves",
+    "mikus": "Mikus Musik",
+    "demodulated": "Demodulated Mixtapes",
+    "podomatic": "Podomatic",
 }
 DOWNLOAD_SOURCE_ART = {
     "archive": ART + "tapepacks-all.png",
@@ -252,6 +259,11 @@ DOWNLOAD_SOURCE_ART = {
     "jungletapes": ART + "jungletapes.png",
     "ezgarage": ART + "djez.png",
     "mediafire": ART + "djez.png",
+    "20bensons": ART + "20bensons.png",
+    "ukraves": ART + "ukraves.png",
+    "mikus": ART + "mikus.png",
+    "demodulated": ART + "demodulated.png",
+    "podomatic": ART + "podcasts.png",
 }
 
 _REDIRECT_CODES = frozenset((301, 302, 303, 307, 308))
@@ -304,6 +316,8 @@ SECTIONS = [
     ("jungletapes", "JungleTapes.com", "jungletapes.png", "Toronto jungle radio from cassette, 1996–2000"),
     ("ravetapepacks", "RaveTapePacks.com", "ravetapepacks.png", "UK tape packs, 1992–2004"),
     ("ezgarage", "EZ Garage Sets", "djez.png", "DJ EZ and old-skool garage sets from DNBForum"),
+    ("20bensons", "20bensons.com", "20bensons.png", "234 old-skool rave MP3s, 1990–2005"),
+    ("ukraves", "UK Raves Downloads", "ukraves.png", "Event downloads, Mediafire and YouTube"),
     ("classic-packs", "Classic Pack Series", "series.png", "The UK pack canon"),
     ("by-rave", "By Rave, Venue & Promoter", "rave-nights.png", "Raves, venues and promoters"),
     ("by-year", "By Year", "years.png", "Tape packs by year"),
@@ -312,6 +326,8 @@ SECTIONS = [
     ("dnb", "DNBRADIO", "dnb.png", "Jungle and drum & bass shows"),
     ("getdarker", "GetDarker", "getdarker.png", "Dubstep and grime, 2003 onwards"),
     ("moxser", "Moxser", "moxser.png", "Old skool to new cool dance mixes"),
+    ("mikus", "Mikus Musik", "mikus.png", "House, garage and jungle mixes from the blog"),
+    ("demodulated", "Demodulated Mixtapes", "demodulated.png", "Toronto techno and rave mixtapes"),
     ("hardscore", "Hardscore", "hardscore.png", "1990s pirate-radio recordings"),
     ("pirates", "Pirate Radio Archives", "pirate-archive.png", "Curated pirate-radio recordings"),
     ("kool-sets", "Kool FM Sets", "kool.png", "Kool FM recordings"),
@@ -372,6 +388,8 @@ SECTION_PATHS = {
     "jungletapes": "/api/legacy/jungletapes",
     "ravetapepacks": "/api/legacy/ravetapepacks",
     "ezgarage": "/api/ezgarage",
+    "20bensons": "/api/20bensons",
+    "ukraves": "/api/ukraves",
     "classic-packs": "/api/filters",
     "by-rave": "/api/raves",
     "by-year": "/api/years",
@@ -380,6 +398,8 @@ SECTION_PATHS = {
     "dnb": "/api/dnb",
     "getdarker": "/api/getdarker",
     "moxser": "/api/moxser",
+    "mikus": "/api/mikus",
+    "demodulated": "/api/demodulated",
     "hardscore": "/api/hardscore",
     "pirates": "/api/pirate",
     "kool-sets": "/api/filter/kool",
@@ -401,13 +421,15 @@ RAIL = [
      "children": ["latest"], "sub": "Newest packs, shows and radio rips."},
     {"id": "packs", "label": "Tape Packs", "icon": "tapepacks.png",
      "children": ["toronto", "jungletapes", "ravetapepacks", "ezgarage",
-                  "classic-packs", "by-rave", "by-year", "every-pack"],
+                  "20bensons", "ukraves", "classic-packs", "by-rave",
+                  "by-year", "every-pack"],
      "sub": "Cassette packs and rave tapes, by event, DJ, MC and year."},
     {"id": "pirate", "label": "Pirate Radio", "icon": "pirate-radio.png",
      "children": ["hardscore", "pirates", "kool-sets"],
      "sub": "1990s pirate-radio recordings: Kool FM, Don FM, Green Apple."},
     {"id": "shows", "label": "Mixes & Shows", "icon": "mixes.png",
-     "children": ["podcasts", "dnb", "getdarker", "moxser"],
+     "children": ["podcasts", "dnb", "getdarker", "moxser", "mikus",
+                  "demodulated"],
      "sub": "Podcasts, DNBRADIO, GetDarker and studio mixes."},
     {"id": "live", "label": "Live Radio", "icon": "radio.png",
      "path": "/api/live",
@@ -1566,7 +1588,9 @@ def api_live():
     items = []
     for token, label, icon in (("kool", "Kool FM", "kool.png"),
                                ("rinse", "Rinse FM", "rinse.png"),
-                               ("centreforce", "Centreforce 883", "centreforce.png")):
+                               ("centreforce", "Centreforce 883", "centreforce.png"),
+                               ("dejavu", "DejaVu FM", "dejavu.png"),
+                               ("osa", "OSA Radio", "osa.png")):
         station = next((entry for entry in radio.curated(token) if entry), None)
         if station:
             url = radio.stream_url(station)
@@ -2027,7 +2051,8 @@ def api_packs():
     """Tape Packs taxonomy hub (1.6.44 exact order)."""
     items = []
     for sid in ("toronto", "jungletapes", "ravetapepacks", "ezgarage",
-                "classic-packs", "by-rave", "by-year", "every-pack"):
+                "20bensons", "ukraves", "classic-packs", "by-rave",
+                "by-year", "every-pack"):
         section = next((entry for entry in SECTIONS if entry[0] == sid), None)
         if section:
             items.append(_folder(section[1], section[3], SECTION_PATHS[sid],
@@ -2115,6 +2140,309 @@ def api_ezgarage_file(set_id):
                          disposition=disposition)
 
 
+# --------------------------------------------------------------------------- more web sources
+
+def _ukraves_error(exc):
+    return _stream_error(getattr(exc, "code", 502), exc.message,
+                         error_code="ukraves")
+
+
+def _mix_id(value):
+    text = str(value or "").strip()
+    return text if re.match(r"^\d{1,10}$", text) else ""
+
+
+def _drive_label(row):
+    title = _clean_text(row.get("title"), 160) if isinstance(row, dict) else ""
+    if not title or "download" in title.lower():
+        return "Google Drive MP3"
+    return title
+
+
+def _is_podomatic_url(url):
+    try:
+        host = (urllib.parse.urlsplit(str(url or "")).hostname or "").lower().rstrip(".")
+    except ValueError:
+        return False
+    return host == "podomatic.com" or host.endswith(".podomatic.com")
+
+
+def _podomatic_url(url):
+    """Canonicalise Podomatic's pdcn.co short link to the podomatic.com host.
+
+    The DejaVu feed wraps its enclosures in ``pdcn.co/e/<host>/<path>``, which
+    301s to the podomatic.com URL.  Canonicalising here keeps the download
+    allowlist on the documented host and saves a redirect on every play.
+    """
+    if not isinstance(url, str) or not url:
+        return ""
+    try:
+        parts = urllib.parse.urlsplit(url)
+    except ValueError:
+        return ""
+    host = (parts.hostname or "").lower().rstrip(".")
+    if host == "pdcn.co" and parts.path.startswith("/e/"):
+        rest = parts.path[3:]
+        target_host, _, target_path = rest.partition("/")
+        if target_host.endswith(".podomatic.com") and target_path:
+            return urllib.parse.urlunsplit(
+                ("https", target_host, "/" + target_path, parts.query, ""))
+    return url
+
+
+@app.get("/api/20bensons")
+def api_20bensons():
+    """20bensons.com's 234 direct old-skool rave MP3s, in homepage order."""
+    rows = bensons.entries()
+    page = _page_arg()
+    window, page, _pages, total = _slice_page(rows, page)
+    items = []
+    for row in window:
+        title = _clean_text(row.get("title"), MAX_TITLE)
+        url = _http_url(row.get("url"))
+        if not title or not url:
+            continue
+        sub = _source_sub(row.get("event"), row.get("year"), bensons.SOURCE_LABEL)
+        item = _track(title, sub or bensons.SOURCE_LABEL, url, ART + "20bensons.png")
+        if row.get("year"):
+            item["fact"] = row["year"]
+        _mark_download(item, "20bensons", url)
+        items.append(item)
+    payload = _paged_payload("20bensons.com", items, page, total,
+                             "/api/20bensons")
+    payload["sub"] = bensons.summary(rows)
+    payload["source"] = bensons.BASE
+    payload["credit"] = "20bensons.com — old-skool rave tape MP3s"
+    return jsonify(payload)
+
+
+@app.get("/api/ukraves")
+def api_ukraves():
+    """UK Raves event downloads: Mediafire plays, YouTube hand-offs."""
+    page = _page_arg()
+    rows, has_next = ukraves.page_entries(page)
+    described = ukraves.describe_many(rows)
+    items = []
+    for row in described:
+        title = _clean_text(row.get("title"), MAX_TITLE) or "UK Raves mix"
+        provider = row.get("provider") if isinstance(row.get("provider"), dict) else {}
+        kind = provider.get("kind")
+        sub = _source_sub(row.get("event") or row.get("subtitle"),
+                          row.get("date"), ukraves.SOURCE_LABEL)
+        if kind == "mediafire":
+            mix_id = _mix_id(row.get("id"))
+            if not mix_id:
+                continue
+            item = _track(title, sub, "/api/ukraves/%s/stream" % mix_id,
+                          ART + "ukraves.png")
+            item["file"] = "/api/ukraves/%s/file" % mix_id
+            item["download"] = {"source": "ukraves", "id": mix_id}
+        elif kind == "youtube":
+            item = _external_row(title, _source_sub("YouTube · hand-off", sub),
+                                 _http_url(provider.get("url")),
+                                 ART + "ukraves.png")
+        elif kind == "direct" and _http_url(provider.get("url")):
+            target = _http_url(provider.get("url"))
+            item = _track(title, sub, target, ART + "ukraves.png")
+        else:
+            item = _external_row(title, _source_sub("Source link · hand-off", sub),
+                                 _http_url(row.get("go_url")),
+                                 ART + "ukraves.png")
+        items.append(item)
+    pager = _cursor_pager(page, "/api/ukraves", has_next)
+    payload = {
+        "title": "UK Raves Downloads",
+        "items": items,
+        "pager": pager,
+        "sub": ukraves.summary(rows),
+        "source": ukraves.SOURCE_URL,
+        "credit": ukraves.ATTRIBUTION,
+    }
+    if pager.get("next"):
+        payload["next"] = pager["next"]
+    return jsonify(payload)
+
+
+@app.get("/api/ukraves/<mix_id>/stream")
+def api_ukraves_stream(mix_id):
+    """Resolve /go/mix -> Mediafire -> signed MP3 and proxy it."""
+    wanted = _mix_id(mix_id)
+    if not wanted:
+        return _stream_error(404, "unknown UK Raves mix", error_code="ukraves")
+    try:
+        target = ukraves.mediafire_url(wanted)
+    except ukraves.UkRavesError as exc:
+        return _ukraves_error(exc)
+    options = {"user-agent": ukraves.BROWSER_UA,
+               "referer": "https://www.mediafire.com/"}
+    return _serve_stream(target, options, request.headers.get("Range"), None)
+
+
+@app.get("/api/ukraves/<mix_id>/file")
+def api_ukraves_file(mix_id):
+    """Download one UK Raves Mediafire mix as an attachment."""
+    wanted = _mix_id(mix_id)
+    if not wanted:
+        return _stream_error(404, "unknown UK Raves mix", error_code="ukraves")
+    try:
+        target = ukraves.mediafire_url(wanted)
+    except ukraves.UkRavesError as exc:
+        return _ukraves_error(exc)
+    disposition = 'attachment; filename="%s"' % (
+        downloads.safe_stem("UK Raves mix %s" % wanted) + ".mp3")
+    options = {"user-agent": ukraves.BROWSER_UA,
+               "referer": "https://www.mediafire.com/"}
+    return _serve_stream(target, options, request.headers.get("Range"), None,
+                         disposition=disposition)
+
+
+@app.get("/api/mikus")
+def api_mikus():
+    """Mikus Musik posts as folders; detail rows carry the embedded widgets."""
+    posts = mikus.posts()
+    page = _page_arg()
+    window, page, _pages, total = _slice_page(posts, page)
+    items = []
+    for row in window:
+        title = _clean_text(row.get("title"), MAX_TITLE)
+        post_id = str(row.get("id") or "")
+        if not title or not post_id:
+            continue
+        items.append(_folder(title, mikus.summary(row),
+                             "/api/mikus/%s" % urllib.parse.quote(post_id, safe=""),
+                             ART + "mikus.png"))
+    payload = _paged_payload("Mikus Musik", items, page, total, "/api/mikus")
+    payload["sub"] = ("%d posts · house, garage, jungle and soul mixes · Mikus Musik"
+                      % len(posts)) if posts else "Source unavailable — try again later"
+    payload["source"] = mikus.SOURCE_URL
+    payload["credit"] = "Mikus Musik (mikusmusik.blogspot.com)"
+    return jsonify(payload)
+
+
+@app.get("/api/mikus/<post_id>")
+def api_mikus_post(post_id):
+    """One Mikus post: inline Mixcloud/SoundCloud, YouTube hand-off, Drive files."""
+    row = mikus.post(post_id)
+    if not row:
+        return _json_error("unknown Mikus post", 404)
+    title = _clean_text(row.get("title"), MAX_TITLE) or "Mikus Musik"
+    items = []
+    mixcloud_page_url = _http_url(row.get("mixcloud"))
+    if mixcloud_page_url:
+        item = _track("Mixcloud mix", "Inline Mixcloud widget · Mikus Musik",
+                      None, ART + "mikus.png")
+        item["embed"] = mikus.mixcloud_embed(mixcloud_page_url)
+        item["external"] = mixcloud_page_url
+        items.append(item)
+    for url in row.get("soundcloud") or []:
+        target = _http_url(url)
+        if not target:
+            continue
+        item = _track("SoundCloud set", "Inline SoundCloud widget · Mikus Musik",
+                      None, ART + "mikus.png")
+        item["embed"] = mikus.soundcloud_embed(target)
+        item["external"] = target
+        items.append(item)
+    for file_row in row.get("drive") or []:
+        identifier = drive.file_id(file_row.get("id"))
+        if not identifier:
+            continue
+        item = _track(_drive_label(file_row),
+                      "Google Drive · play if direct or download · Mikus Musik",
+                      None, ART + "mikus.png")
+        item["play_via"] = "/api/mikus/drive/%s" % urllib.parse.quote(identifier, safe="")
+        item["download"] = {"source": "mikus", "id": identifier}
+        items.append(item)
+    for url in row.get("youtube") or []:
+        target = _http_url(url)
+        if target:
+            items.append(_external_row("YouTube video", "YouTube · hand-off · Mikus Musik",
+                                       target, ART + "mikus.png"))
+    for url in row.get("media") or []:
+        target = _http_url(url)
+        if target:
+            items.append(_track("Direct MP3", "Mikus Musik", target,
+                                ART + "mikus.png"))
+    if not items and _http_url(row.get("url")):
+        items.append(_external_row(title, "Open the post · Mikus Musik",
+                                   _http_url(row.get("url")), ART + "mikus.png"))
+    return jsonify({
+        "title": title,
+        "sub": _source_sub(row.get("published"), "Mikus Musik"),
+        "source": _http_url(row.get("url")) or mikus.SOURCE_URL,
+        "credit": "Mikus Musik (mikusmusik.blogspot.com)",
+        "items": items,
+    })
+
+
+@app.get("/api/mikus/drive/<file_id>")
+def api_mikus_drive(file_id):
+    """Resolve a Drive file id to a direct audio URL for inline playback."""
+    try:
+        url = drive.resolve(file_id)
+    except drive.DriveError as exc:
+        return _json_error(exc.message, exc.code)
+    return jsonify({"url": url, "title": "Google Drive MP3"})
+
+
+@app.get("/api/demodulated")
+def api_demodulated():
+    """Demodulated Mixtapes posts, paginated as folders."""
+    posts = demodulated.posts()
+    page = _page_arg()
+    window, page, _pages, total = _slice_page(posts, page)
+    items = []
+    for row in window:
+        title = _clean_text(row.get("title"), MAX_TITLE)
+        post_id = str(row.get("id") or "")
+        if not title or not post_id:
+            continue
+        items.append(_folder(title, demodulated.summary(row),
+                             "/api/demodulated/%s" % urllib.parse.quote(post_id, safe=""),
+                             ART + "demodulated.png"))
+    payload = _paged_payload("Demodulated Mixtapes", items, page, total,
+                             "/api/demodulated")
+    payload["sub"] = ("%d mixtapes · Toronto techno and rave sides · Demodulated"
+                      % len(posts)) if posts else "Source unavailable — try again later"
+    payload["source"] = demodulated.SOURCE_URL
+    payload["credit"] = "Demodulated Mixtapes (mixtapes.demodulated.com)"
+    return jsonify(payload)
+
+
+@app.get("/api/demodulated/<post_id>")
+def api_demodulated_post(post_id):
+    """One mixtape: full sides play/download, samples are marked, ZIPs ignored."""
+    row = demodulated.post(post_id)
+    if not row:
+        return _json_error("unknown Demodulated mixtape", 404)
+    title = _clean_text(row.get("title"), MAX_TITLE) or "Demodulated Mixtape"
+    items = []
+    for track in row.get("tracks") or []:
+        url = _http_url(track.get("url"))
+        if not url:
+            continue
+        suffix = _clean_text(track.get("title"), 120) or "Track"
+        label = "%s — %s" % (title, suffix) if suffix.lower() not in title.lower() else title
+        sample = bool(track.get("sample"))
+        sub = _source_sub("Sample" if sample else "Full side",
+                          row.get("published"), "Demodulated Mixtapes")
+        item = _track(label, sub, url, ART + "demodulated.png")
+        if sample:
+            item["fact"] = "SAMPLE"
+        _mark_download(item, "demodulated", url)
+        items.append(item)
+    if not items and _http_url(row.get("url")):
+        items.append(_external_row(title, "ZIP only — open the source page",
+                                   _http_url(row.get("url")), ART + "demodulated.png"))
+    return jsonify({
+        "title": title,
+        "sub": _source_sub(row.get("published"), "Demodulated Mixtapes"),
+        "source": _http_url(row.get("url")) or demodulated.SOURCE_URL,
+        "credit": "Demodulated Mixtapes (mixtapes.demodulated.com)",
+        "items": items,
+    })
+
+
 @app.get("/api/item/<path:identifier>")
 def api_item(identifier):
     identifier = _clean_text(identifier, MAX_QUERY)
@@ -2167,17 +2495,20 @@ def api_podcast(feed_id):
         return _json_error("unknown feed", 404)
     valid = []
     for episode in feeds.episodes(feed_id):
-        url = episode.get("url")
+        url = _podomatic_url(episode.get("url"))
         if isinstance(url, str) and url:
             title = _clean_text(episode.get("title"), MAX_TITLE) or "Untitled"
             valid.append((episode, title, url))
     page = _page_arg()
     window, page, _pages, total = _slice_page(valid, page)
-    items = [
-        _track(title, (episode.get("published") or "")[:16], url,
-               ART + "podcasts.png",
-               {"kind": "stream", "target": url, "title": title})
-        for episode, title, url in window]
+    items = []
+    for episode, title, url in window:
+        item = _track(title, (episode.get("published") or "")[:16], url,
+                      ART + "podcasts.png",
+                      {"kind": "stream", "target": url, "title": title})
+        if _is_podomatic_url(url):
+            _mark_download(item, "podomatic", url)
+        items.append(item)
     base = "/api/podcast/%s" % urllib.parse.quote(feed_id)
     return jsonify(_paged_payload(entry["name"], items, page, total, base))
 
@@ -3562,7 +3893,10 @@ def _download_allowed(source, url):
     if any(host == blocked or host.endswith("." + blocked)
            for blocked in DOWNLOAD_BLOCKED_HOSTS):
         return False, "provider pages cannot be downloaded"
-    if not parts.path.lower().endswith(DOWNLOAD_EXTENSIONS):
+    drive_direct = (source == "mikus"
+                    and host == "drive.usercontent.google.com"
+                    and parts.path.rstrip("/") == "/download")
+    if not drive_direct and not parts.path.lower().endswith(DOWNLOAD_EXTENSIONS):
         return False, "only direct MP3/M4A files can be downloaded"
     if source == "archive":
         if not (host == "archive.org" or host.endswith(".archive.org")):
@@ -3600,6 +3934,32 @@ def _download_allowed(source, url):
             return False, "not a Mediafire file"
         if host in ("mediafire.com", "www.mediafire.com"):
             return False, "not a Mediafire direct file"
+    elif source == "20bensons":
+        if host != "20bensons.com":
+            return False, "not a 20bensons.com file"
+        if not parts.path.startswith("/mp3/"):
+            return False, "not a 20bensons.com direct MP3"
+    elif source == "ukraves":
+        # Only the signed Mediafire file behind a UK Raves /go/mix redirect.
+        if not (host == "mediafire.com" or host.endswith(".mediafire.com")):
+            return False, "not a UK Raves Mediafire file"
+        if host in ("mediafire.com", "www.mediafire.com"):
+            return False, "not a Mediafire direct file"
+    elif source == "mikus":
+        if host not in ("drive.usercontent.google.com", "drive.google.com",
+                        "docs.google.com"):
+            return False, "not a Google Drive file"
+        if host == "drive.usercontent.google.com":
+            if parts.path.rstrip("/") != "/download":
+                return False, "not a Google Drive direct file"
+    elif source == "demodulated":
+        if not (host == "demodulated.com" or host.endswith(".demodulated.com")):
+            return False, "not a Demodulated Mixtapes file"
+        if not parts.path.startswith("/music/mixsets/"):
+            return False, "not a Demodulated mixset MP3"
+    elif source == "podomatic":
+        if not (host == "podomatic.com" or host.endswith(".podomatic.com")):
+            return False, "not a Podomatic file"
     return True, ""
 
 
@@ -3631,6 +3991,48 @@ def _download_item(entry):
     item["download_key"] = identifier
     item["file"] = "/api/downloads/%s/file" % urllib.parse.quote(identifier, safe="")
     return item
+
+
+def _source_stable_url(source, source_id):
+    """Non-expiring library/dedupe URL for a server-resolved source.
+
+    UK Raves stores the /go/mix page and Mikus stores the Drive view page;
+    neither carries the short-lived signed URL that is resolved at play or
+    download time.
+    """
+    identifier = _clean_text(source_id, 128)
+    if source == "ukraves":
+        mix_id = _mix_id(identifier)
+        if not mix_id:
+            raise DownloadError("a UK Raves mix id is required", 400)
+        return "%s/go/mix/%s" % (ukraves.BASE, mix_id)
+    if source == "mikus":
+        wanted = drive.file_id(identifier)
+        if not wanted:
+            raise DownloadError("a Google Drive file id is required", 400)
+        return drive.view_url(wanted)
+    return ""
+
+
+def _resolve_source_download(source, stable_url):
+    """Resolve a stable server-side source URL to today's direct file URL."""
+    if source == "ukraves":
+        mix_id = ukraves.mix_id_for_url(stable_url)
+        if not mix_id:
+            raise DownloadError("unknown UK Raves mix", 400)
+        try:
+            return ukraves.mediafire_url(mix_id)
+        except ukraves.UkRavesError as exc:
+            raise DownloadError(exc.message, exc.code)
+    if source == "mikus":
+        wanted = drive.file_id(stable_url)
+        if not wanted:
+            raise DownloadError("unknown Google Drive file", 400)
+        try:
+            return drive.resolve(wanted)
+        except drive.DriveError as exc:
+            raise DownloadError(exc.message, exc.code)
+    return ""
 
 
 def _download_chunks(url, destination, max_bytes, seconds, should_cancel=None):
@@ -3820,7 +4222,8 @@ def _job_worker(job):
         if max_bytes <= 0:
             raise DownloadError("the Downloads library is full", 413)
         source_url = entry["url"]
-        if entry.get("source") in ("ezgarage", "mediafire"):
+        source = entry.get("source")
+        if source in ("ezgarage", "mediafire"):
             # Resolve at job time: the signed Mediafire URL expires, and the
             # queue may have waited behind other jobs.  The client only ever
             # provided the curated set id.
@@ -3831,6 +4234,11 @@ def _job_worker(job):
                 source_url = ezgarage.resolve(set_id)
             except ezgarage.EzGarageError as exc:
                 raise DownloadError(exc.message, exc.code)
+        elif source in ("ukraves", "mikus"):
+            source_url = _resolve_source_download(source, source_url)
+            allowed, error = _download_allowed(source, source_url)
+            if not allowed:
+                raise DownloadError(error, 400)
         last_save = time.monotonic()
         for event in _download_chunks(
                 source_url, temp_name, max_bytes, DOWNLOAD_DEADLINE,
@@ -3898,6 +4306,14 @@ def api_download_job_create():
         url = ezgarage.page_url(set_id)
         if not title:
             title = row["title"]
+    elif source in ("ukraves", "mikus"):
+        # Stable id only; the worker resolves the signed URL when it starts.
+        try:
+            url = _source_stable_url(source, payload.get("source_id") or payload.get("id"))
+        except DownloadError as exc:
+            return _json_error(exc.message, exc.code)
+        if not title:
+            title = "UK Raves mix" if source == "ukraves" else "Mikus Musik MP3"
     else:
         allowed, error = _download_allowed(source, url)
         if not allowed:
@@ -4109,6 +4525,27 @@ def api_download_create():
             return _json_error(error, 400)
         if not title:
             title = row["title"]
+    elif source in ("ukraves", "mikus"):
+        # Resolve server-side from a curated id, never a caller-supplied
+        # signed URL.  The stable page URL is the library identity.
+        try:
+            url = _source_stable_url(source, payload.get("source_id") or payload.get("id"))
+        except DownloadError as exc:
+            return _json_error(exc.message, exc.code)
+        existing = downloads.find_url(DATA_DIR, url, identity)
+        if existing:
+            return jsonify({"saved": True, "already": True,
+                            "item": _download_item(existing)})
+        try:
+            download_url = _resolve_source_download(source, url)
+        except DownloadError as exc:
+            return _json_error(exc.message, exc.code)
+        allowed, error = _download_allowed(source, download_url)
+        if not allowed:
+            return _json_error(error, 400)
+        if not title:
+            title = ("UK Raves mix" if source == "ukraves"
+                     else "Mikus Musik MP3")
     else:
         allowed, error = _download_allowed(source, url)
         if not allowed:
