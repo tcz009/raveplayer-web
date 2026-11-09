@@ -317,7 +317,7 @@ SECTIONS = [
     ("ravetapepacks", "RaveTapePacks.com", "ravetapepacks.png", "UK tape packs, 1992–2004"),
     ("ezgarage", "EZ Garage Sets", "djez.png", "DJ EZ and old-skool garage sets from DNBForum"),
     ("20bensons", "20bensons.com", "20bensons.png", "234 old-skool rave MP3s, 1990–2005"),
-    ("ukraves", "UK Raves Downloads", "ukraves.png", "Event downloads, Mediafire and YouTube"),
+    ("ukraves", "UK Raves Downloads", "ukraves.png", "Event downloads from UK Raves (Mediafire direct files)"),
     ("classic-packs", "Classic Pack Series", "series.png", "The UK pack canon"),
     ("by-rave", "By Rave, Venue & Promoter", "rave-nights.png", "Raves, venues and promoters"),
     ("by-year", "By Year", "years.png", "Tape packs by year"),
@@ -2237,17 +2237,13 @@ def api_ukraves():
                           ART + "ukraves.png")
             item["file"] = "/api/ukraves/%s/file" % mix_id
             item["download"] = {"source": "ukraves", "id": mix_id}
-        elif kind == "youtube":
-            item = _external_row(title, _source_sub("YouTube · hand-off", sub),
-                                 _http_url(provider.get("url")),
-                                 ART + "ukraves.png")
         elif kind == "direct" and _http_url(provider.get("url")):
             target = _http_url(provider.get("url"))
             item = _track(title, sub, target, ART + "ukraves.png")
         else:
-            item = _external_row(title, _source_sub("Source link · hand-off", sub),
-                                 _http_url(row.get("go_url")),
-                                 ART + "ukraves.png")
+            # YouTube/external hand-offs opened a browser pop-up the owner does
+            # not want in a downloads room; only real files are listed.
+            continue
         items.append(item)
     pager = _cursor_pager(page, "/api/ukraves", has_next)
     payload = {

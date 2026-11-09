@@ -65,6 +65,7 @@ scp -q -i "$KEY" -o BatchMode=yes /tmp/raveplayer-web.tgz "$HOST:$REMOTE_TMP/rav
 
 ssh -i "$KEY" -o BatchMode=yes "$HOST" "REMOTE_TMP='"$REMOTE_TMP"' bash -s" <<REMOTE
 set -eu
+REMOTE_TMP="\${REMOTE_TMP:-/tmp}"
 DATA_BACKUP="$DEST.data-backup"
 # Secrets live in a root-only env file outside the build context; the EXIT trap
 # guarantees it is removed on every path (success, run failure, rollback).

@@ -161,7 +161,7 @@ def test_ukraves_mediafire_url_uses_the_generic_resolver(monkeypatch):
         ukraves.mediafire_url("7524")
 
 
-def test_ukraves_room_marks_mediafire_play_and_youtube_handoff(web, monkeypatch):
+def test_ukraves_room_lists_only_real_downloads(web, monkeypatch):
     rows = ukraves.parse_page(_fixture("ukraves-downloads.html"), 1)[0][:3]
     monkeypatch.setattr(app_module.ukraves, "page_entries",
                         lambda page: (rows, True))
@@ -183,10 +183,8 @@ def test_ukraves_room_marks_mediafire_play_and_youtube_handoff(web, monkeypatch)
     assert payload["items"][0]["play"] == "/api/ukraves/7524/stream"
     assert payload["items"][0]["file"] == "/api/ukraves/7524/file"
     assert payload["items"][0]["download"] == {"source": "ukraves", "id": "7524"}
-    assert payload["items"][1]["external"].startswith("https://www.youtube.com/")
-    assert "YouTube" in payload["items"][1]["sub"]
-    assert "download" not in payload["items"][1]
-    assert payload["items"][2]["external"].endswith("/go/mix/7522")
+    # YouTube/external hand-offs are excluded: no pop-up rows in a downloads room.
+    assert len(payload["items"]) == 1
 
 
 def test_ukraves_youtube_stream_route_is_a_handoff_not_a_500(web, monkeypatch):
