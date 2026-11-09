@@ -2360,6 +2360,15 @@
 
   /* ------------------------------------------------------------ appearance */
 
+  function syncThemeSwitch() {
+    const mode = THEME ? THEME.get() : "dark";
+    document.querySelectorAll(".theme-btn").forEach((button) => {
+      const on = button.dataset.mode === mode;
+      button.classList.toggle("is-active", on);
+      button.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+  }
+
   function syncAppearance() {
     const mode = THEME ? THEME.get() : "dark";
     document.querySelectorAll('input[name="appearance"]').forEach((input) => {
@@ -2368,6 +2377,13 @@
       const label = input.closest(".appearance-option");
       if (label) label.classList.toggle("is-checked", on);
     });
+    syncThemeSwitch();
+  }
+
+  function onThemeSwitch(event) {
+    const button = event.target.closest(".theme-btn");
+    if (!button || !THEME) return;
+    setAppearance(button.dataset.mode);
   }
 
   function setAppearance(mode) {
@@ -2611,6 +2627,9 @@
     });
   });
   window.addEventListener("rave:theme", syncAppearance);
+  document.querySelectorAll(".theme-btn").forEach((button) => {
+    button.addEventListener("click", onThemeSwitch);
+  });
   syncAppearance();
 
   $("p-fav").addEventListener("click", () => {

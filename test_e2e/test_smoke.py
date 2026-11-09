@@ -1800,3 +1800,15 @@ def test_pager_is_phone_friendly_and_does_not_overflow(browser_page, monkeypatch
     labels = _texts(pager.locator(".pager-btn"))
     assert "10" in labels and "5" not in labels
     assert len(labels) <= 8
+
+
+def test_main_screen_theme_switch_sets_auto_light_dark(browser_page):
+    page = browser_page.page
+    for mode in ("light", "dark", "system"):
+        page.locator('.theme-btn[data-mode="%s"]' % mode).click()
+        page.wait_for_function(
+            "() => document.documentElement.dataset.themeMode === %r" % mode,
+            timeout=5000)
+        assert page.locator('.theme-btn[data-mode="%s"]' % mode).get_attribute(
+            "aria-pressed") == "true"
+    assert browser_page.page_errors == []

@@ -10,7 +10,7 @@
  *   - never caches /api/* or /api/downloads/* (live data/local library),
  *   - ignores cross-origin requests entirely (ads/third-party pages).
  */
-const CACHE_NAME = "raveplayer-shell-v1.6.71";
+const CACHE_NAME = "raveplayer-shell-v1.6.72";
 const SHELL = "/";
 
 self.addEventListener("install", (event) => {
