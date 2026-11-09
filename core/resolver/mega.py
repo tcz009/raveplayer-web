@@ -1022,6 +1022,29 @@ def resolve(value, transport=None, sleep=None, now=None):
 # ---------------------------------------------------------------------------
 # Service adapter (core.resolver.service auto-loads MegaResolver)
 
+try:  # the resolver service base is optional for standalone use
+    from . import base as _base
+except ImportError:  # pragma: no cover - standalone module use
+    _base = None
+
+_MegaError = MegaError
+
+
+def _map_error(exc):
+    """Map Mega's typed errors onto the resolver service contract."""
+    if _base is None:
+        return exc
+    name = type(exc).__name__
+    if name == "Unsupported":
+        return _base.Unsupported(str(exc))
+    if name == "NotFound":
+        return _base.NotFound(str(exc))
+    if name == "RateLimited":
+        return _base.RateLimited(str(exc), retry_after=getattr(exc, "retry_after", None))
+    if name == "FormatChanged":
+        return _base.UpstreamError(str(exc))
+    return _base.UpstreamError(str(exc))
+
 class MegaResolver(object):
     """Adapter glue: Mega capability link -> Resolved."""
 
@@ -1037,7 +1060,10 @@ class MegaResolver(object):
             return False
 
     def resolve(self, url):
-        data = resolve(url)
+        try:
+            data = resolve(url)
+        except _MegaError as exc:
+            raise _map_error(exc)
         try:
             from .base import Resolved
         except ImportError:  # standalone use
