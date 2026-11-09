@@ -117,6 +117,14 @@ CREATE TABLE IF NOT EXISTS download_jobs (
     entry_json TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_download_jobs_state ON download_jobs(state, created);
+CREATE TABLE IF NOT EXISTS download_cancels (
+    client_id TEXT PRIMARY KEY,
+    state TEXT NOT NULL,
+    created REAL NOT NULL,
+    updated REAL NOT NULL,
+    expires REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_download_cancels_expires ON download_cancels(expires);
 CREATE TABLE IF NOT EXISTS login_failures (
     key TEXT PRIMARY KEY,
     window_start REAL NOT NULL,
