@@ -1001,3 +1001,34 @@ def resolve(value, transport=None, sleep=None, now=None):
         return result
 
     return _copy_result(_single_flight(cache_key, factory))
+
+
+# ---------------------------------------------------------------------------
+# Service adapter (core.resolver.service auto-loads MegaResolver)
+
+class MegaResolver(object):
+    """Adapter glue: Mega capability link -> Resolved."""
+
+    source = "mega"
+
+    def __init__(self, timeout=None, http=None, dns=None, clock=None):
+        self.timeout = timeout
+
+    def matches(self, url):
+        try:
+            return bool(supports(url))
+        except Exception:
+            return False
+
+    def resolve(self, url):
+        data = resolve(url)
+        try:
+            from .base import Resolved
+        except ImportError:  # standalone use
+            return data
+        try:
+            expires = float(data.get("expires") or 0)
+        except (TypeError, ValueError):
+            expires = 0.0
+        return Resolved(data["url"], data.get("headers") or {},
+                        expires, "mega")

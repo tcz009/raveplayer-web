@@ -51,6 +51,8 @@ from core import (archive, audit, auth, bensons, cache, demodulated, dnbradio,
                   ravearchive, soundcloud, toronto, ukraves)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
+from core.resolver.service import resolver_bp  # noqa: E402
+app.register_blueprint(resolver_bp)
 app.config["JSON_SORT_KEYS"] = False
 
 
