@@ -24,11 +24,15 @@ The endpoint is deliberately not an open proxy:
 * the resolver cache and the storage connection are never reused for a
   different link.
 
-``GET /api/mega/sign`` mints a short-lived HMAC token for a link so a player
-(Kodi, VLC, a TV) can fetch the stream without a browser session cookie.  The
-token is stateless and reusable until its expiry, and is only valid for that
-one canonical link.  Links without a valid token still work with the normal
-web session cookie, exactly like every other ``/api/*`` route.
+``POST /api/mega/sign`` mints a short-lived opaque token for a link so a
+player (Kodi, VLC, a TV) can fetch the stream without a browser session
+cookie.  The canonical link (including the 32-byte file key) is encrypted into
+the token with AES-GCM, so the signed URL contains only an expiry and
+ciphertext — never the permanent MEGA capability.  The token is stateless and
+reusable until expiry, valid for one canonical link, and deliberately has no
+revocation (documented in ``docs/MEGA-STREAM.md``).  Links without a valid
+token still work with the normal web session cookie, exactly like every other
+``/api/*`` route.
 
 The full HTTP contract, Kodi usage and the LAN/Tailscale caveat are documented
 in ``docs/MEGA-STREAM.md``.
@@ -52,9 +56,11 @@ import urllib.parse
 from dataclasses import dataclass
 
 from flask import (Blueprint, Response, current_app, jsonify, request,
-                   stream_with_context)
+                   session, stream_with_context)
 
 from . import mega
+from . import stream_budget
+from .service import TokenBucket
 
 LOG = logging.getLogger("raveweb.mega_stream")
 
@@ -67,13 +73,25 @@ STREAM_DEADLINE = 4 * 3600
 MAX_STREAM_BYTES = 8 * 1024 * 1024 * 1024
 MAX_STREAMS = 4
 MAX_URL = 4096
+MAX_TOKEN_LEN = 1024
 
-# Signed links are for a player that cannot hold a browser session.  Six hours
-# covers a long set with pauses; the cap stops a leaked signer from minting a
-# practically permanent capability.
-TOKEN_TTL = 6 * 3600
+# Signed links are for a player that cannot hold a browser session.  Two hours
+# is long enough for a set with pauses and short enough that a URL copied out of
+# a log/history stops working quickly; the 7-day cap remains for deliberate
+# offline use.  Tokens are stateless, so there is no per-token revocation.
+TOKEN_TTL = 2 * 3600
 MAX_TOKEN_TTL = 7 * 24 * 3600
-TOKEN_VERSION = "v1"
+TOKEN_VERSION = "v2"
+
+# Request-rate budgets.  ``TokenBucket`` is per process and keyed by identity
+# (signed-in) or client IP, so one noisy player cannot consume MEGA's API quota
+# for every user on the box.  Set a rate to 0 to disable that bucket.
+SIGN_RATE_PER_MINUTE = 30.0
+SIGN_BURST = 10
+STREAM_RATE_PER_MINUTE = 600.0
+STREAM_BURST = 60
+RERESOLVE_RATE_PER_MINUTE = 6.0
+RERESOLVE_BURST = 2
 
 CONTENT_TYPES = {
     ".mp3": "audio/mpeg",
@@ -92,6 +110,11 @@ _RANGE_RE = re.compile(r"^bytes=(\d{0,18})-(\d{0,18})$", re.IGNORECASE)
 _CONTENT_RANGE_RE = re.compile(r"^bytes\s+(\d+)-(\d+)/(\d+|\*)$",
                              re.IGNORECASE)
 _CTRL_RE = re.compile(r"[\x00-\x1f\x7f]")
+# ``ipaddress.is_global`` is false for these on modern Python, but fec0::/10
+# (IPv6 site-local) is still reported as global on 3.9, and the CGNAT block is
+# an explicit policy rejection rather than an implementation detail.
+_CGNAT = ipaddress.ip_network("100.64.0.0/10")
+_SITE_LOCAL_V6 = ipaddress.ip_network("fec0::/10")
 
 
 def _env_number(name, default, minimum, maximum, cast=int):
@@ -113,16 +136,44 @@ MAX_STREAM_BYTES = _env_number("RAVEWEB_MEGA_STREAM_BYTES", MAX_STREAM_BYTES,
 MAX_STREAMS = _env_number("RAVEWEB_MEGA_STREAMS", MAX_STREAMS, 1, 64)
 TOKEN_TTL = _env_number("RAVEWEB_MEGA_TOKEN_SECONDS", TOKEN_TTL,
                         60, MAX_TOKEN_TTL)
+SIGN_RATE_PER_MINUTE = _env_number(
+    "RAVEWEB_MEGA_SIGN_RATE_PER_MINUTE", SIGN_RATE_PER_MINUTE, 0, 60000, float)
+SIGN_BURST = _env_number("RAVEWEB_MEGA_SIGN_BURST", SIGN_BURST, 1, 1000)
+STREAM_RATE_PER_MINUTE = _env_number(
+    "RAVEWEB_MEGA_STREAM_RATE_PER_MINUTE", STREAM_RATE_PER_MINUTE, 0, 60000, float)
+STREAM_BURST = _env_number("RAVEWEB_MEGA_STREAM_BURST", STREAM_BURST, 1, 1000)
+RERESOLVE_RATE_PER_MINUTE = _env_number(
+    "RAVEWEB_MEGA_RERESOLVE_PER_MINUTE", RERESOLVE_RATE_PER_MINUTE, 0, 600, float)
+RERESOLVE_BURST = _env_number("RAVEWEB_MEGA_RERESOLVE_BURST", RERESOLVE_BURST,
+                              1, 100)
 
 _SLOTS = threading.BoundedSemaphore(MAX_STREAMS)
 _SLOT_LOCK = threading.Lock()
+_SIGN_LIMITER = TokenBucket(rate_per_minute=SIGN_RATE_PER_MINUTE,
+                            burst=SIGN_BURST)
+_STREAM_LIMITER = TokenBucket(rate_per_minute=STREAM_RATE_PER_MINUTE,
+                              burst=STREAM_BURST)
+_RERESOLVE_LIMITER = TokenBucket(rate_per_minute=RERESOLVE_RATE_PER_MINUTE,
+                                 burst=RERESOLVE_BURST)
 
 
 def reset_slots():
-    """Replace the stream semaphore (tests, or after a config reload)."""
+    """Replace the stream semaphore(s) (tests, or after a config reload)."""
     global _SLOTS
     with _SLOT_LOCK:
         _SLOTS = threading.BoundedSemaphore(MAX_STREAMS)
+    stream_budget.reset_slots()
+
+
+def reset_limiters():
+    """Replace the request/refresh token buckets (tests or a config reload)."""
+    global _SIGN_LIMITER, _STREAM_LIMITER, _RERESOLVE_LIMITER
+    _SIGN_LIMITER = TokenBucket(rate_per_minute=SIGN_RATE_PER_MINUTE,
+                                burst=SIGN_BURST)
+    _STREAM_LIMITER = TokenBucket(rate_per_minute=STREAM_RATE_PER_MINUTE,
+                                  burst=STREAM_BURST)
+    _RERESOLVE_LIMITER = TokenBucket(rate_per_minute=RERESOLVE_RATE_PER_MINUTE,
+                                     burst=RERESOLVE_BURST)
 
 
 # --------------------------------------------------------------------------- errors
@@ -181,6 +232,10 @@ def parse_range_header(value):
         return None
     text = str(value).strip()
     if not text:
+        return None
+    # RFC 7233: a server MUST ignore a Range header whose unit it does not
+    # understand.  Only ``bytes`` is implemented here.
+    if not text.lower().startswith("bytes="):
         return None
     match = _RANGE_RE.match(text)
     if not match:
@@ -281,12 +336,12 @@ def _header(resp, name):
 
 
 def _token_key(secret=None):
-    """Return the HMAC key, or ``None`` when signed links are not configured.
+    """Return the token master key, or ``None`` when signing is unconfigured.
 
     ``RAVEWEB_MEGA_TOKEN_SECRET`` is preferred so rotating the Flask session
     secret does not silently invalidate every outstanding media URL.  Otherwise
     a dedicated subkey of the Flask secret is derived; the raw session secret
-    is never used as the HMAC key directly.
+    is never used as a token key directly.
     """
     if secret is not None:
         if isinstance(secret, bytes):
@@ -306,6 +361,15 @@ def _token_key(secret=None):
                     hashlib.sha256).digest()
 
 
+def _token_cipher_key(secret=None):
+    """Derive a dedicated AES-256-GCM key from the token master secret."""
+    key = _token_key(secret)
+    if key is None:
+        return None
+    return hashlib.sha256(
+        key + b"raveplayer-mega-stream-gcm-v2").digest()
+
+
 def _canonical_link(link):
     try:
         return mega.parse_link(link).canonical
@@ -314,69 +378,137 @@ def _canonical_link(link):
                               kind="unsupported")
 
 
-def _sign_message(canonical, expires):
-    return ("%s\n%d\n%s" % (TOKEN_VERSION, int(expires), canonical)).encode("utf-8")
+def _token_aad(expires):
+    return ("%s\n%d" % (TOKEN_VERSION, int(expires))).encode("ascii")
 
 
 def make_token(link, expires, secret=None):
-    """Return a URL-safe HMAC token for ``link`` valid until ``expires``."""
-    key = _token_key(secret)
+    """Return an opaque, URL-safe token for ``link`` valid until ``expires``.
+
+    The canonical link (handle **and** 32-byte key) is encrypted with
+    AES-256-GCM and authenticated together with the expiry.  The signed URL
+    therefore carries ciphertext, not the permanent MEGA capability.
+    """
+    if mega.AES is None:
+        raise MegaStreamError(
+            "signed MEGA links are not configured", code=503,
+            kind="not_configured")
+    key = _token_cipher_key(secret)
     if key is None:
         raise MegaStreamError(
             "signed MEGA links are not configured", code=503,
             kind="not_configured")
     canonical = _canonical_link(link)
-    digest = hmac.new(key, _sign_message(canonical, expires),
-                      hashlib.sha256).digest()
-    return base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")
+    nonce = os.urandom(12)
+    cipher = mega.AES.new(key, mega.AES.MODE_GCM, nonce=nonce)
+    cipher.update(_token_aad(expires))
+    ciphertext, tag = cipher.encrypt_and_digest(canonical.encode("utf-8"))
+    raw = nonce + ciphertext + tag
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
 
-def verify_token(link, expires, token, secret=None, now=None):
-    """Constant-time validation of a signed-link triple."""
+def _decode_token(expires, token, secret=None):
+    """Decrypt a v2 token, returning its canonical link or ``None``."""
+    if mega.AES is None:
+        return None
+    if not isinstance(token, str) or not token or not token.isascii():
+        return None
+    if len(token) > MAX_TOKEN_LEN:
+        return None
+    key = _token_cipher_key(secret)
+    if key is None:
+        return None
+    try:
+        raw = base64.urlsafe_b64decode(
+            token + "=" * (-len(token) % 4))
+    except (ValueError, TypeError):
+        return None
+    if len(raw) < 12 + 16 + 1:
+        return None
+    nonce, ciphertext, tag = raw[:12], raw[12:-16], raw[-16:]
+    try:
+        cipher = mega.AES.new(key, mega.AES.MODE_GCM, nonce=nonce)
+        cipher.update(_token_aad(expires))
+        plaintext = cipher.decrypt_and_verify(ciphertext, tag)
+        return plaintext.decode("utf-8")
+    except (ValueError, TypeError, UnicodeDecodeError):
+        return None
+
+
+def _token_expiry_valid(expires, now=None):
     try:
         expiry = int(expires)
     except (TypeError, ValueError):
-        return False
+        return None
     current = time.time() if now is None else float(now)
     if expiry <= current or expiry > current + MAX_TOKEN_TTL:
+        return None
+    return expiry
+
+
+def verify_token(link, expires, token, secret=None, now=None):
+    """Constant-time validation of an opaque token for one canonical link."""
+    expiry = _token_expiry_valid(expires, now=now)
+    if expiry is None:
         return False
-    if not isinstance(token, str) or not token or not token.isascii():
+    decoded = _decode_token(expiry, token, secret=secret)
+    if decoded is None:
         return False
     try:
-        expected = make_token(link, expiry, secret=secret)
-    except (MegaStreamError, mega.MegaError):
+        canonical = _canonical_link(link)
+    except MegaStreamError:
         return False
-    return hmac.compare_digest(expected, token)
+    return hmac.compare_digest(decoded, canonical)
 
 
 def signed_path(link, ttl=None, now=None, secret=None):
-    """Build the relative ``/api/mega/stream?...`` path for a signed link."""
+    """Build the relative ``/api/mega/stream?...`` path for a signed link.
+
+    Only the expiry and the authenticated ciphertext appear in the query
+    string; the MEGA link and its file key never do.
+    """
     canonical = _canonical_link(link)
     lifetime = TOKEN_TTL if ttl is None else max(1, min(int(ttl), MAX_TOKEN_TTL))
     expires = int((time.time() if now is None else float(now)) + lifetime)
     token = make_token(canonical, expires, secret=secret)
-    query = urllib.parse.urlencode({"u": canonical, "e": str(expires),
-                                    "t": token})
+    query = urllib.parse.urlencode({"e": str(expires), "t": token})
     return "/api/mega/stream?" + query
 
 
-def has_valid_token(args):
-    """True when a request's ``u``/``e``/``t`` triple verifies.  Never raises."""
+def token_link(args, secret=None, now=None):
+    """Return the canonical link carried by a valid signed request, or None.
+
+    A legacy-style ``u`` parameter is accepted only when it matches the
+    decrypted token; it cannot add a second capability.  Never raises.
+    """
     if args is None:
-        return False
+        return None
     try:
-        raw_link = args.get("u")
         expires = args.get("e")
         token = args.get("t")
-        if not raw_link or not expires or not token:
-            return False
-        if not isinstance(raw_link, str) or len(raw_link) > MAX_URL:
-            return False
-        if not isinstance(token, str) or len(token) > 128:
-            return False
-        return verify_token(raw_link, expires, token)
+        if not expires or not token:
+            return None
+        expiry = _token_expiry_valid(expires, now=now)
+        if expiry is None:
+            return None
+        decoded = _decode_token(expiry, token, secret=secret)
+        if decoded is None:
+            return None
+        raw_link = args.get("u")
+        if raw_link:
+            if not isinstance(raw_link, str) or len(raw_link) > MAX_URL:
+                return None
+            canonical = _canonical_link(raw_link)
+            if not hmac.compare_digest(decoded, canonical):
+                return None
+        return decoded
     except Exception:  # malformed query data must never 500 the auth guard
-        return False
+        return None
+
+
+def has_valid_token(args):
+    """True when a request carries a valid opaque stream token.  Never raises."""
+    return token_link(args) is not None
 
 
 def _session_authorized():
@@ -469,9 +601,19 @@ def _public_address(host, port):
             raise MegaStreamError("MEGA storage host returned an unusable address")
         if address.version == 6 and address.ipv4_mapped is not None:
             address = address.ipv4_mapped
-        if (address.is_private or address.is_loopback or address.is_link_local
-                or address.is_multicast or address.is_reserved
-                or address.is_unspecified):
+        # Positive policy: only addresses the platform considers globally
+        # routable are accepted.  The explicit CGNAT/site-local checks keep the
+        # behaviour stable across Python versions and document the rejection.
+        if (not address.is_global
+                or getattr(address, "is_site_local", False)
+                or address.is_multicast
+                or address.is_unspecified
+                or address.is_loopback
+                or address.is_link_local
+                or address.is_private
+                or address.is_reserved
+                or (address.version == 4 and address in _CGNAT)
+                or (address.version == 6 and address in _SITE_LOCAL_V6)):
             raise MegaStreamError("MEGA storage host resolved to a non-public address")
         addresses.append(address)
     chosen = next((address for address in addresses if address.version == 4),
@@ -579,29 +721,47 @@ class MegaStreamer(object):
     """
 
     def __init__(self, resolve=None, opener=None, clock=time.time,
-                 acquire_slot=True):
+                 acquire_slot=True, reresolve_limiter=None):
         self._resolve = resolve or mega.resolve
         self._opener = opener or open_storage
         self._clock = clock
         self._acquire_slot = acquire_slot
+        self._reresolve_limiter = reresolve_limiter or _RERESOLVE_LIMITER
 
     # -- public ---------------------------------------------------------
 
     def plan(self, raw_link, range_header=None, head=False):
         link = mega.parse_link(raw_link)
-        spec = parse_range_header(range_header)
+        try:
+            spec = parse_range_header(range_header)
+        except RangeNotSatisfiable as exc:
+            # Resolve only to fill in ``Content-Range: bytes */<size>`` for a
+            # malformed range.  The request-rate bucket already ran, and the
+            # resolver cache absorbs repeats.
+            self._add_range_total(link, exc)
+            raise
 
-        slot_held = False
+        global_held = False
+        local_held = False
         resp = None
-        if not head and self._acquire_slot:
-            slot_held = _SLOTS.acquire(timeout=2.0)
-            if not slot_held:
+        # HEAD must not bypass the budget: it still performs a resolve and can
+        # be used to enumerate distinct links.  The shared budget is always
+        # acquired first, then the narrower MEGA cap, so both routes compose.
+        if self._acquire_slot:
+            global_held = stream_budget.acquire(timeout=2.0)
+            if not global_held:
+                raise MegaStreamError(
+                    "too many streams in progress, retry shortly",
+                    code=503, kind="busy", retry_after=2)
+            local_held = _SLOTS.acquire(timeout=2.0)
+            if not local_held:
+                stream_budget.release()
                 raise MegaStreamError(
                     "too many MEGA streams in progress, retry shortly",
                     code=503, kind="busy", retry_after=2)
 
         def release():
-            if slot_held:
+            if local_held:
                 try:
                     _SLOTS.release()
                 except ValueError:  # pragma: no cover - double release guard
@@ -611,6 +771,8 @@ class MegaStreamer(object):
                     resp.close()
                 except Exception:
                     pass
+            if global_held:
+                stream_budget.release()
 
         close = _Once(release)
         try:
@@ -636,13 +798,28 @@ class MegaStreamer(object):
                 return StreamPlan(status, headers, None, close)
 
             upstream_range = self._upstream_range(spec, start, end)
+            block_start = start - (start % 16)
             resp = self._open(self._url(resolved), upstream_range)
             resolved, resp = self._retry_once_on_403(
                 link, resolved, resp, upstream_range)
 
-            upstream_status = self._validate_status(resp)
+            try:
+                upstream_status = self._validate_status(resp)
+            except RangeNotSatisfiable as exc:
+                if size is not None:
+                    exc.headers["Content-Range"] = "bytes */%d" % size
+                raise
+
             if upstream_status == 206:
-                server_start = self._content_range_start(resp, start)
+                server_start = self._content_range_start(resp)
+                if server_start is None:
+                    # A 206 without a parsable Content-Range is not proof the
+                    # body starts at the client's ``start``.  The only range we
+                    # actually requested is ``block_start``, so decrypt from
+                    # there; never assume the client offset.
+                    LOG.info("MEGA 206 without parsable Content-Range; "
+                             "using the requested block start")
+                    server_start = block_start
                 server_end = self._content_range_end(resp)
                 if server_end is not None and end is not None:
                     end = min(end, server_end)
@@ -665,12 +842,21 @@ class MegaStreamer(object):
             if ranged and end is None and total is not None:
                 end = total - 1
 
+            discard = start - server_start
+            if discard >= MAX_STREAM_BYTES:
+                headers = {}
+                if total is not None:
+                    headers["Content-Range"] = "bytes */%d" % total
+                raise MegaStreamError(
+                    "requested offset is beyond the per-stream byte budget",
+                    code=416, kind="range_not_satisfiable",
+                    headers=headers)
+
             length = self._length(start, end, total, ranged)
             headers = self._client_headers(
                 content_type, name, length, start, end, total, ranged)
 
             cipher = self._new_cipher(link, server_start)
-            discard = start - server_start
             deadline = self._clock() + STREAM_DEADLINE
 
             def body():
@@ -687,6 +873,16 @@ class MegaStreamer(object):
             raise
 
     # -- helpers --------------------------------------------------------
+
+    def _add_range_total(self, link, exc):
+        """Best-effort ``Content-Range: bytes */<size>`` for a bad Range."""
+        try:
+            resolved = self._resolve(link)
+            size = _positive_int(resolved.get("size")) or None
+        except Exception:
+            return
+        if size is not None:
+            exc.headers["Content-Range"] = "bytes */%d" % size
 
     @staticmethod
     def _length(start, end, total, ranged):
@@ -740,13 +936,24 @@ class MegaStreamer(object):
         return self._opener(url, headers, READ_TIMEOUT)
 
     def _retry_once_on_403(self, link, resolved, resp, upstream_range):
-        """MEGA storage URLs are ~two-use; on 403 re-resolve exactly once."""
+        """MEGA storage URLs are short-lived; on 403 re-resolve exactly once.
+
+        The retry is also budgeted per canonical link so repeated playbacks
+        cannot turn a stream endpoint into an unbounded MEGA API amplifier.
+        """
         if getattr(resp, "status", 0) != 403:
             return resolved, resp
         try:
             resp.close()
         except Exception:
             pass
+        retry = self._reresolve_limiter.take(link.cache_key())
+        if retry:
+            LOG.warning(
+                "MEGA 403 re-resolve budget exhausted for handle %s", link.handle)
+            raise MegaStreamError(
+                "too many MEGA storage refreshes; retry shortly",
+                code=429, kind="rate_limited", retry_after=retry)
         LOG.info("MEGA storage returned 403; invalidating and re-resolving once")
         try:
             mega.invalidate(link)
@@ -817,14 +1024,14 @@ class MegaStreamer(object):
         raise MegaStreamError("MEGA storage returned an unexpected status")
 
     @staticmethod
-    def _content_range_start(resp, fallback):
+    def _content_range_start(resp):
         match = _CONTENT_RANGE_RE.match((_header(resp, "Content-Range") or "").strip())
-        if match:
-            try:
-                return int(match.group(1))
-            except ValueError:
-                return None
-        return fallback
+        if not match:
+            return None
+        try:
+            return int(match.group(1))
+        except ValueError:
+            return None
 
     @staticmethod
     def _content_range_end(resp):
@@ -862,25 +1069,34 @@ class MegaStreamer(object):
 
     def _pump(self, resp, cipher, discard, length, deadline):
         remaining = length
+        # The cap covers *all* upstream bytes read, including the bytes skipped
+        # to reach a client offset when the storage node ignored Range.  Without
+        # this, a request near the end of a large file could make the proxy
+        # decrypt the whole prefix before sending anything.
+        cap = MAX_STREAM_BYTES
+        consumed = 0
         try:
             while discard > 0:
                 if self._clock() >= deadline:
                     return
-                chunk = resp.read1(min(CHUNK_SIZE, discard))
+                if consumed >= cap:
+                    LOG.warning("MEGA stream byte cap reached during skip")
+                    return
+                chunk = resp.read1(min(CHUNK_SIZE, discard, cap - consumed))
                 if not chunk:
                     return
+                consumed += len(chunk)
                 cipher.decrypt(chunk)
                 discard -= len(chunk)
-            sent = 0
             while True:
                 if self._clock() >= deadline:
                     LOG.warning("MEGA stream deadline reached")
                     return
-                if sent >= MAX_STREAM_BYTES:
+                if consumed >= cap:
                     LOG.warning("MEGA stream byte cap reached")
                     return
                 try:
-                    chunk = resp.read1(min(CHUNK_SIZE, MAX_STREAM_BYTES - sent))
+                    chunk = resp.read1(min(CHUNK_SIZE, cap - consumed))
                 except (socket.timeout, TimeoutError):
                     LOG.info("MEGA storage read timed out")
                     return
@@ -888,12 +1104,12 @@ class MegaStreamer(object):
                     return
                 if not chunk:
                     return
+                consumed += len(chunk)
                 data = cipher.decrypt(chunk)
                 if remaining is not None:
                     data = data[:remaining]
                     remaining -= len(data)
                 if data:
-                    sent += len(data)
                     yield data
                 if remaining is not None and remaining <= 0:
                     return
@@ -912,7 +1128,13 @@ mega_stream_bp = Blueprint("mega_stream", __name__)
 
 @mega_stream_bp.before_request
 def _require_auth():
-    if not authorized(request.args):
+    # A signed token authenticates streaming only.  In particular it must not
+    # be replayable at /api/mega/sign to mint a fresh token and extend access.
+    if request.path == "/api/mega/stream":
+        allowed = authorized(request.args)
+    else:
+        allowed = _session_authorized()
+    if not allowed:
         return _error_response(MegaStreamError(
             "authentication required", code=401, kind="unauthorized"))
 
@@ -921,12 +1143,40 @@ def _require_auth():
 def _security_headers(response):
     response.headers.setdefault("Cache-Control", "no-store")
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault("Cross-Origin-Resource-Policy", "same-origin")
     return response
+
+
+def _client_key():
+    """Per-identity key when signed in, otherwise the client IP."""
+    try:
+        if session.get("sid") and session.get("identity"):
+            return "id:%s" % session.get("identity")
+    except Exception:
+        pass
+    return "ip:%s" % (request.remote_addr or "unknown")
+
+
+def _rate_error(limiter, label):
+    retry = limiter.take(_client_key())
+    if not retry:
+        return None
+    return MegaStreamError(
+        "too many MEGA %s requests; retry shortly" % label,
+        code=429, kind="rate_limited", retry_after=retry)
 
 
 @mega_stream_bp.route("/api/mega/stream", methods=["GET"])
 def stream_endpoint():
+    limited = _rate_error(_STREAM_LIMITER, "stream")
+    if limited is not None:
+        return _error_response(limited)
     raw_link = request.args.get("u", "")
+    if not raw_link:
+        # An opaque signed URL carries the canonical link inside the token;
+        # ``u`` is no longer part of the minted query string.
+        raw_link = token_link(request.args) or ""
     if not raw_link or len(raw_link) > MAX_URL:
         return _error_response(MegaStreamError(
             "u is required", code=400, kind="invalid"))
@@ -968,6 +1218,9 @@ def stream_endpoint():
 
 @mega_stream_bp.route("/api/mega/sign", methods=["GET", "POST"])
 def sign_endpoint():
+    limited = _rate_error(_SIGN_LIMITER, "sign")
+    if limited is not None:
+        return _error_response(limited)
     raw_link = _sign_request_link()
     if not raw_link or len(raw_link) > MAX_URL:
         return _error_response(MegaStreamError("url is required", code=400,
@@ -982,7 +1235,7 @@ def sign_endpoint():
     except MegaStreamError as exc:
         return _error_response(exc)
     absolute = request.url_root.rstrip("/") + path
-    return jsonify({
+    response = jsonify({
         "ok": True,
         "url": path,
         "path": path,
@@ -991,6 +1244,16 @@ def sign_endpoint():
             urllib.parse.urlsplit(path).query).get("e", ["0"])[0]),
         "source": mega.SOURCE,
     })
+    if request.method == "GET":
+        # POST keeps the MEGA capability out of the request line (and therefore
+        # out of proxy access logs).  GET still works for older clients, but is
+        # visibly deprecated.
+        response.headers["Warning"] = (
+            '299 - "GET is deprecated; use POST /api/mega/sign"')
+        response.headers["Deprecation"] = "true"
+        LOG.warning("deprecated GET /api/mega/sign from %s",
+                    request.remote_addr or "unknown")
+    return response
 
 
 def _sign_request_link():
@@ -1038,10 +1301,12 @@ __all__ = [
     "make_token",
     "verify_token",
     "signed_path",
+    "token_link",
     "has_valid_token",
     "authorized",
     "open_storage",
     "mega_stream_bp",
     "init_app",
     "reset_slots",
+    "reset_limiters",
 ]

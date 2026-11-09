@@ -34,6 +34,7 @@ os.environ["RAVEWEB_ENV"] = "test"
 
 import app as app_module  # noqa: E402
 from core import audit, download_jobs  # noqa: E402
+from core.resolver import mega_stream, stream_budget  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -99,11 +100,15 @@ def clear_login_limiter():
 
 @pytest.fixture(autouse=True)
 def isolated_slots():
-    """Give every test a full stream-slot semaphore."""
+    """Give every test full, freshly configured stream budgets."""
     original = app_module._STREAM_SLOTS
     app_module._STREAM_SLOTS = threading.BoundedSemaphore(app_module.MAX_STREAMS)
+    mega_stream.reset_limiters()
+    stream_budget.reset_slots()
     yield
     app_module._STREAM_SLOTS = original
+    mega_stream.reset_limiters()
+    stream_budget.reset_slots()
 
 
 @pytest.fixture()

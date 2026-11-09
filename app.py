@@ -51,6 +51,7 @@ from core import (archive, audit, auth, bensons, cache, demodulated, dnbradio,
                   ravearchive, soundcloud, toronto, ukraves)
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
+from core.resolver import stream_budget  # noqa: E402
 from core.resolver.service import resolver_bp  # noqa: E402
 from core.resolver.mega_stream import (  # noqa: E402
     has_valid_token as mega_stream_has_valid_token,
@@ -3530,7 +3531,13 @@ def _serve_stream(target, options, requested_range=None, ref_override=None,
     Shared by ``/api/stream`` and the curated EZ Garage routes so the same
     SSRF/redirect rules, Referer handling and stream caps apply to Mediafire.
     """
+    # Shared with /api/mega/stream: every stream holds a worker thread, so one
+    # process-wide budget keeps generic + MEGA streams from exceeding the
+    # gthread count.  The per-generic cap remains as a narrower limit.
+    if not stream_budget.acquire(timeout=2.0):
+        return _stream_error(503, "too many streams in progress, retry shortly", retry=2)
     if not _STREAM_SLOTS.acquire(timeout=2.0):
+        stream_budget.release()
         return _stream_error(503, "too many streams in progress, retry shortly", retry=2)
 
     released = [False]
@@ -3542,6 +3549,7 @@ def _serve_stream(target, options, requested_range=None, ref_override=None,
                 _STREAM_SLOTS.release()
             except ValueError:  # pragma: no cover - double release guard
                 pass
+            stream_budget.release()
 
     try:
         headers = _upstream_headers(target, options, requested_range,
@@ -3694,7 +3702,17 @@ def _close_and_error(conn, resp, release, code, message, headers_out=None,
 def healthz():
     return jsonify({"ok": True,
                     "version": APP_VERSION,
+                    "revision": _build_revision(),
                     "data_writable": _data_writable()})
+
+
+def _build_revision():
+    """Commit baked into the image/deploy, or ``unknown`` when not supplied."""
+    for name in ("RAVEWEB_REVISION", "RAVEWEB_GIT_COMMIT", "GIT_COMMIT"):
+        value = (os.environ.get(name) or "").strip()
+        if value:
+            return value[:64]
+    return "unknown"
 
 
 _DATA_PROBE = {"at": 0.0, "ok": True}

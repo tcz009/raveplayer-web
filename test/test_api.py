@@ -20,7 +20,17 @@ def test_healthz(web, tmp_path):
     payload = response.get_json()
     assert payload["ok"] is True
     assert payload["version"] == app.APP_VERSION
+    assert payload["revision"] == "unknown"
     assert payload["data_writable"] is True
+
+
+def test_healthz_reports_the_build_revision(web, monkeypatch):
+    monkeypatch.setenv("RAVEWEB_REVISION", "deadbee")
+    payload = web.get("/healthz").get_json()
+    assert payload["revision"] == "deadbee"
+    monkeypatch.delenv("RAVEWEB_REVISION")
+    monkeypatch.setenv("RAVEWEB_GIT_COMMIT", "cafebabe")
+    assert web.get("/healthz").get_json()["revision"] == "cafebabe"
 
 
 def test_healthz_with_read_only_data_dir(web, tmp_path, monkeypatch):

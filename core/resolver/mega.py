@@ -752,10 +752,16 @@ def _validate_download_url(raw):
         port = parts.port
     except ValueError:
         raise FormatChanged("MEGA download URL has an invalid port")
+    # Storage is plain HTTP/HTTPS only.  Restricting the port keeps an
+    # allowlisted host from becoming an egress primitive to SSH/other services.
     if port is not None and port not in (80, 443):
         raise FormatChanged("MEGA download URL has an unexpected port")
 
-    host = (parts.hostname or "").lower().rstrip(".")
+    host = (parts.hostname or "").lower()
+    if host.endswith("."):
+        # Canonicalise a trailing dot before matching the suffix allowlist so
+        # it cannot be used to sidestep a future exact/suffix policy change.
+        host = host.rstrip(".")
     if not host:
         raise FormatChanged("MEGA download URL has no host")
     try:

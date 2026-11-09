@@ -83,6 +83,7 @@ chown -R 10001:10001 $DEST/data
 cd $DEST
 # Build first: a build failure leaves the running container untouched.
 docker build -q \
+  --build-arg RAVEWEB_REVISION=$REVISION \
   --label "org.opencontainers.image.version=$VERSION" \
   --label "org.opencontainers.image.revision=$REVISION" \
   -t $IMAGE -t $LATEST_IMAGE .
@@ -113,6 +114,7 @@ if ! docker run -d --name raveplayer-web-new --restart unless-stopped \
   -e RAVEWEB_DATA=/data \
   -e RAVEWEB_ALLOW_PRIVATE=$ALLOW_PRIVATE \
   -e RAVEWEB_MAX_STREAMS=$MAX_STREAMS \
+  -e RAVEWEB_REVISION=$REVISION \
   --env-file "\$ENV_FILE" \
   $IMAGE >/dev/null; then
   restore_previous

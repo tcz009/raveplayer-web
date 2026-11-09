@@ -1,8 +1,8 @@
 # MEGA resolver
 
 Status: adapter for the Rave resolver service, extended by the decrypting
-stream proxy. Branch `feat/mega-stream`, worktree
-`../rave-player-worktrees/mega-stream`, base `0c94a5d` (1.6.60).
+stream proxy. Hardened on branch `feat/mega-hardening`, worktree
+`../rave-player-worktrees/mega-hardening`, base `6eb01db` (1.6.64).
 
 Files:
 
@@ -11,7 +11,7 @@ Files:
 - `core/resolver/mega_stream.py` — AES-CTR decrypting stream proxy and signed
   links; see [MEGA-STREAM.md](MEGA-STREAM.md).
 - `core/resolver/__init__.py` — package marker only (no imports).
-- `test/test_mega_resolver.py` — 105 offline tests.
+- `test/test_mega_resolver.py` — offline resolver tests.
 - `test/test_mega_stream.py` — offline stream-proxy tests.
 - `docs/MEGA-RESOLVER.md` — this document.
 - `docs/MEGA-STREAM.md` — the `/api/mega/stream` contract.
@@ -87,10 +87,13 @@ if mega.supports(link):
 unchanged. The decrypting stream proxy uses them for ``Content-Type`` and
 ``Content-Length``.
 
-The storage URL is a roughly **two-use capability** (a third HTTP request
-returns 403).  Call `mega.invalidate(link)` before a new playback, or let
+The storage URL is a short-lived capability and may return 403 after a few
+uses.  The earlier “roughly two-use” claim did not reproduce on 2026-11-09 (one
+fresh URL served 10/10 sequential Range requests), so do not depend on a fixed
+use count.  Call `mega.invalidate(link)` before a new playback, or let
 `/api/mega/stream` do it; that endpoint opens the URL once per playback and
-re-resolves exactly once on a 403.  See [MEGA-STREAM.md](MEGA-STREAM.md).
+re-resolves exactly once on a 403, within a per-link refresh budget.  See
+[MEGA-STREAM.md](MEGA-STREAM.md).
 
 `expires` is `int(time.time()) + URL_TTL`. The URL is safe to hand to a
 download proxy or a player; the resolver itself never fetches it. `headers`
@@ -169,13 +172,12 @@ treated as opaque:
 - it can be bound to the public IP that requested it and to a short lifetime;
 - it is usually consumed by the caller, not by this resolver.
 
-Live testing on 2026-11-09 found a sharper limit: a fresh storage URL served
-two `Range: bytes=0-0` requests and returned **HTTP 403 on the third**,
-reproduced across tokens. A token left unused for 90 seconds still worked on
-its first two uses, so this is a usage cap rather than a <90 s clock. Treat the
-URL as a per-playback capability: call `mega.invalidate(link)` before a new
-playback, or fetch it once through the stream proxy and let the proxy serve
-client range requests. See "Limitations" below.
+Live testing on 2026-11-09 did **not** reproduce a fixed two-use limit: a
+fresh storage URL served ten sequential `Range: bytes=0-0` requests with 206.
+A 403 can still happen (expiry, edge rotation, IP binding), so treat the URL as
+a per-playback capability and re-resolve once: call `mega.invalidate(link)`
+before a new playback, or fetch it once through the stream proxy and let the
+proxy serve client range requests. See "Limitations" below.
 
 The adapter accepts an HTML-escaped URL (`&amp;`) and a fully percent-encoded
 URL (`http%3A%2F%2F…`) and unescapes them exactly once. Normal URLs are not
@@ -298,12 +300,11 @@ If a cached URL later returns 403, call `mega.invalidate(link)` and resolve
 again (once; do not loop). `clear_memory()` is process-wide and intended for
 tests/manual recovery, not for one hot link.
 
-Because a storage URL is a two-use capability, a URL cache is only safe when
-the caller consumes each URL once. The Rave stream proxy should fetch the URL
-once and serve its own clients from that stream; a browser/player redirected
-directly to the MEGA URL will burn one of the two uses per range request. If
-the parent wants one fresh URL per playback, call `invalidate()` immediately
-before `resolve()`.
+Because a storage URL is a short-lived capability, a URL cache is only safe
+when the caller re-resolves after a 403. The Rave stream proxy fetches the URL
+once and serves its own clients from that stream, so its clients do not consume
+storage uses per range request. If the parent wants one fresh URL per playback,
+call `invalidate()` immediately before `resolve()`.
 
 ## 7. Security / allowlists
 
@@ -316,7 +317,8 @@ Every network boundary is deny-by-default:
 - **Download URL host:** exact `g.api.mega.*`/`userstorage.mega.*`, or a
   subdomain of `.userstorage.mega.co.nz`, `.userstorage.mega.nz`,
   `.userstorage.mega.io`. IP literals, credentials, fragments, non-HTTP
-  schemes, non-80/443 ports, and lookalike domains are rejected.
+  schemes, lookalike domains, and storage ports other than 80/443 are
+  rejected.  A trailing dot is normalised before the suffix check.
 - **No open proxy:** the module never fetches the returned storage URL and
   never accepts an arbitrary URL to fetch. It is not an HTTP proxy.
 - **No redirects:** the API opener installs a redirect handler that refuses
@@ -341,10 +343,11 @@ logs. The caller's own SSRF/range checks still apply if it proxies the URL.
   `RateLimited`; a busy host may still fail. Storage URLs are often bound to
   the requesting public IP, so a URL resolved through one egress may not work
   through another.
-- **Two-use capability:** in live testing a URL served two requests and then
-  returned 403; a third request never recovered. This is the biggest
-  operational constraint. Cache/invalidate per playback, or fetch once through
-  a proxy. The 20-minute cache TTL is only a ceiling.
+- **Short-lived capability:** a storage URL can return 403 after expiry, edge
+  rotation or IP binding.  The old “two-use” limit did not reproduce on
+  2026-11-09 (10/10 sequential Range requests succeeded), so do not depend on a
+  fixed use count.  Re-resolve once on 403 within the stream proxy's per-link
+  refresh budget; the 20-minute cache TTL is only a ceiling.
 - **Short lifetime:** storage URLs also age out. A 403 from storage should
   trigger one `invalidate()` + re-resolve, not an unbounded retry loop.
 - **HTTP storage:** MEGA commonly returns plain `http://gfs…` URLs. The token
