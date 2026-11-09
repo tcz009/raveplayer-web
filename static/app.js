@@ -2360,13 +2360,26 @@
 
   /* ------------------------------------------------------------ appearance */
 
+  const THEME_ORDER = ["system", "light", "dark"];
+  const THEME_META = {
+    system: { glyph: "◐", label: "Auto", next: "Light" },
+    light: { glyph: "☀", label: "Light", next: "Dark" },
+    dark: { glyph: "☾", label: "Dark", next: "Auto" },
+  };
+
   function syncThemeSwitch() {
     const mode = THEME ? THEME.get() : "dark";
-    document.querySelectorAll(".theme-btn").forEach((button) => {
-      const on = button.dataset.mode === mode;
-      button.classList.toggle("is-active", on);
-      button.setAttribute("aria-pressed", on ? "true" : "false");
-    });
+    const meta = THEME_META[mode] || THEME_META.dark;
+    const button = $("theme-btn");
+    if (!button) return;
+    button.dataset.mode = mode;
+    button.setAttribute("aria-label",
+      "Appearance: " + meta.label + ". Click for " + meta.next + " mode.");
+    button.title = "Appearance: " + meta.label + " (click to cycle Auto → Light → Dark)";
+    const glyph = $("theme-glyph");
+    const label = $("theme-label");
+    if (glyph) glyph.textContent = meta.glyph;
+    if (label) label.textContent = meta.label;
   }
 
   function syncAppearance() {
@@ -2380,10 +2393,11 @@
     syncThemeSwitch();
   }
 
-  function onThemeSwitch(event) {
-    const button = event.target.closest(".theme-btn");
-    if (!button || !THEME) return;
-    setAppearance(button.dataset.mode);
+  function onThemeSwitch() {
+    if (!THEME) return;
+    const current = THEME.get();
+    const index = THEME_ORDER.indexOf(current);
+    setAppearance(THEME_ORDER[(index + 1) % THEME_ORDER.length]);
   }
 
   function setAppearance(mode) {
@@ -2627,9 +2641,7 @@
     });
   });
   window.addEventListener("rave:theme", syncAppearance);
-  document.querySelectorAll(".theme-btn").forEach((button) => {
-    button.addEventListener("click", onThemeSwitch);
-  });
+  $("theme-btn").addEventListener("click", onThemeSwitch);
   syncAppearance();
 
   $("p-fav").addEventListener("click", () => {

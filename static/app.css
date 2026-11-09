@@ -2737,36 +2737,37 @@ html[data-theme="light"] :focus-visible { outline-color: var(--ink); }
 }
 
 
-/* Appearance control on the main screen: Auto / Light / Dark. */
-.theme-switch {
+/* Appearance control on the main screen: one sticker button that cycles
+   Auto -> Light -> Dark and shows the current mode. */
+.theme-btn {
   display: inline-flex;
+  align-items: center;
+  gap: 7px;
   flex: 0 0 auto;
+  min-height: 38px;
+  padding: 0 11px 0 9px;
   border: 1px solid var(--line);
   background: var(--panel);
-  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.35);
-}
-.theme-btn {
-  min-height: 34px;
-  padding: 0 9px;
-  border: 0;
-  border-right: 1px solid var(--line);
-  background: transparent;
   color: var(--muted);
   font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   cursor: pointer;
+  box-shadow: 2px 2px 0 rgba(0, 0, 0, 0.35);
+  transition: color 120ms ease, border-color 120ms ease, background-color 120ms ease;
 }
-.theme-btn:last-child { border-right: 0; }
-.theme-btn:hover { color: var(--acid); }
-.theme-btn.is-active {
-  background: var(--acid);
-  color: var(--ink);
+.theme-btn:hover {
+  color: var(--acid);
+  border-color: var(--acid);
 }
-.theme-btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: -2px; }
+.theme-btn:active { transform: translate(1px, 1px); box-shadow: 1px 1px 0 rgba(0, 0, 0, 0.35); }
+.theme-btn:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.theme-glyph { font-size: 15px; line-height: 1; color: var(--acid); }
+.theme-label { line-height: 1; }
 @media (max-width: 860px) {
-  .theme-switch { order: 2; }
-  .theme-btn { min-height: 36px; padding: 0 7px; font-size: 10px; }
+  .theme-btn { order: 2; min-height: 36px; padding: 0 9px; }
+  .theme-label { display: none; }
+  .theme-glyph { font-size: 16px; }
 }

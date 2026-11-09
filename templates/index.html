@@ -57,14 +57,12 @@
     <button class="surprise-btn" id="surprise" type="button"
             aria-label="Surprise me — open a random tape pack or show"
             title="Surprise me — random tape pack or show">Surprise me</button>
-    <div class="theme-switch" role="group" aria-label="Appearance">
-      <button class="theme-btn" type="button" data-mode="system" aria-pressed="false"
-              title="Auto — follow this device">Auto</button>
-      <button class="theme-btn" type="button" data-mode="light" aria-pressed="false"
-              title="Light mode">Light</button>
-      <button class="theme-btn" type="button" data-mode="dark" aria-pressed="false"
-              title="Dark mode">Dark</button>
-    </div>
+    <button class="theme-btn" id="theme-btn" type="button" data-mode="system"
+            aria-label="Appearance: Auto — follow this device. Click for Light mode."
+            title="Appearance: Auto (click to cycle Auto → Light → Dark)">
+      <span class="theme-glyph" id="theme-glyph" aria-hidden="true">◐</span>
+      <span class="theme-label" id="theme-label">Auto</span>
+    </button>
     <button class="help-btn" id="help-btn" type="button" aria-label="Help and controls"
             title="Help and controls (?)"><span aria-hidden="true">?</span></button>
     <div class="loading-pill" id="loading-pill" role="status" aria-live="polite"

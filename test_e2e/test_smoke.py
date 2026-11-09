@@ -1804,11 +1804,16 @@ def test_pager_is_phone_friendly_and_does_not_overflow(browser_page, monkeypatch
 
 def test_main_screen_theme_switch_sets_auto_light_dark(browser_page):
     page = browser_page.page
-    for mode in ("light", "dark", "system"):
-        page.locator('.theme-btn[data-mode="%s"]' % mode).click()
+    # One sticker button cycles Auto -> Light -> Dark -> Auto.
+    order = ["system", "light", "dark"]
+    labels = {"system": "AUTO", "light": "LIGHT", "dark": "DARK"}
+    for _ in range(3):
+        current = page.locator("#theme-btn").get_attribute("data-mode")
+        expected = order[(order.index(current) + 1) % 3]
+        page.locator("#theme-btn").click()
         page.wait_for_function(
-            "() => document.documentElement.dataset.themeMode === %r" % mode,
+            "() => document.documentElement.dataset.themeMode === %r" % expected,
             timeout=5000)
-        assert page.locator('.theme-btn[data-mode="%s"]' % mode).get_attribute(
-            "aria-pressed") == "true"
+        assert page.locator("#theme-label").inner_text() == labels[expected]
+        assert page.locator("#theme-btn").get_attribute("data-mode") == expected
     assert browser_page.page_errors == []
