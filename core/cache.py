@@ -190,6 +190,27 @@ def get(key, ttl, now=None, copy_value=True):
     return copy.deepcopy(value) if copy_value else value
 
 
+def age(key, now=None):
+    """Seconds since the entry was written, or ``None`` when it is absent.
+
+    Unlike :func:`get` this has no TTL argument and never applies an expiry
+    decision: callers use it to implement their own freshness policy (for
+    example stale-while-revalidate).  The value is never deep-copied, so an
+    age check on a large parsed feed is a timestamp read rather than another
+    copy of the feed.  A clock that moved backwards is clamped to zero.
+    """
+    now = time.time() if now is None else now
+    with _MEMORY_LOCK:
+        record = _MEMORY.get(key)
+        if record is not None:
+            return max(0.0, now - record[0])
+    result = _read(key)
+    if result is MISSING:
+        return None
+    timestamp, _value = result
+    return max(0.0, now - timestamp)
+
+
 def has(key, ttl, now=None):
     """True when :func:`get` would return a value, without copying it.
 
