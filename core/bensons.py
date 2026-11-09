@@ -184,9 +184,21 @@ def _load_entries():
 
 
 def entries():
-    """All 234 rows, parsed once from the cached homepage (never raises)."""
-    return cache.remember("bensons:entries:v1", TTL, _load_entries,
-                          sync=False) or []
+    """All 234 rows, parsed once from the cached homepage (never raises).
+
+    A cold or slow upstream must not empty the room: once a good list exists,
+    an expired cache is served stale while the next refresh runs.
+    """
+    key = "bensons:entries:v1"
+    value = cache.get(key, TTL)
+    if value is not cache.MISSING:
+        return value
+    loaded = _load_entries()
+    if loaded is None:
+        stale = cache.get(key, 10 ** 9)
+        return [] if stale is cache.MISSING else stale
+    cache.put(key, loaded, sync=False)
+    return loaded
 
 
 def summary(rows):
