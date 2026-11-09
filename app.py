@@ -25,6 +25,7 @@ import ipaddress
 import json
 import math
 import os
+import hmac
 import random
 import re
 import socket
@@ -937,6 +938,34 @@ def _current_request_id():
         return "-"
 
 
+RESOLVER_SERVICE_TOKEN = (os.environ.get("RAVEWEB_RESOLVER_TOKEN") or "").strip()
+
+
+def _resolver_token_ok():
+    """Bearer/X-Resolve-Token auth for media players (Kodi), scoped to resolver routes."""
+    token = RESOLVER_SERVICE_TOKEN
+    if not token:
+        return False
+    supplied = (request.headers.get("Authorization") or "").strip()
+    if supplied.lower().startswith("bearer "):
+        supplied = supplied[7:].strip()
+    else:
+        supplied = (request.headers.get("X-Resolve-Token") or "").strip()
+    if not supplied:
+        return False
+    try:
+        return hmac.compare_digest(supplied.encode("utf-8"), token.encode("utf-8"))
+    except Exception:
+        return False
+
+
+def _resolver_authorized():
+    return _session_valid() or _resolver_token_ok()
+
+
+app.config["RESOLVER_AUTH_CHECK"] = _resolver_authorized
+
+
 @app.before_request
 def _assign_request_id():
     g.request_id = (_clean_request_id(request.headers.get("X-Request-ID"))
@@ -957,6 +986,10 @@ def _auth_guard():
         # cookie.  /api/mega/stream accepts a short-lived HMAC token minted by
         # /api/mega/sign; the route validates it again and fails closed.
         if path == "/api/mega/stream" and mega_stream_has_valid_token(request.args):
+            return None
+        # Media players (Kodi) may use a configured service token for the
+        # resolver surface only; this is not a general /api/* bypass.
+        if path in ("/api/resolve", "/api/mega/sign") and _resolver_token_ok():
             return None
         if not _session_valid():
             return _json_error("authentication required", 401)

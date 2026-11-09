@@ -861,3 +861,22 @@ def test_adapter_without_allowlist_fails_closed(fake_dns, clock):
     )
     with pytest.raises(base.UpstreamError):
         service.resolve("https://fake.example/x")
+
+
+def test_resolver_service_token_is_scoped_to_resolver_routes(web, monkeypatch):
+    import app as app_module
+
+    monkeypatch.setattr(app_module, "RESOLVER_SERVICE_TOKEN", "kodi-service-token")
+    anon = app_module.app.test_client()
+    url = "/api/resolve?u=https%3A%2F%2Fexample.com%2Fa.mp3"
+    # No session and no token -> 401.
+    assert anon.get(url).status_code == 401
+    # Bearer token is accepted by the resolver surface (400 unknown host is fine).
+    assert anon.get(url, headers={
+        "Authorization": "Bearer kodi-service-token"}).status_code != 401
+    # The token is not a general /api/* bypass.
+    assert anon.get("/api/latest", headers={
+        "Authorization": "Bearer kodi-service-token"}).status_code == 401
+    # Wrong token is rejected.
+    assert anon.get(url, headers={
+        "Authorization": "Bearer wrong"}).status_code == 401
