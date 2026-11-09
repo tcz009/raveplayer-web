@@ -978,9 +978,10 @@ def resolve(value, transport=None, sleep=None, now=None):
     Returns
     -------
     dict
-        Exactly ``{"url", "headers", "expires", "source"}``.  ``expires`` is an
-        absolute POSIX timestamp; the URL itself is only cached for
-        :data:`URL_TTL` seconds.
+        ``{"url", "headers", "expires", "source", "name", "size"}``.
+        ``name``/``size`` are decrypted metadata for the stream proxy and may
+        be ``None``.  ``expires`` is an absolute POSIX timestamp; the URL
+        itself is only cached for :data:`URL_TTL` seconds.
 
     Raises
     ------
