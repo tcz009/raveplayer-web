@@ -41,6 +41,7 @@
     "url": "https://dejavufmpodcast.podomatic.com/rss2.xml",
     "plot": "DejaVu FM shows — house, garage, soul and drum & bass.",
     "max_bytes": 16777216,
-    "cache_body": false
+    "cache_body": false,
+    "warm": true
   }
 ]
