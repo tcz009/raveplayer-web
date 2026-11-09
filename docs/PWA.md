@@ -30,8 +30,11 @@ tab was never normalised back to the app.
 - `/sw.js` + `static/sw.js` served at the **root** with
   `Service-Worker-Allowed: /`:
   - handles only GET, same-origin requests (cross-origin/ads are never touched),
-  - navigations are network-first and fall back to the cached `/` shell, so
-    *any* same-origin link boots the app,
+  - `/` navigations paint the cached shell and refresh it in the background;
+    other same-origin links keep the network-first shell fallback;
+    `/login`/`/logout` are **not** intercepted, so their `Set-Cookie` is
+    applied normally (a response returned from `respondWith` drops it, which
+    broke the first login POST),
   - `/api/*` and the local Downloads library are never cached,
   - static assets are cached by their full `?v=<version>` URL, so a deploy
     cannot serve yesterday's JS.

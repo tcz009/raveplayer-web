@@ -8,15 +8,40 @@
  *   - caches versioned static assets at fetch time (the ?v= query means a
  *     deploy never serves yesterday's JS from the cache),
  *   - never caches /api/* or /api/downloads/* (live data/local library),
+ *   - never caches a redirected /login response as the "/" shell (a signed-out
+ *     fetch of "/" follows the 302 to /login; caching that HTML under "/" made
+ *     the first post-login navigation show the login page again),
  *   - ignores cross-origin requests entirely (ads/third-party pages).
  */
-const CACHE_NAME = "raveplayer-shell-v1.6.77";
+<<<<<<< HEAD
+const CACHE_NAME = "raveplayer-shell-v1.6.78";
+=======
+const CACHE_NAME = "raveplayer-shell-v1.6.78";
+>>>>>>> fix/web-reliability
 const SHELL = "/";
+
+function shellResponse(response) {
+  // Only a direct 200 for "/" is the app shell.  A 302 to /login followed by
+  // fetch() yields a 200 document at /login (response.redirected true); that
+  // must never become the cached shell.
+  if (!response || !response.ok || response.redirected) return false;
+  try {
+    const url = new URL(response.url);
+    return url.origin === self.location.origin && url.pathname === SHELL;
+  } catch (_) {
+    return false;
+  }
+}
 
 self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME);
-    try { await cache.add(new Request(SHELL, { cache: "reload" })); } catch (_) {}
+    try {
+      const response = await fetch(new Request(SHELL, {
+        cache: "reload", redirect: "manual",
+      }));
+      if (shellResponse(response)) await cache.put(SHELL, response);
+    } catch (_) {}
     await self.skipWaiting();
   })());
 });
@@ -41,10 +66,16 @@ self.addEventListener("fetch", (event) => {
 
   if (request.mode === "navigate") {
     // The app itself is hash-routed, so "/" is the only navigation that can be
-    // answered from the cached shell.  Every other path is a real server page
-    // (/login, /logout) and must be fetched: serving the shell there would show
-    // the app to a signed-out user.
+    // answered from the cached shell.  Real server pages that set cookies
+    // (/login, /logout) must be fetched by the browser itself: a response
+    // returned from respondWith does not apply its Set-Cookie, so intercepting
+    // /login left the rendered CSRF token without the matching session cookie
+    // (the first POST was then rejected as "session expired").
     if (url.pathname !== SHELL) {
+      if (url.pathname === "/login" || url.pathname === "/logout"
+          || url.pathname.indexOf("/login/") === 0) {
+        return;
+      }
       event.respondWith((async () => {
         try {
           const response = await fetch(request);
@@ -64,11 +95,10 @@ self.addEventListener("fetch", (event) => {
       const cache = await caches.open(CACHE_NAME);
       const cached = await cache.match(SHELL, { ignoreSearch: true });
       const network = fetch(request).then(async (response) => {
-        if (response && response.ok) {
+        if (shellResponse(response)) {
           try { await cache.put(SHELL, response.clone()); } catch (_) { /* quota */ }
-          return response;
         }
-        return null;
+        return response && response.ok ? response : null;
       }).catch(() => null);
       if (cached) {
         event.waitUntil(network);

@@ -178,9 +178,13 @@ check — the offline tests only assert the header).
 2. **Mixed content / CORS** — radio streams are plain HTTP, and Archive
    redirects would otherwise be blocked from an HTTPS page.
 
-Range requests are forwarded, so seeking works. The proxy also understands
-Kodi's `url|Referer=...&User-Agent=...` syntax, which is how the legacy
-provider marks hotlink-protected MP3s.
+Range requests are forwarded, so seeking works. If a Range-capable upstream
+stalls mid-body (the 20bensons MP3s do this after ~1 minute), the proxy reopens
+it with `Range: bytes=<sent>-` and continues the same chunked response — at
+most 3 resumes, only when the resumed `Content-Range` starts exactly at the
+byte already sent, so playback is neither truncated nor duplicated. The proxy
+also understands Kodi's `url|Referer=...&User-Agent=...` syntax, which is how
+the legacy provider marks hotlink-protected MP3s.
 
 ### Proxy security
 

@@ -512,3 +512,167 @@ def test_other_sources_keep_generic_errors(web, upstream):
     assert response.status_code == 403
     assert "code" not in payload
     assert payload["error"] == "upstream refused access"
+
+
+# --------------------------------------------------------------------------- resume on stall (BUG 2)
+
+
+def test_mid_body_stall_resumes_with_range(web, upstream):
+    """A 200 body that stalls after N bytes is continued with Range: bytes=N-."""
+    stalled = FakeResponse(
+        status=200,
+        headers={"Content-Type": "audio/mpeg", "Accept-Ranges": "bytes"},
+        chunks=[b"abc", b"def"],
+        read_error=socket.timeout("stalled"),
+    )
+    resumed = FakeResponse(
+        status=206,
+        headers={"Content-Type": "audio/mpeg", "Accept-Ranges": "bytes",
+                 "Content-Range": "bytes 6-9/10"},
+        chunks=[b"ghij"],
+    )
+    connections = upstream([stalled, resumed])
+    response = stream(web, "https://example.com/a.mp3")
+
+    assert response.status_code == 200
+    assert response.data == b"abcdefghij"
+    assert len(connections) == 2
+    assert stalled.closed is True
+    assert connections[1].headers["Range"] == "bytes=6-"
+    assert "Content-Length" not in response.headers
+
+
+def test_mid_body_oserror_resumes_with_range(web, upstream):
+    stalled = FakeResponse(
+        status=200,
+        headers={"Content-Type": "audio/mpeg", "Accept-Ranges": "bytes"},
+        chunks=[b"12"], read_error=ConnectionResetError("reset"),
+    )
+    resumed = FakeResponse(
+        status=206,
+        headers={"Content-Type": "audio/mpeg", "Content-Range": "bytes 2-3/4"},
+        chunks=[b"34"],
+    )
+    upstream([stalled, resumed])
+    response = stream(web, "https://example.com/a.mp3")
+    assert response.data == b"1234"
+
+
+def test_stall_without_range_support_still_truncates(web, upstream):
+    """The normal non-Range path is unchanged: stop, never guess an offset."""
+    connections = upstream([FakeResponse(
+        status=200, headers={"Content-Type": "audio/mpeg"},
+        chunks=[b"abc"], read_error=socket.timeout("stalled"))])
+    response = stream(web, "https://example.com/a.mp3")
+    assert response.status_code == 200
+    assert response.data == b"abc"
+    assert len(connections) == 1
+
+
+def test_resume_keeps_the_original_content_range_end(web, upstream):
+    """A client Range must not grow past the last byte it asked for."""
+    stalled = FakeResponse(
+        status=206,
+        headers={"Content-Type": "audio/mpeg", "Accept-Ranges": "bytes",
+                 "Content-Range": "bytes 100-109/500"},
+        chunks=[b"abc"], read_error=socket.timeout("stalled"),
+    )
+    resumed = FakeResponse(
+        status=206,
+        headers={"Content-Type": "audio/mpeg",
+                 "Content-Range": "bytes 103-109/500",
+                 # Deliberately more than the remaining 7 bytes: the proxy
+                 # must clip the body at the original Content-Range end.
+                 "Accept-Ranges": "bytes"},
+        chunks=[b"defghijKLM"],
+    )
+    connections = upstream([stalled, resumed])
+    response = stream(web, "https://example.com/a.mp3",
+                      headers={"Range": "bytes=100-109"})
+    assert response.status_code == 206
+    assert response.data == b"abcdefghij"
+    assert connections[1].headers["Range"] == "bytes=103-109"
+
+
+def test_resume_refuses_a_shifted_content_range(web, upstream):
+    """A 206 starting anywhere other than the requested offset ends the body."""
+    stalled = FakeResponse(
+        status=200,
+        headers={"Content-Type": "audio/mpeg", "Accept-Ranges": "bytes"},
+        chunks=[b"abc"], read_error=socket.timeout("stalled"),
+    )
+    shifted = FakeResponse(
+        status=206,
+        headers={"Content-Type": "audio/mpeg",
+                 "Content-Range": "bytes 0-9/10"},
+        chunks=[b"XYZ"],
+    )
+    connections = upstream([stalled, shifted])
+    response = stream(web, "https://example.com/a.mp3")
+    assert response.data == b"abc"          # no duplicates, no gap
+    assert len(connections) == 2
+    assert shifted.closed is True
+
+
+def test_resume_refuses_an_ignored_range(web, upstream):
+    """A source that answers the resume with 200 would replay from byte 0."""
+    stalled = FakeResponse(
+        status=200,
+        headers={"Content-Type": "audio/mpeg", "Accept-Ranges": "bytes"},
+        chunks=[b"abc"], read_error=socket.timeout("stalled"),
+    )
+    replay = FakeResponse(status=200,
+                          headers={"Content-Type": "audio/mpeg"},
+                          chunks=[b"abcdef"])
+    connections = upstream([stalled, replay])
+    response = stream(web, "https://example.com/a.mp3")
+    assert response.data == b"abc"
+    assert len(connections) == 2
+
+
+def test_resume_is_bounded(web, upstream):
+    """At most MAX_STREAM_RESUMES reopens; then the response ends."""
+    import app as app_module
+
+    def ranged(start):
+        return FakeResponse(
+            status=200,
+            headers={"Content-Type": "audio/mpeg", "Accept-Ranges": "bytes"},
+            chunks=[bytes([97 + start])],
+            read_error=socket.timeout("stalled"),
+        )
+
+    responses = [ranged(0)]
+    for start in range(1, app_module.MAX_STREAM_RESUMES + 2):
+        responses.append(FakeResponse(
+            status=206,
+            headers={"Content-Type": "audio/mpeg",
+                     "Content-Range": "bytes %d-%d/99" % (start, start)},
+            chunks=[bytes([97 + start])],
+            read_error=socket.timeout("stalled"),
+        ))
+    connections = upstream(responses)
+    response = stream(web, "https://example.com/a.mp3")
+    assert response.status_code == 200
+    assert len(response.data) == app_module.MAX_STREAM_RESUMES + 1
+    assert len(connections) == app_module.MAX_STREAM_RESUMES + 1
+
+
+def test_resumed_streams_release_the_slot(web, upstream):
+    import app as app_module
+
+    def responses():
+        return [
+            FakeResponse(status=200,
+                         headers={"Content-Type": "audio/mpeg",
+                                  "Accept-Ranges": "bytes"},
+                         chunks=[b"ab"], read_error=socket.timeout("stalled")),
+            FakeResponse(status=206,
+                         headers={"Content-Type": "audio/mpeg",
+                                  "Content-Range": "bytes 2-3/4"},
+                         chunks=[b"cd"]),
+        ]
+
+    for _ in range(app_module.MAX_STREAMS):
+        upstream(responses())
+        assert stream(web, "https://example.com/a.mp3").data == b"abcd"

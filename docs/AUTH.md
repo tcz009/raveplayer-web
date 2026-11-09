@@ -4,7 +4,10 @@ The web app is now closed by default. Owner or friends logins unlock the HTML
 shell, every `/api/*` route (including `/api/stream`, `/api/downloads*` and
 `/api/surprise`), the download file endpoints and the library static assets.
 There are exactly two fixed identities: **owner** (role `admin`) and
-**friends** (role `viewer`). They share the full player; owner-only routes are
+**friends** (role `viewer`).  The legacy username **`admin`** is accepted as an
+alias for `owner` (same password hash, same role, same failure counter) because
+browser password managers from older builds still autofill it; it never creates
+a second account. They share the full player; owner-only routes are
 gated by the reusable `require_admin` decorator (example: `/api/admin/whoami`).
 Arbitrary accounts, OAuth and per-user libraries are deferred.
 A read-only owner stats feed (`GET /api/admin/stats`) is documented in
@@ -16,7 +19,7 @@ A read-only owner stats feed (`GET /api/admin/stats`) is documented in
 | Variable | Required | Purpose |
 |---|---|---|
 | `SECRET_KEY` | **yes in production** | Signs the session and CSRF cookies. Generate with `python -c "import secrets; print(secrets.token_urlsafe(48))"`. Production refuses the app if this is empty or a placeholder (`secret`, `change-me`, `dev`, …). Non-production falls back to a random per-process key (sessions die on restart). |
-| `RAVEWEB_PASSWORD_HASH` | **yes** | Owner / admin password hash: Argon2 (`$argon2id$…`), bcrypt (`$2b$…`) or Werkzeug (`scrypt:`/`pbkdf2:`). Username `owner`. |
+| `RAVEWEB_PASSWORD_HASH` | **yes** | Owner / admin password hash: Argon2 (`$argon2id$…`), bcrypt (`$2b$…`) or Werkzeug (`scrypt:`/`pbkdf2:`). Username `owner` (`admin` is a safe legacy alias). |
 | `RAVEWEB_FRIENDS_PASSWORD_HASH` | recommended | Friends / viewer password hash. If omitted, only owner can sign in (friends login stays closed). Rotating just this value changes the friends password without touching owner. |
 | `RAVEWEB_PASSWORD` | first-run alternative | Owner plaintext hashed **in memory** at startup; generated hash logged once for `RAVEWEB_PASSWORD_HASH`. |
 | `RAVEWEB_FRIENDS_PASSWORD` | first-run alternative | Friends plaintext hashed in memory; generated hash logged once for `RAVEWEB_FRIENDS_PASSWORD_HASH`. |
@@ -31,7 +34,7 @@ Optional tuning:
 |---|---|---|
 | `RAVEWEB_SESSION_HOURS` | `12` | Absolute session lifetime without “remember me”. |
 | `RAVEWEB_REMEMBER_DAYS` | `30` | Absolute lifetime with “remember me”. |
-| `RAVEWEB_LOGIN_MAX_FAILURES` | `5` | Failed attempts before a lockout (per IP, per worker). |
+| `RAVEWEB_LOGIN_MAX_FAILURES` | `5` | Failed attempts before a lockout (per identity + IP, shared by both workers). |
 | `RAVEWEB_LOGIN_FAILURE_WINDOW` | `600` | Failure window in seconds. |
 | `RAVEWEB_LOGIN_LOCKOUT` | `900` | Lockout duration in seconds. |
 
@@ -82,6 +85,15 @@ credential.
   writes the role into `raveplayer_session` (`HttpOnly`, `SameSite=Lax`,
   `Secure` automatically when HTTPS) and redirects to a validated same-site
   `next`.
+- **Duplicate submits are idempotent**: a second POST from the same page (double
+  click, second Enter, restored tab) arrives with the pre-rotation CSRF token
+  and the already-authenticated session cookie; it redirects into the app
+  instead of rendering "session expired".  The login form is also single-shot
+  in `static/login.js`.
+- `GET /login` discards stale/partial auth keys (fresh CSRF-only cookie) but
+  preserves an anonymous CSRF token so two tabs share one form.  A CSRF
+  rejection never consumes a failed-login attempt and its audit row carries
+  `reason=missing_session|missing|mismatch`.
 - `remember me` — sets a persistent cookie and the longer absolute lifetime;
   without it the cookie is a browser-session cookie with a 12 h absolute cap.
 - `POST /logout` — `session.clear()` + cookie deletion.
@@ -89,7 +101,11 @@ credential.
   (`{"error": "authentication required"}`); pages redirect to
   `/login?next=…`; non-login static files return `401`.
 - Audit lines: `auth: login success/failure/locked/csrf rejected/logout`,
-  with IP, identity and role; never the password or submitted secret.
+  with IP, identity and role; never the password or submitted secret.  The
+  `events` rows carry a bounded `detail` (`reason=…`, `alias=admin`,
+  `remember=0|1`) so a failed first attempt is distinguishable from a
+  successful login.  Login audit writes are best-effort: a busy audit store
+  cannot turn a correct password into a 500.
 - HTTPS responses add `Strict-Transport-Security`; all responses keep
   `X-Content-Type-Options: nosniff` and `X-Frame-Options: SAMEORIGIN`; the
   shell/login CSP is unchanged (`script-src 'self'`, `style-src 'self'`).
@@ -120,12 +136,17 @@ credential.
 
 ## Tests
 
-- `test/test_auth.py` (18): unauth API JSON 401s, page redirects, narrow public
+- `test/test_auth.py` (24): unauth API JSON 401s, page redirects, narrow public
   surface, designed login + CSRF, generic failure, rate limit/lockout, cookie
   flags (HttpOnly/SameSite/Secure over HTTPS), remember window, expiry, logout,
   open-redirect sanitation, owner/friends role separation, admin-probe denial,
   independent per-identity lockouts and friends hash rotation, config
-  fail-closed, first-run hashing.
+  fail-closed, first-run hashing, plus the 1.6.76 reliability cases: duplicate
+  POST after success, stale session cookie, audited stale CSRF, `admin` alias,
+  broken audit store and CSRF preservation/rotation.
 - e2e `test_login_logout_flow_and_login_page_design`: logout → door page →
   password reveal → generic error → remember-me login → app; screenshots under
   `rave-player-space/reports/web-1.6.21/` when `RAVEWEB_ARTIFACTS_DIR` is set.
+- e2e `test_e2e/test_login_reliability.py` (1.6.76): fresh-context first POST,
+  repeated sign-ins in one context, stale server-side session, and a browser
+  duplicate POST.
