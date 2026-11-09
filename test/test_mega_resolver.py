@@ -266,11 +266,14 @@ def test_attribute_plaintext_with_bad_json_is_format_changed():
 
 def test_success_contract_and_payload():
     result, calls = _resolve_ok(now=1700000000)
-    assert set(result) == {"url", "headers", "expires", "source"}
+    assert set(result) == {"url", "headers", "expires", "source",
+                           "name", "size"}
     assert result["url"] == DOWNLOAD_URL
     assert result["headers"] == {"User-Agent": mega.USER_AGENT}
     assert result["expires"] == 1700000000 + mega.URL_TTL
     assert result["source"] == "mega"
+    assert result["name"] == FILENAME
+    assert result["size"] == 312896
 
     assert len(calls) == 1
     api_url, payload, timeout = calls[0]

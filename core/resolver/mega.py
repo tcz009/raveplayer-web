@@ -69,6 +69,7 @@ __all__ = [
     "resolve",
     "decrypt_attributes",
     "derive_content_key",
+    "validate_download_url",
     "clear_memory",
     "invalidate",
 ]
@@ -692,6 +693,16 @@ def _download_host_allowed(host):
     return any(host.endswith(suffix) for suffix in DOWNLOAD_HOST_SUFFIXES)
 
 
+def validate_download_url(raw):
+    """Public wrapper: validate a MEGA storage URL against the host allowlist.
+
+    The stream proxy calls this again immediately before opening a URL, so a
+    value that did not come from :func:`resolve` still cannot become an SSRF
+    primitive.
+    """
+    return _validate_download_url(raw)
+
+
 def _validate_download_url(raw):
     """Return MEGA's storage URL after allowlist/scheme/credential checks.
 
@@ -912,6 +923,10 @@ def _request_once(link, transport, timeout, now):
         "headers": {"User-Agent": USER_AGENT},
         "expires": int(now + URL_TTL),
         "source": SOURCE,
+        # Metadata used by the stream proxy to set Content-Type and
+        # Content-Length.  Both are optional in MEGA's reply.
+        "name": attributes.get("n"),
+        "size": data.get("s"),
     }
 
 
