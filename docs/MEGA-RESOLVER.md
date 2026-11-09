@@ -1,18 +1,23 @@
 # MEGA resolver
 
-Status: adapter for the Rave resolver service. Branch `feat/mega-resolver`,
-worktree `../rave-player-worktrees/mega-resolver`, base `d0f0621`.
+Status: adapter for the Rave resolver service, extended by the decrypting
+stream proxy. Branch `feat/mega-stream`, worktree
+`../rave-player-worktrees/mega-stream`, base `0c94a5d` (1.6.60).
 
 Files:
 
 - `core/resolver/mega.py` — parser, MEGA API client, attribute decryption,
   errors, cache, single-flight.
+- `core/resolver/mega_stream.py` — AES-CTR decrypting stream proxy and signed
+  links; see [MEGA-STREAM.md](MEGA-STREAM.md).
 - `core/resolver/__init__.py` — package marker only (no imports).
 - `test/test_mega_resolver.py` — 105 offline tests.
+- `test/test_mega_stream.py` — offline stream-proxy tests.
 - `docs/MEGA-RESOLVER.md` — this document.
+- `docs/MEGA-STREAM.md` — the `/api/mega/stream` contract.
 
-No existing app file is changed. `app.py` integration is the parent agent's
-job; the contract below is deliberately small.
+`app.py` now registers the resolver and Mega-stream blueprints. The resolver
+still never fetches media bytes; the stream proxy is a separate module.
 
 ## 1. What it does
 
@@ -59,7 +64,7 @@ if mega.supports(link):
         ...   # network/5xx; normal transient-error handling
 ```
 
-`resolve()` returns exactly:
+`resolve()` returns:
 
 ```python
 {
@@ -67,8 +72,19 @@ if mega.supports(link):
     "headers": {"User-Agent": "…"},
     "expires": 1794217251,       # absolute POSIX timestamp
     "source": "mega",
+    "name": "set.mp3",           # decrypted `n` attribute, or None
+    "size": 312896,              # plaintext size from the API, or None
 }
 ```
+
+`name`/`size` are additive (1.6.60 stream work); the original four keys are
+unchanged. The decrypting stream proxy uses them for ``Content-Type`` and
+``Content-Length``.
+
+The storage URL is a roughly **two-use capability** (a third HTTP request
+returns 403).  Call `mega.invalidate(link)` before a new playback, or let
+`/api/mega/stream` do it; that endpoint opens the URL once per playback and
+re-resolves exactly once on a 403.  See [MEGA-STREAM.md](MEGA-STREAM.md).
 
 `expires` is `int(time.time()) + URL_TTL`. The URL is safe to hand to a
 download proxy or a player; the resolver itself never fetches it. `headers`
@@ -323,18 +339,18 @@ logs. The caller's own SSRF/range checks still apply if it proxies the URL.
   trigger one `invalidate()` + re-resolve, not an unbounded retry loop.
 - **HTTP storage:** MEGA commonly returns plain `http://gfs…` URLs. The token
   may not work over HTTPS; do not force an upgrade.
-- **No content decryption/download:** the adapter returns a URL; the caller
-  still has to stream/decrypt AES-128-CTR if it wants plaintext bytes.
-- **No filename/size in the result:** the required contract is the four-key
-  dict. Use `decrypt_attributes()` if the caller needs `n`/`c`; `s` is
-  validated but not returned.
+- **No content decryption inside the adapter:** the resolver returns a URL.
+  `core/resolver/mega_stream.py` is the component that opens that URL once
+  and serves decrypted AES-128-CTR bytes.
+- **Filename/size are metadata, not the media:** `name`/`size` are now part
+  of the result for the stream proxy; use `decrypt_attributes()` if you also
+  need the thumbnail handle `c`.
 - **Per-worker cache:** multi-worker deployments make one API call per worker.
   A shared cache (Redis) is a future change.
-- **Dependency:** `pycryptodome` is required for attribute decryption. It is
-  present in the test venv but **not** in `requirements.txt`; the parent must
-  add it (e.g. `pycryptodome==4.4.0` or `pycryptodome>=3.20,<5`). Without it,
-  parsing works and `resolve()` raises a clear `MegaError` (code 500) at the
-  decryption step.
+- **Dependency:** `pycryptodome` is required for attribute decryption and
+  stream decryption; it is pinned in `requirements.txt`
+  (`pycryptodome>=3.20,<5`). Without it, parsing works and `resolve()` raises
+  a clear `MegaError` (code 500) at the decryption step.
 - **MEGA terms:** use within MEGA's terms and do not hammer the API; this
   adapter makes one request per cache miss/resolve.
 
@@ -377,7 +393,7 @@ expire.
 it would add a larger, less-maintained dependency for a single public-link
 endpoint; its public-link support and response handling vary by fork. The
 minimal client here is about 1,000 lines including comments, has no global state
-beyond the resolver cache, and exposes the exact four-key contract. If the
+beyond the resolver cache, and exposes the documented six-key result. If the
 parent prefers `mega.py`, only `_request_once`/`_post_json` need to be swapped;
 the parser, crypto, errors, cache, and tests remain valid.
 

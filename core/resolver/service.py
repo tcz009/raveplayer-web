@@ -335,7 +335,7 @@ def resolve_endpoint():
     except Exception:
         current_app.logger.exception("resolver: unexpected failure")
         return _error_response(base.UpstreamError("resolver failed"))
-    return _success_response(resolved)
+    return _success_response(resolved, raw_url)
 
 
 def init_app(app):
@@ -380,7 +380,7 @@ def _request_url():
     return raw_url
 
 
-def _success_response(resolved):
+def _success_response(resolved, raw_url=None):
     payload = {
         "ok": True,
         "url": resolved.url,
@@ -389,6 +389,16 @@ def _success_response(resolved):
         "source": resolved.source,
         "host": base.url_host(resolved.url),
     }
+    # MEGA's URL serves AES-CTR ciphertext, so the direct URL is not playable
+    # on its own.  Add a short-lived signed stream URL for players that cannot
+    # send the web session cookie.  Import locally: the stream module depends
+    # on this package and Flask, and this keeps the resolver usable standalone.
+    if resolved.source == "mega" and raw_url:
+        try:
+            from . import mega_stream
+            payload["stream"] = mega_stream.signed_path(raw_url)
+        except Exception:
+            pass
     response = jsonify(payload)
     response.status_code = 200
     return response
